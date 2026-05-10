@@ -1,12 +1,13 @@
 import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
-import { requireProjectAccess } from './lib/auth';
+import { getNodeIfOwned, getProjectIfOwned, requireProjectAccess } from './lib/auth';
 import { deleteNodeCascade } from './lib/cascade';
 
 export const listByProject = query({
   args: { projectId: v.id('projects') },
   handler: async (ctx, { projectId }) => {
-    await requireProjectAccess(ctx, projectId);
+    const project = await getProjectIfOwned(ctx, projectId);
+    if (!project) return [];
     return ctx.db
       .query('nodes')
       .withIndex('by_project', (q) => q.eq('projectId', projectId))
@@ -17,10 +18,7 @@ export const listByProject = query({
 export const get = query({
   args: { id: v.id('nodes') },
   handler: async (ctx, { id }) => {
-    const node = await ctx.db.get(id);
-    if (!node) return null;
-    await requireProjectAccess(ctx, node.projectId);
-    return node;
+    return await getNodeIfOwned(ctx, id);
   },
 });
 

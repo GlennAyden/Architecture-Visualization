@@ -1,6 +1,11 @@
 import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
-import { getOrCreateProfile, getProfile, requireProjectAccess } from './lib/auth';
+import {
+  getOrCreateProfile,
+  getProfile,
+  getProjectIfOwned,
+  requireProjectAccess,
+} from './lib/auth';
 import { deleteNodeCascade } from './lib/cascade';
 import { slugify } from '@arch-viz/shared';
 
@@ -57,7 +62,7 @@ export const create = mutation({
 export const get = query({
   args: { id: v.id('projects') },
   handler: async (ctx, { id }) => {
-    return await requireProjectAccess(ctx, id);
+    return await getProjectIfOwned(ctx, id);
   },
 });
 

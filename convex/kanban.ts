@@ -1,15 +1,14 @@
 import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
-import { requireProjectAccess } from './lib/auth';
+import { getNodeIfOwned, requireProjectAccess } from './lib/auth';
 
 const statusValidator = v.union(v.literal('todo'), v.literal('doing'), v.literal('done'));
 
 export const listByNode = query({
   args: { nodeId: v.id('nodes') },
   handler: async (ctx, { nodeId }) => {
-    const node = await ctx.db.get(nodeId);
+    const node = await getNodeIfOwned(ctx, nodeId);
     if (!node) return [];
-    await requireProjectAccess(ctx, node.projectId);
     const tasks = await ctx.db
       .query('kanbanTasks')
       .withIndex('by_node', (q) => q.eq('nodeId', nodeId))

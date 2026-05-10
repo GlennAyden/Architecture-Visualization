@@ -32,16 +32,15 @@ describe('nodes.listByProject', () => {
     expect(nodes[0].type).toEqual('page');
   });
 
-  test('refuses to list a project belonging to another user', async () => {
+  test('returns empty array for a project belonging to another user', async () => {
     const t = convexTest(schema, modules);
     const asAlice = t.withIdentity(fakeIdentity('user_alice', 'alice@example.com'));
     const asBob = t.withIdentity(fakeIdentity('user_bob', 'bob@example.com'));
 
     const projectId = await asAlice.mutation(api.projects.create, { name: 'P' });
 
-    await expect(asBob.query(api.nodes.listByProject, { projectId })).rejects.toThrow(
-      /Unauthorized/,
-    );
+    const result = await asBob.query(api.nodes.listByProject, { projectId });
+    expect(result).toEqual([]);
   });
 });
 

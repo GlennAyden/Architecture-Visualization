@@ -57,12 +57,13 @@ describe('nodeFiles', () => {
     );
   });
 
-  test('refuses to list files of another user’s node', async () => {
+  test('returns empty for files of another user’s node', async () => {
     const t = convexTest(schema, modules);
     const { nodeId } = await makeNode(t);
     const asBob = t.withIdentity(fakeIdentity('user_bob', 'bob@example.com'));
 
-    await expect(asBob.query(api.nodeFiles.listByNode, { nodeId })).rejects.toThrow(/Unauthorized/);
+    const result = await asBob.query(api.nodeFiles.listByNode, { nodeId });
+    expect(result).toEqual([]);
   });
 
   test('cascade: removing a node deletes its files', async () => {
