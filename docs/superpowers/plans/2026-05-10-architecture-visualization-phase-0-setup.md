@@ -9,6 +9,7 @@
 **Tech Stack:** TypeScript, Next.js (App Router), React 18, Tailwind CSS, shadcn/ui, Convex, Clerk, Zod, pnpm workspaces, ESLint, Prettier, GitHub Actions.
 
 **Prerequisites already done by user:**
+
 - Node.js ≥ 20 (have 22.18.0)
 - pnpm ≥ 10 (have 10.32.1)
 - Git
@@ -17,6 +18,7 @@
 - Clerk account signed up (no application yet)
 
 **Out of scope for this plan:**
+
 - Project / node / kanban schemas (Phase 1)
 - tldraw integration (Phase 1)
 - MCP tools logic (Phase 2)
@@ -96,6 +98,7 @@ architecture-visualization/
 ## Task 1: Root `package.json` and pnpm workspace
 
 **Files:**
+
 - Create: `package.json`
 - Create: `pnpm-workspace.yaml`
 
@@ -130,8 +133,8 @@ architecture-visualization/
 
 ```yaml
 packages:
-  - "apps/*"
-  - "packages/*"
+  - 'apps/*'
+  - 'packages/*'
 ```
 
 - [ ] **Step 1.3: Install root devDependencies**
@@ -152,6 +155,7 @@ git commit -m "chore: initialize pnpm workspace"
 ## Task 2: Shared TypeScript base config
 
 **Files:**
+
 - Create: `tsconfig.base.json`
 
 - [ ] **Step 2.1: Write `tsconfig.base.json`**
@@ -189,6 +193,7 @@ git commit -m "chore: add shared TypeScript base config"
 ## Task 3: Extend `.gitignore`
 
 **Files:**
+
 - Modify: `.gitignore`
 
 - [ ] **Step 3.1: Replace `.gitignore` content**
@@ -228,6 +233,7 @@ git commit -m "chore: extend gitignore for Next.js, Convex, and tooling caches"
 ## Task 4: `.editorconfig` and `.prettierrc.json`
 
 **Files:**
+
 - Create: `.editorconfig`
 - Create: `.prettierrc.json`
 - Create: `.prettierignore`
@@ -297,6 +303,7 @@ git commit -m "chore: add editorconfig and prettier config"
 ## Task 5: `packages/shared` workspace
 
 **Files:**
+
 - Create: `packages/shared/package.json`
 - Create: `packages/shared/tsconfig.json`
 - Create: `packages/shared/src/index.ts`
@@ -376,6 +383,7 @@ git commit -m "chore: scaffold @arch-viz/shared package"
 ## Task 6: `apps/mcp-server` stub workspace
 
 **Files:**
+
 - Create: `apps/mcp-server/package.json`
 - Create: `apps/mcp-server/tsconfig.json`
 - Create: `apps/mcp-server/src/index.ts`
@@ -468,6 +476,7 @@ git commit -m "chore: scaffold mcp-server stub workspace"
 ## Task 7: Scaffold Next.js app at `apps/web`
 
 **Files:**
+
 - Create (via CLI): `apps/web/*`
 
 - [ ] **Step 7.1: Create directory**
@@ -485,6 +494,7 @@ pnpm create next-app@latest apps/web --ts --tailwind --eslint --app --no-src-dir
 Expected: scaffolds Next.js 14+ app under `apps/web` with TypeScript, Tailwind, ESLint, App Router, no `src/` dir, alias `@/*`. Final line "Success! Created..." plus dependency install summary.
 
 If create-next-app prompts interactively (older flag set, version drift), answer:
+
 - TypeScript: **Yes**
 - ESLint: **Yes**
 - Tailwind CSS: **Yes**
@@ -496,6 +506,7 @@ If create-next-app prompts interactively (older flag set, version drift), answer
 - [ ] **Step 7.3: Replace `apps/web/package.json` `name` and prune unused config**
 
 Open `apps/web/package.json` and:
+
 1. Change `"name"` from whatever the scaffold set to `"@arch-viz/web"`.
 2. Add `"private": true` if not already.
 3. Add this script alongside the existing scripts:
@@ -565,6 +576,7 @@ git commit -m "chore: scaffold Next.js app at apps/web"
 ## Task 8: Strip Next.js scaffold's default landing content and add a clean root page
 
 **Files:**
+
 - Modify: `apps/web/app/page.tsx`
 - Modify: `apps/web/app/layout.tsx`
 - Modify: `apps/web/app/globals.css`
@@ -681,6 +693,7 @@ git commit -m "feat(web): minimal landing page and shadcn-ready theme tokens"
 ## Task 9: Configure Tailwind for shadcn/ui
 
 **Files:**
+
 - Modify: `apps/web/tailwind.config.ts`
 
 - [ ] **Step 9.1: Replace `apps/web/tailwind.config.ts`**
@@ -768,6 +781,7 @@ git commit -m "chore(web): configure Tailwind for shadcn/ui design tokens"
 ## Task 10: Initialize shadcn/ui and add Button + Card components
 
 **Files:**
+
 - Create: `apps/web/components.json`
 - Create: `apps/web/lib/utils.ts`
 - Create: `apps/web/components/ui/button.tsx`
@@ -842,8 +856,7 @@ const buttonVariants = cva(
 );
 
 export interface ButtonProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof buttonVariants> {
+  extends React.ButtonHTMLAttributes<HTMLButtonElement>, VariantProps<typeof buttonVariants> {
   asChild?: boolean;
 }
 
@@ -957,6 +970,7 @@ git commit -m "feat(web): add shadcn/ui Button and Card components"
 ## Task 11: Create Convex project and initialize the `convex/` directory
 
 **Files:**
+
 - Create: `convex/schema.ts`
 - Create: `convex/auth.config.ts`
 - Create: `convex/profiles.ts`
@@ -972,6 +986,7 @@ Run: `pnpm --filter @arch-viz/web add convex`
 Run from repo root: `pnpm dlx convex@latest dev --once --configure new`
 
 This will:
+
 1. Open a browser tab to log in to Convex (sign in with GitHub).
 2. Prompt for a project name — type **`architecture-visualization`** and confirm.
 3. Create a `convex/` directory at repo root.
@@ -979,6 +994,7 @@ This will:
 5. Generate `convex/_generated/*`.
 
 Expected stdout includes lines such as:
+
 ```
 ✔ Convex dev deployment created
 Provisioning a new dev deployment for project "architecture-visualization"
@@ -1075,6 +1091,7 @@ In a browser, open https://dashboard.clerk.com.
 4. Click **"Create application"**.
 
 Clerk redirects to a **"Quickstart"** page that shows two keys:
+
 - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` (starts with `pk_test_`)
 - `CLERK_SECRET_KEY` (starts with `sk_test_`)
 
@@ -1098,6 +1115,7 @@ Replace the `REPLACE_ME` values with the actual keys from the Clerk dashboard.
 - [ ] **Step 12.3: Create the Convex JWT template in Clerk**
 
 In the Clerk dashboard:
+
 1. Left sidebar → **"JWT Templates"** (under "Configure").
 2. Click **"+ New template"**.
 3. Click **"Convex"** from the list of presets.
@@ -1131,6 +1149,7 @@ Expected: deployment redeploys; `auth.config.ts` now reflects the real Clerk iss
 ## Task 13: Wire Clerk into the Next.js app
 
 **Files:**
+
 - Create: `apps/web/middleware.ts`
 - Create: `apps/web/components/providers.tsx`
 - Modify: `apps/web/app/layout.tsx`
@@ -1267,7 +1286,8 @@ export default function Home() {
         </CardHeader>
         <CardContent>
           <p className="text-sm">
-            <strong>Convex query result:</strong> {me === undefined ? 'loading…' : JSON.stringify(me)}
+            <strong>Convex query result:</strong>{' '}
+            {me === undefined ? 'loading…' : JSON.stringify(me)}
           </p>
           <Button className="mt-4" variant="outline">
             Sample Button
@@ -1296,6 +1316,7 @@ Open http://localhost:3000.
 Expected: middleware redirects unauthenticated visitor to `/sign-in`. After signing up with email magic link, you land on `/`. The card shows the Convex query result — either `null` (no profile row yet) or an object `{clerkId: "user_…", email: "you@example.com"}`. The Clerk `UserButton` is visible top-right.
 
 If the page shows an error like "convex query failed: not authorized" check that:
+
 1. Clerk JWT template named exactly `convex` exists.
 2. Convex env var `CLERK_JWT_ISSUER_DOMAIN` matches the issuer in the Clerk dashboard.
 3. `apps/web/.env.local` has both `NEXT_PUBLIC_CONVEX_URL` and `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` set.
@@ -1320,6 +1341,7 @@ git commit -m "feat(web): wire Clerk auth and Convex provider into Next.js app"
 ## Task 14: Add `.env.example` to document required env vars
 
 **Files:**
+
 - Create: `.env.example`
 - Create: `apps/web/.env.example`
 
@@ -1358,6 +1380,7 @@ git commit -m "docs: document required environment variables"
 ## Task 15: Configure ESLint flat config at repo root
 
 **Files:**
+
 - Create: `eslint.config.mjs`
 - Modify: `apps/web/package.json` (no-op — Next ships its own ESLint)
 
@@ -1447,6 +1470,7 @@ git commit -m "chore: add flat ESLint config at repo root"
 ## Task 16: GitHub Actions CI workflow
 
 **Files:**
+
 - Create: `.github/workflows/ci.yml`
 
 - [ ] **Step 16.1: Create directory**
@@ -1518,11 +1542,12 @@ git commit -m "ci: add GitHub Actions workflow for lint + typecheck"
 ## Task 17: Write README
 
 **Files:**
+
 - Create: `README.md`
 
 - [ ] **Step 17.1: Write `README.md`**
 
-```markdown
+````markdown
 # Architecture Visualization
 
 A living architecture canvas that mirrors the structure of your project and stays in sync with AI-driven development. Each node represents a page or feature with a kanban (todo / doing / done), description, linked files, and activity log.
@@ -1547,6 +1572,7 @@ TypeScript · Next.js (App Router) · Tailwind + shadcn/ui · tldraw · Convex �
    ```bash
    pnpm install
    ```
+````
 
 2. Provision Convex (first time only):
 
@@ -1557,7 +1583,6 @@ TypeScript · Next.js (App Router) · Tailwind + shadcn/ui · tldraw · Convex �
    Follow prompts to log in and create the `architecture-visualization` project. This populates `apps/web/.env.local` with `CONVEX_DEPLOYMENT` and `NEXT_PUBLIC_CONVEX_URL`.
 
 3. Provision Clerk (first time only):
-
    - Create an application in https://dashboard.clerk.com.
    - Copy the publishable and secret keys to `apps/web/.env.local`. See `apps/web/.env.example` for variable names.
    - Create a JWT template named `convex` (use the Convex preset).
@@ -1586,15 +1611,16 @@ docs/             Design specs and implementation plans
 
 ## Scripts
 
-| Command | What it does |
-| --- | --- |
-| `pnpm dev` | Run the Next.js web app |
-| `pnpm dlx convex dev` | Run the Convex dev backend |
-| `pnpm lint` | Run ESLint across the repo |
-| `pnpm typecheck` | Run TypeScript across all workspaces |
-| `pnpm format` | Apply Prettier formatting |
-| `pnpm format:check` | Verify Prettier formatting |
-```
+| Command               | What it does                         |
+| --------------------- | ------------------------------------ |
+| `pnpm dev`            | Run the Next.js web app              |
+| `pnpm dlx convex dev` | Run the Convex dev backend           |
+| `pnpm lint`           | Run ESLint across the repo           |
+| `pnpm typecheck`      | Run TypeScript across all workspaces |
+| `pnpm format`         | Apply Prettier formatting            |
+| `pnpm format:check`   | Verify Prettier formatting           |
+
+````
 
 - [ ] **Step 17.2: Verify Prettier accepts the README**
 
@@ -1607,7 +1633,7 @@ Expected: exits 0.
 ```powershell
 git add README.md
 git commit -m "docs: add README with setup and dev instructions"
-```
+````
 
 ---
 
@@ -1651,6 +1677,7 @@ pnpm dev
 Open http://localhost:3000.
 
 Expected:
+
 - Visit redirects to `/sign-in`.
 - Sign up with email magic link (check inbox).
 - Land back on `/`. Card displays Convex query result (`{clerkId: "user_...", email: "..."}` or `null` initially) and a Sample Button. UserButton visible top-right.

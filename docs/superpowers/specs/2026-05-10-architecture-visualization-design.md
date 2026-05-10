@@ -6,14 +6,14 @@
 
 ## 1. Purpose
 
-A *living* architecture canvas that mirrors the structure of a software project and stays in sync with AI-driven development. Each node represents a page or a feature; each node carries a kanban (todo / doing / done), a description, linked files, and an activity log.
+A _living_ architecture canvas that mirrors the structure of a software project and stays in sync with AI-driven development. Each node represents a page or a feature; each node carries a kanban (todo / doing / done), a description, linked files, and an activity log.
 
 The canvas is bidirectional:
 
 - **AI-driven** — when an AI agent (Claude Code, Codex, Cursor, etc.) creates a page, fixes a bug, or implements a feature, it updates the canvas through MCP tools. New nodes appear automatically; status flows todo → doing → done as the work progresses.
 - **User-driven** — the user can drag-create nodes as planning artefacts (a page that does not yet exist in code), populate the kanban, and later have the AI implement against those plans.
 
-The goal is to remove the gap between *what is being built*, *what has been built*, and *what is left*, without forcing manual diagram maintenance.
+The goal is to remove the gap between _what is being built_, _what has been built_, and _what is left_, without forcing manual diagram maintenance.
 
 ## 2. Scope
 
@@ -28,7 +28,7 @@ The goal is to remove the gap between *what is being built*, *what has been buil
 
 ### Out of scope (deferred)
 
-- Multi-tenant SaaS, billing, organizations, role-based access. (Multi-user *invite-only* may come later as Phase 4 — see §11.)
+- Multi-tenant SaaS, billing, organizations, role-based access. (Multi-user _invite-only_ may come later as Phase 4 — see §11.)
 - Public sharing / publish-to-web of canvases.
 - Hooks / file-watcher safety net (deferred — see §12 "Future evolution").
 - Component-level node granularity (we stay at page + feature).
@@ -36,21 +36,21 @@ The goal is to remove the gap between *what is being built*, *what has been buil
 
 ## 3. Key decisions (already approved)
 
-| # | Decision | Choice |
-|---|---|---|
-| 1 | Source-of-truth direction | **Hybrid** — both AI-driven auto-update and user-driven planning |
-| 2 | Form factor | **Browser-based web app**, localhost for dev, hosted later |
-| 3 | User scope | **Personal first** (single user), evolve to **invite-only multi-user**, never public SaaS |
-| 4 | AI integration | **MCP server** only for MVP |
-| 5 | Project model | **One canvas per project** (A1) |
-| 6 | Node granularity | **Page + nested feature** (B2 hierarchical) |
-| 7 | Modal contents | description, linked files, kanban, activity log |
-| 8 | Build approach | **Lean MVP** — Next.js + Convex + Clerk + tldraw + stdio MCP |
-| 9 | Canvas library | **tldraw** (matches early sketch, mature custom-shape API, good freeform/group support) |
-| 10 | Backend | **Convex** (reactive queries, end-to-end TypeScript, simpler realtime than Supabase for this use case) |
-| 11 | Auth provider | **Clerk** (magic link, free tier 10k MAU, integrates natively with Convex) |
-| 12 | MCP transport | **stdio** (universal across Claude Code, Codex, Cursor) |
-| 13 | Package manager | **pnpm** (workspace-friendly, efficient store) |
+| #   | Decision                  | Choice                                                                                                 |
+| --- | ------------------------- | ------------------------------------------------------------------------------------------------------ |
+| 1   | Source-of-truth direction | **Hybrid** — both AI-driven auto-update and user-driven planning                                       |
+| 2   | Form factor               | **Browser-based web app**, localhost for dev, hosted later                                             |
+| 3   | User scope                | **Personal first** (single user), evolve to **invite-only multi-user**, never public SaaS              |
+| 4   | AI integration            | **MCP server** only for MVP                                                                            |
+| 5   | Project model             | **One canvas per project** (A1)                                                                        |
+| 6   | Node granularity          | **Page + nested feature** (B2 hierarchical)                                                            |
+| 7   | Modal contents            | description, linked files, kanban, activity log                                                        |
+| 8   | Build approach            | **Lean MVP** — Next.js + Convex + Clerk + tldraw + stdio MCP                                           |
+| 9   | Canvas library            | **tldraw** (matches early sketch, mature custom-shape API, good freeform/group support)                |
+| 10  | Backend                   | **Convex** (reactive queries, end-to-end TypeScript, simpler realtime than Supabase for this use case) |
+| 11  | Auth provider             | **Clerk** (magic link, free tier 10k MAU, integrates natively with Convex)                             |
+| 12  | MCP transport             | **stdio** (universal across Claude Code, Codex, Cursor)                                                |
+| 13  | Package manager           | **pnpm** (workspace-friendly, efficient store)                                                         |
 
 ## 4. Tech stack (full list)
 
@@ -58,78 +58,78 @@ Grouped by responsibility.
 
 ### 4.1 Language & framework
 
-| Tech | Role |
-|---|---|
-| **TypeScript** | Single language across web app + MCP server + Convex functions; shared types end-to-end |
-| **Next.js (App Router)** | Frontend + API routes (where needed) + deploy unit |
-| **React 18+** | UI library (transitively via Next.js); used for tldraw and shadcn/ui |
+| Tech                     | Role                                                                                    |
+| ------------------------ | --------------------------------------------------------------------------------------- |
+| **TypeScript**           | Single language across web app + MCP server + Convex functions; shared types end-to-end |
+| **Next.js (App Router)** | Frontend + API routes (where needed) + deploy unit                                      |
+| **React 18+**            | UI library (transitively via Next.js); used for tldraw and shadcn/ui                    |
 
 ### 4.2 UI & styling
 
-| Tech | Role |
-|---|---|
-| **Tailwind CSS** | Utility-first styling; design tokens via `tailwind.config.ts` |
-| **shadcn/ui** | Copy-paste accessible components (Button, Dialog, Tabs, etc.) — components live in our repo, fully customizable |
-| **lucide-react** | Icon set (default for shadcn/ui) |
-| **tldraw** | Canvas surface — nodes, arrows, groups, drag/drop, zoom, undo/redo |
+| Tech             | Role                                                                                                            |
+| ---------------- | --------------------------------------------------------------------------------------------------------------- |
+| **Tailwind CSS** | Utility-first styling; design tokens via `tailwind.config.ts`                                                   |
+| **shadcn/ui**    | Copy-paste accessible components (Button, Dialog, Tabs, etc.) — components live in our repo, fully customizable |
+| **lucide-react** | Icon set (default for shadcn/ui)                                                                                |
+| **tldraw**       | Canvas surface — nodes, arrows, groups, drag/drop, zoom, undo/redo                                              |
 
 ### 4.3 Data & state
 
-| Tech | Role |
-|---|---|
-| **Convex** | Backend-as-a-service: schema, reactive queries, mutations, HTTP actions, file storage. Single source of truth for all server state |
-| **Convex React client** | `useQuery`/`useMutation` hooks; reactive subscriptions are automatic |
-| **TanStack Query** | Caching layer for non-Convex async work (e.g., filesystem scans returned via MCP HTTP). Optional — defer if not needed for MVP |
-| **Zustand** | Lightweight client-only UI state (modal open/close, selected node id). Optional — added only when local component state proves insufficient |
+| Tech                    | Role                                                                                                                                        |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Convex**              | Backend-as-a-service: schema, reactive queries, mutations, HTTP actions, file storage. Single source of truth for all server state          |
+| **Convex React client** | `useQuery`/`useMutation` hooks; reactive subscriptions are automatic                                                                        |
+| **TanStack Query**      | Caching layer for non-Convex async work (e.g., filesystem scans returned via MCP HTTP). Optional — defer if not needed for MVP              |
+| **Zustand**             | Lightweight client-only UI state (modal open/close, selected node id). Optional — added only when local component state proves insufficient |
 
 ### 4.4 Auth
 
-| Tech | Role |
-|---|---|
-| **Clerk** | User authentication; magic link / OAuth providers; integrates with Convex via JWT template |
+| Tech                      | Role                                                                                                      |
+| ------------------------- | --------------------------------------------------------------------------------------------------------- |
+| **Clerk**                 | User authentication; magic link / OAuth providers; integrates with Convex via JWT template                |
 | **Convex API key tokens** | Custom tokens issued for MCP server use — stored hashed in a Convex table, scoped to `userId + projectId` |
 
 ### 4.5 Validation & forms
 
-| Tech | Role |
-|---|---|
-| **Zod** | Schema validation: shared between Convex args validators (via `v.*`), MCP tool inputs, and form validation |
-| **Convex `v.*` validators** | Convex's built-in arg validators; we keep complex validation in Zod and pass results in |
-| **React Hook Form** | Performant uncontrolled forms for the node modal (description editor, kanban CRUD, settings) |
-| **`@hookform/resolvers/zod`** | Bridges RHF and Zod |
+| Tech                          | Role                                                                                                       |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| **Zod**                       | Schema validation: shared between Convex args validators (via `v.*`), MCP tool inputs, and form validation |
+| **Convex `v.*` validators**   | Convex's built-in arg validators; we keep complex validation in Zod and pass results in                    |
+| **React Hook Form**           | Performant uncontrolled forms for the node modal (description editor, kanban CRUD, settings)               |
+| **`@hookform/resolvers/zod`** | Bridges RHF and Zod                                                                                        |
 
 ### 4.6 AI integration
 
-| Tech | Role |
-|---|---|
-| **Node.js** | Runtime for the local MCP server |
-| **`@modelcontextprotocol/sdk` (TypeScript)** | Official SDK for stdio MCP servers |
-| **`convex/browser` client** | MCP server uses this to call Convex HTTP actions with API key auth |
+| Tech                                         | Role                                                               |
+| -------------------------------------------- | ------------------------------------------------------------------ |
+| **Node.js**                                  | Runtime for the local MCP server                                   |
+| **`@modelcontextprotocol/sdk` (TypeScript)** | Official SDK for stdio MCP servers                                 |
+| **`convex/browser` client**                  | MCP server uses this to call Convex HTTP actions with API key auth |
 
 ### 4.7 Testing
 
-| Tech | Role |
-|---|---|
-| **Vitest** | Unit + integration tests for shared packages, MCP tool handlers, Convex function logic |
-| **`convex-test`** | Run Convex functions in unit tests against an in-memory backend |
-| **Playwright** | E2E browser tests — full canvas + modal + simulated MCP flow |
+| Tech              | Role                                                                                   |
+| ----------------- | -------------------------------------------------------------------------------------- |
+| **Vitest**        | Unit + integration tests for shared packages, MCP tool handlers, Convex function logic |
+| **`convex-test`** | Run Convex functions in unit tests against an in-memory backend                        |
+| **Playwright**    | E2E browser tests — full canvas + modal + simulated MCP flow                           |
 
 ### 4.8 Tooling & dev experience
 
-| Tech | Role |
-|---|---|
-| **pnpm + workspaces** | Package manager + monorepo |
-| **ESLint + Prettier** | Linting and formatting |
-| **TypeScript strict mode** | Catch bugs at compile time |
-| **`convex dev` CLI** | Local development; syncs schema and functions to Convex dev deployment automatically |
+| Tech                       | Role                                                                                 |
+| -------------------------- | ------------------------------------------------------------------------------------ |
+| **pnpm + workspaces**      | Package manager + monorepo                                                           |
+| **ESLint + Prettier**      | Linting and formatting                                                               |
+| **TypeScript strict mode** | Catch bugs at compile time                                                           |
+| **`convex dev` CLI**       | Local development; syncs schema and functions to Convex dev deployment automatically |
 
 ### 4.9 Hosting
 
-| Tech | Role |
-|---|---|
-| **Vercel** | Web app hosting + preview deployments per branch |
+| Tech             | Role                                                               |
+| ---------------- | ------------------------------------------------------------------ |
+| **Vercel**       | Web app hosting + preview deployments per branch                   |
 | **Convex Cloud** | Backend hosting (free tier — 1M function calls/month, 1GB storage) |
-| **Clerk hosted** | Auth provider — no self-hosting needed |
+| **Clerk hosted** | Auth provider — no self-hosting needed                             |
 
 ## 5. High-level architecture
 
@@ -177,6 +177,7 @@ Two clients, one backend:
 ### 6.1 Web app — Next.js (App Router)
 
 **Routes (UI):**
+
 - `/(app)/projects` — list, create, delete projects
 - `/(app)/canvas/[projectId]` — main tldraw canvas with custom shapes for `page` / `feature` nodes
 - `/(app)/settings/tokens` — generate/revoke MCP API tokens
@@ -217,19 +218,19 @@ Configured in the user's MCP config (e.g., `claude_desktop_config.json`, `.codex
 
 **Tools exposed:**
 
-| Tool | Inputs | Purpose |
-|---|---|---|
-| `list_nodes` | — | AI reads current canvas state (essential for hybrid mode) |
-| `get_node` | `id` | Drill into one node + kanban + files |
-| `create_node` | `type: 'page' \| 'feature'`, `name`, `parent_id?`, `description?`, `files?[]`, `position?` | Create node (uses `parent_id` for nested features) |
-| `update_node` | `id`, partial fields | Update name / description / metadata / position |
-| `delete_node` | `id` | Cascade delete |
-| `link_files` | `node_id`, `paths: string[]` | Attach file paths to a node |
-| `add_kanban_task` | `node_id`, `title`, `description?`, `status: 'todo' \| 'doing' \| 'done'` | Add a kanban task |
-| `update_kanban_status` | `task_id`, `status` | Move task across columns |
-| `log_activity` | `node_id`, `message`, `metadata?` | Append to activity log |
+| Tool                   | Inputs                                                                                     | Purpose                                                   |
+| ---------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------- |
+| `list_nodes`           | —                                                                                          | AI reads current canvas state (essential for hybrid mode) |
+| `get_node`             | `id`                                                                                       | Drill into one node + kanban + files                      |
+| `create_node`          | `type: 'page' \| 'feature'`, `name`, `parent_id?`, `description?`, `files?[]`, `position?` | Create node (uses `parent_id` for nested features)        |
+| `update_node`          | `id`, partial fields                                                                       | Update name / description / metadata / position           |
+| `delete_node`          | `id`                                                                                       | Cascade delete                                            |
+| `link_files`           | `node_id`, `paths: string[]`                                                               | Attach file paths to a node                               |
+| `add_kanban_task`      | `node_id`, `title`, `description?`, `status: 'todo' \| 'doing' \| 'done'`                  | Add a kanban task                                         |
+| `update_kanban_status` | `task_id`, `status`                                                                        | Move task across columns                                  |
+| `log_activity`         | `node_id`, `message`, `metadata?`                                                          | Append to activity log                                    |
 
-Errors are typed and contain self-correction hints, e.g., *"Project not found. Verify `ARCHITECTURE_PROJECT_ID` matches an existing project."*
+Errors are typed and contain self-correction hints, e.g., _"Project not found. Verify `ARCHITECTURE_PROJECT_ID` matches an existing project."_
 
 Internally each tool:
 
@@ -247,7 +248,7 @@ import { v } from 'convex/values';
 export default defineSchema({
   // Users come from Clerk; we store a profile row keyed by Clerk subject ID.
   profiles: defineTable({
-    clerkId: v.string(),     // Clerk user ID (= subject in JWT)
+    clerkId: v.string(), // Clerk user ID (= subject in JWT)
     email: v.string(),
   }).index('by_clerk', ['clerkId']),
 
@@ -259,14 +260,15 @@ export default defineSchema({
 
   nodes: defineTable({
     projectId: v.id('projects'),
-    parentId: v.optional(v.id('nodes')),     // nested features (B2)
+    parentId: v.optional(v.id('nodes')), // nested features (B2)
     type: v.union(v.literal('page'), v.literal('feature')),
     name: v.string(),
     description: v.optional(v.string()),
     positionX: v.number(),
     positionY: v.number(),
-    metadata: v.optional(v.any()),           // tech stack, custom fields
-  }).index('by_project', ['projectId'])
+    metadata: v.optional(v.any()), // tech stack, custom fields
+  })
+    .index('by_project', ['projectId'])
     .index('by_parent', ['parentId']),
 
   nodeFiles: defineTable({
@@ -278,17 +280,13 @@ export default defineSchema({
     nodeId: v.id('nodes'),
     title: v.string(),
     description: v.optional(v.string()),
-    status: v.union(
-      v.literal('todo'),
-      v.literal('doing'),
-      v.literal('done'),
-    ),
+    status: v.union(v.literal('todo'), v.literal('doing'), v.literal('done')),
     position: v.number(),
   }).index('by_node_status', ['nodeId', 'status']),
 
   activityLog: defineTable({
     nodeId: v.id('nodes'),
-    actor: v.string(),       // 'user' | 'mcp:claude-code' | 'mcp:codex' | …
+    actor: v.string(), // 'user' | 'mcp:claude-code' | 'mcp:codex' | …
     message: v.string(),
     metadata: v.optional(v.any()),
   }).index('by_node', ['nodeId']),
@@ -296,11 +294,12 @@ export default defineSchema({
   apiKeys: defineTable({
     userId: v.id('profiles'),
     projectId: v.id('projects'),
-    name: v.string(),                        // user-friendly label
-    tokenHash: v.string(),                   // bcrypt hash; raw shown once on creation
+    name: v.string(), // user-friendly label
+    tokenHash: v.string(), // bcrypt hash; raw shown once on creation
     lastUsedAt: v.optional(v.number()),
     revokedAt: v.optional(v.number()),
-  }).index('by_user', ['userId'])
+  })
+    .index('by_user', ['userId'])
     .index('by_hash', ['tokenHash']),
 });
 ```
@@ -318,7 +317,7 @@ Authorization is enforced inside each function — every query/mutation checks `
 
 ### A) AI creates a new feature (canvas auto-updates)
 
-1. User to AI: *"Claude, add a Settings page."*
+1. User to AI: _"Claude, add a Settings page."_
 2. AI calls MCP tool `create_node({ type: 'page', name: 'Settings' })`.
 3. MCP server → `POST {convexUrl}/api/mcp/nodes/create` with `x-api-key`.
 4. Convex HTTP Action validates the key → runs internal `nodes.create` mutation.
@@ -331,7 +330,7 @@ Authorization is enforced inside each function — every query/mutation checks `
 
 1. User drag-creates a node "Notifications" in tldraw → `useMutation(api.nodes.create)` fires.
 2. User opens the modal, fills description, adds three kanban tasks (all `todo`).
-3. Later the user prompts the AI: *"Implement the Notifications page from the canvas."*
+3. Later the user prompts the AI: _"Implement the Notifications page from the canvas."_
 4. AI calls `list_nodes` → finds the node, reads its kanban → executes them in order, updating status as it goes.
 
 ### C) AI fixes a bug (status tracking)
@@ -343,9 +342,9 @@ Authorization is enforced inside each function — every query/mutation checks `
 ## 8. Error handling
 
 - **MCP server**: typed errors with self-correction hints. Examples:
-  - *"Project not found. Verify `ARCHITECTURE_PROJECT_ID`."*
-  - *"`parent_id` refers to a node in a different project."*
-  - *"API key revoked or invalid. Generate a new one in /settings/tokens."*
+  - _"Project not found. Verify `ARCHITECTURE_PROJECT_ID`."_
+  - _"`parent_id` refers to a node in a different project."_
+  - _"API key revoked or invalid. Generate a new one in /settings/tokens."_
 - **Browser**: Convex mutations throw on failure → wrapped in toast + revert local UI; tldraw drag operations re-snap to last known position.
 - **Realtime**: Convex client auto-reconnects on socket drops; queries refetch on reconnect.
 - **Auth**: missing/invalid Clerk JWT → 401 from Convex; the Next.js middleware redirects to `/sign-in`.
@@ -393,17 +392,17 @@ The `convex/` directory is at the repo root because the Convex CLI expects it th
 
 ## 11. Phased rollout
 
-| Phase | Scope | Estimate |
-|---|---|---|
-| **0 — Setup** | Monorepo, Convex project, Next.js scaffold, Clerk app, Tailwind + shadcn/ui init, ESLint/Prettier, CI (lint + typecheck) | 1–2 days |
-| **1 — MVP UI** | Clerk auth wired into Convex, project CRUD, tldraw canvas with custom page-node shape, drag-create page nodes, per-node modal (description + linked files + kanban CRUD), API token generation page | 4–6 days |
-| **2 — MCP integration** | `mcp-server` package with all tools, Convex HTTP Actions backing each tool, end-to-end test using Claude Code against a localhost Convex dev deployment | 3–5 days |
-| **3 — Polish** | Activity log UI, nested feature nodes (B2 hierarchy with drill-down), deploy to Vercel + Convex prod, custom domain (optional) | 3–5 days |
-| **4 (later) — Multi-user** | Tighten authorization checks for cross-user isolation, build invite flow via Clerk Organizations or per-project share links | 2–3 days |
+| Phase                      | Scope                                                                                                                                                                                               | Estimate |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| **0 — Setup**              | Monorepo, Convex project, Next.js scaffold, Clerk app, Tailwind + shadcn/ui init, ESLint/Prettier, CI (lint + typecheck)                                                                            | 1–2 days |
+| **1 — MVP UI**             | Clerk auth wired into Convex, project CRUD, tldraw canvas with custom page-node shape, drag-create page nodes, per-node modal (description + linked files + kanban CRUD), API token generation page | 4–6 days |
+| **2 — MCP integration**    | `mcp-server` package with all tools, Convex HTTP Actions backing each tool, end-to-end test using Claude Code against a localhost Convex dev deployment                                             | 3–5 days |
+| **3 — Polish**             | Activity log UI, nested feature nodes (B2 hierarchy with drill-down), deploy to Vercel + Convex prod, custom domain (optional)                                                                      | 3–5 days |
+| **4 (later) — Multi-user** | Tighten authorization checks for cross-user isolation, build invite flow via Clerk Organizations or per-project share links                                                                         | 2–3 days |
 
 ## 12. Future evolution (deferred)
 
-- **Hooks + file-watcher safety net** — if the AI forgets to call `create_node`, a local hook on Claude Code post-tool / a file watcher detects new files and prompts *"file detected without matching node — create one?"*. Decision deferred until we observe how reliably the AI uses the MCP tools in practice.
+- **Hooks + file-watcher safety net** — if the AI forgets to call `create_node`, a local hook on Claude Code post-tool / a file watcher detects new files and prompts _"file detected without matching node — create one?"_. Decision deferred until we observe how reliably the AI uses the MCP tools in practice.
 - **Component-level granularity** — currently we stop at page + feature. If a need emerges, add `type: 'component'` and a third nesting level.
 - **Cross-project / portfolio view** — a "workspace" canvas zoomed out across multiple projects.
 - **Activity log analytics** — aggregate views of what was changed and when.
