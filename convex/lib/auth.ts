@@ -47,11 +47,13 @@ export async function getOrCreateProfile(ctx: MutationCtx): Promise<Doc<'profile
 }
 
 /**
- * Read-side variant: returns the existing profile or null. Accepts either
- * context type so `requireProjectAccess` can use it from mutations too.
+ * Read-side variant: returns the existing profile, or null if there is no
+ * signed-in user / no profile row yet. Accepts either context type so
+ * `requireProjectAccess` can use it from mutations too.
  */
 export async function getProfile(ctx: AnyCtx): Promise<Doc<'profiles'> | null> {
-  const identity = await getRequiredIdentity(ctx);
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) return null;
   return ctx.db
     .query('profiles')
     .withIndex('by_clerk', (q) => q.eq('clerkId', identity.subject))
