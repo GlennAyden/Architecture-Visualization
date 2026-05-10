@@ -1,6 +1,6 @@
 import { convexTest } from 'convex-test';
 import { describe, expect, test } from 'vitest';
-import { api } from './_generated/api';
+import { api, internal } from './_generated/api';
 import schema from './schema';
 import { TOKEN_PREFIX } from './lib/tokens';
 
@@ -141,5 +141,48 @@ describe('apiTokens cascade on project delete', () => {
 
     const list = await asUser.query(api.apiTokens.list);
     expect(list).toEqual([]);
+  });
+});
+
+describe('apiTokens.verifyToken (internal)', () => {
+  test('returns userId + projectId for a valid token, updates lastUsedAt', async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fakeIdentity('user_a', 'a@example.com'));
+    const projectId = await asUser.mutation(api.projects.create, { name: 'P' });
+    const { rawToken } = await asUser.mutation(api.apiTokens.create, {
+      projectId,
+      name: 'laptop',
+    });
+
+    const before = Date.now();
+    const result = await t.mutation(internal.apiTokens.verifyToken, { rawToken });
+
+    expect(result).not.toBeNull();
+    expect(result?.projectId).toEqual(projectId);
+
+    const list = await asUser.query(api.apiTokens.list);
+    expect(list[0]?.lastUsedAt).toBeGreaterThanOrEqual(before);
+  });
+
+  test('returns null for an unknown token', async () => {
+    const t = convexTest(schema, modules);
+    const result = await t.mutation(internal.apiTokens.verifyToken, {
+      rawToken: 'archv_doesnotexist',
+    });
+    expect(result).toBeNull();
+  });
+
+  test('returns null for a revoked token', async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fakeIdentity('user_a', 'a@example.com'));
+    const projectId = await asUser.mutation(api.projects.create, { name: 'P' });
+    const { rawToken, tokenId } = await asUser.mutation(api.apiTokens.create, {
+      projectId,
+      name: 'laptop',
+    });
+    await asUser.mutation(api.apiTokens.revoke, { id: tokenId });
+
+    const result = await t.mutation(internal.apiTokens.verifyToken, { rawToken });
+    expect(result).toBeNull();
   });
 });

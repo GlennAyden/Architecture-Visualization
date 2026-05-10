@@ -1,5 +1,5 @@
 import { v } from 'convex/values';
-import { mutation, query } from './_generated/server';
+import { internalMutation, mutation, query } from './_generated/server';
 import { UnauthorizedError, getProfile, requireProjectAccess } from './lib/auth';
 import { generateRawToken, hashToken } from './lib/tokens';
 import { tokenNameSchema } from '@arch-viz/shared';
@@ -68,5 +68,25 @@ export const revoke = mutation({
 
     if (token.revokedAt) return; // already revoked — idempotent
     await ctx.db.patch(id, { revokedAt: Date.now() });
+  },
+});
+
+export const verifyToken = internalMutation({
+  args: { rawToken: v.string() },
+  handler: async (ctx, { rawToken }) => {
+    const tokenHash = await hashToken(rawToken);
+    const token = await ctx.db
+      .query('apiTokens')
+      .withIndex('by_hash', (q) => q.eq('tokenHash', tokenHash))
+      .unique();
+    if (!token) return null;
+    if (token.revokedAt) return null;
+
+    await ctx.db.patch(token._id, { lastUsedAt: Date.now() });
+    return {
+      userId: token.userId,
+      projectId: token.projectId,
+      tokenId: token._id,
+    };
   },
 });
