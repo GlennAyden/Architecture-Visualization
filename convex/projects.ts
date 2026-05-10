@@ -52,3 +52,34 @@ export const create = mutation({
     });
   },
 });
+
+export const get = query({
+  args: { id: v.id('projects') },
+  handler: async (ctx, { id }) => {
+    return await requireProjectAccess(ctx, id);
+  },
+});
+
+export const rename = mutation({
+  args: {
+    id: v.id('projects'),
+    name: v.string(),
+  },
+  handler: async (ctx, { id, name }) => {
+    const trimmed = name.trim();
+    if (trimmed.length === 0) throw new Error('Project name is required');
+    if (trimmed.length > 80) throw new Error('Project name must be 80 characters or fewer');
+
+    await requireProjectAccess(ctx, id);
+    await ctx.db.patch(id, { name: trimmed });
+  },
+});
+
+export const remove = mutation({
+  args: { id: v.id('projects') },
+  handler: async (ctx, { id }) => {
+    await requireProjectAccess(ctx, id);
+    await ctx.db.delete(id);
+    // No child rows yet (nodes/kanban arrive in Phase 1B/1C); cascade will be added then.
+  },
+});
