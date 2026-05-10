@@ -12,6 +12,7 @@ import type { Id } from '../../../../../convex/_generated/dataModel';
 import { Button } from '@/components/ui/button';
 import { PageNodeShapeUtil } from '@/components/canvas/page-node-shape';
 import { AddPageButton } from '@/components/canvas/add-page-button';
+import { NodeModal } from '@/components/node-modal/node-modal';
 import { useCanvasSync } from '@/hooks/use-canvas-sync';
 
 // tldraw uses browser-only APIs; load it client-side only.
@@ -62,6 +63,7 @@ export default function CanvasPage() {
       <div className="flex-1">
         <Tldraw shapeUtils={shapeUtils} components={components} onMount={setEditor} />
       </div>
+      <NodeModal />
     </main>
   );
 }

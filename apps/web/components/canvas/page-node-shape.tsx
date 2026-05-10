@@ -1,8 +1,8 @@
 import { HTMLContainer, Rectangle2d, ShapeUtil, T, type RecordProps } from 'tldraw';
 import { PAGE_NODE_DEFAULT_HEIGHT, PAGE_NODE_DEFAULT_WIDTH } from '@arch-viz/shared';
+import { useModalStore } from '@/store/modal-store';
+import type { Id } from '../../../../convex/_generated/dataModel';
 
-// Register the custom shape type with tldraw via module augmentation so that
-// `TLShape` includes 'page-node' and `ShapeUtil<PageNodeShape>` typechecks.
 declare module 'tldraw' {
   interface TLGlobalShapePropsMap {
     'page-node': {
@@ -13,26 +13,6 @@ declare module 'tldraw' {
   }
 }
 
-export type PageNodeShape = {
-  type: 'page-node';
-  props: {
-    name: string;
-    w: number;
-    h: number;
-  };
-} & {
-  // Inherit the standard tldraw base-shape fields (id, x, y, etc.) at runtime
-  // via TLBaseShape; here we just describe the parts we touch.
-  id: string;
-  x: number;
-  y: number;
-};
-
-// We rely on the augmented TLGlobalShapePropsMap so the typed Shape parameter
-// matches what tldraw constructs internally. Use the TLShape variant tldraw
-// derives via `Extract<TLShape, { type: 'page-node' }>` — easier in practice
-// to type the methods loosely and let tldraw's `getDefaultProps` / `props`
-// carry the contract.
 import type { TLShape } from 'tldraw';
 
 type Shape = Extract<TLShape, { type: 'page-node' }>;
@@ -71,30 +51,7 @@ export class PageNodeShapeUtil extends ShapeUtil<Shape> {
   }
 
   override component(shape: Shape) {
-    return (
-      <HTMLContainer
-        style={{
-          width: shape.props.w,
-          height: shape.props.h,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '12px',
-          borderRadius: '8px',
-          border: '1px solid hsl(var(--border, 214 32% 91%))',
-          background: 'white',
-          boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-          fontFamily: 'var(--font-geist-sans, system-ui)',
-          fontSize: '14px',
-          fontWeight: 500,
-          color: '#0f172a',
-          pointerEvents: 'all',
-          userSelect: 'none',
-        }}
-      >
-        {shape.props.name}
-      </HTMLContainer>
-    );
+    return <PageNodeShapeBody shape={shape} />;
   }
 
   override getIndicatorPath(shape: Shape) {
@@ -102,4 +59,44 @@ export class PageNodeShapeUtil extends ShapeUtil<Shape> {
     path.rect(0, 0, shape.props.w, shape.props.h);
     return path;
   }
+}
+
+function PageNodeShapeBody({ shape }: { shape: Shape }) {
+  const open = useModalStore((s) => s.open);
+  const shapeId = shape.id;
+
+  const onDoubleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const prefix = 'shape:';
+    if (!shapeId.startsWith(prefix)) return;
+    const nodeId = shapeId.slice(prefix.length) as Id<'nodes'>;
+    open(nodeId);
+  };
+
+  return (
+    <HTMLContainer
+      onDoubleClick={onDoubleClick}
+      style={{
+        width: shape.props.w,
+        height: shape.props.h,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '12px',
+        borderRadius: '8px',
+        border: '1px solid hsl(var(--border, 214 32% 91%))',
+        background: 'white',
+        boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+        fontFamily: 'var(--font-geist-sans, system-ui)',
+        fontSize: '14px',
+        fontWeight: 500,
+        color: '#0f172a',
+        pointerEvents: 'all',
+        userSelect: 'none',
+        cursor: 'pointer',
+      }}
+    >
+      {shape.props.name}
+    </HTMLContainer>
+  );
 }
