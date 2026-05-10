@@ -42,4 +42,16 @@ export default defineSchema({
   })
     .index('by_node', ['nodeId'])
     .index('by_node_status', ['nodeId', 'status']),
+
+  apiTokens: defineTable({
+    userId: v.id('profiles'),
+    projectId: v.id('projects'),
+    name: v.string(),
+    tokenHash: v.string(),
+    lastUsedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+  })
+    .index('by_user', ['userId'])
+    .index('by_project', ['projectId'])
+    .index('by_hash', ['tokenHash']),
 });
