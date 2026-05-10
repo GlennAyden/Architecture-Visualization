@@ -17,9 +17,7 @@ export function AddPageButton({ projectId, editor }: Props) {
   const create = useMutation(api.nodes.create);
 
   const onClick = async () => {
-    const center = editor
-      ? editor.screenToPage(editor.getViewportScreenCenter())
-      : { x: 0, y: 0 };
+    const center = editor ? editor.screenToPage(editor.getViewportScreenCenter()) : { x: 0, y: 0 };
     await create({
       projectId,
       type: 'page',
