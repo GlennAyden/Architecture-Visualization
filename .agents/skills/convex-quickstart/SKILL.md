@@ -1,7 +1,6 @@
 ---
 name: convex-quickstart
-description:
-  Creates or adds Convex to an app. Use for new Convex projects, npm create
+description: Creates or adds Convex to an app. Use for new Convex projects, npm create
   convex@latest, frontend setup, env vars, or the first npx convex dev run.
 ---
 
@@ -162,9 +161,7 @@ Create the `ConvexReactClient` at module scope, not inside a component:
 ```tsx
 // Bad: re-creates the client on every render
 function App() {
-  const convex = new ConvexReactClient(
-    import.meta.env.VITE_CONVEX_URL as string,
-  );
+  const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
   return <ConvexProvider client={convex}>...</ConvexProvider>;
 }
 
@@ -179,14 +176,14 @@ function App() {
 
 ```tsx
 // src/main.tsx
-import { StrictMode } from "react";
-import { createRoot } from "react-dom/client";
-import { ConvexProvider, ConvexReactClient } from "convex/react";
-import App from "./App";
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import { ConvexProvider, ConvexReactClient } from 'convex/react';
+import App from './App';
 
 const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
 
-createRoot(document.getElementById("root")!).render(
+createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ConvexProvider client={convex}>
       <App />
@@ -199,10 +196,10 @@ createRoot(document.getElementById("root")!).render(
 
 ```tsx
 // app/ConvexClientProvider.tsx
-"use client";
+'use client';
 
-import { ConvexProvider, ConvexReactClient } from "convex/react";
-import { ReactNode } from "react";
+import { ConvexProvider, ConvexReactClient } from 'convex/react';
+import { ReactNode } from 'react';
 
 const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
@@ -213,13 +210,9 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
 
 ```tsx
 // app/layout.tsx
-import { ConvexClientProvider } from "./ConvexClientProvider";
+import { ConvexClientProvider } from './ConvexClientProvider';
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body>
@@ -286,8 +279,8 @@ works.
 `convex/schema.ts`:
 
 ```ts
-import { defineSchema, defineTable } from "convex/server";
-import { v } from "convex/values";
+import { defineSchema, defineTable } from 'convex/server';
+import { v } from 'convex/values';
 
 export default defineSchema({
   tasks: defineTable({
@@ -300,20 +293,20 @@ export default defineSchema({
 `convex/tasks.ts`:
 
 ```ts
-import { query, mutation } from "./_generated/server";
-import { v } from "convex/values";
+import { query, mutation } from './_generated/server';
+import { v } from 'convex/values';
 
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db.query("tasks").collect();
+    return await ctx.db.query('tasks').collect();
   },
 });
 
 export const create = mutation({
   args: { text: v.string() },
   handler: async (ctx, args) => {
-    await ctx.db.insert("tasks", { text: args.text, completed: false });
+    await ctx.db.insert('tasks', { text: args.text, completed: false });
   },
 });
 ```
@@ -322,8 +315,8 @@ Use in a React component (adjust the import path based on your file location
 relative to `convex/`):
 
 ```tsx
-import { useQuery, useMutation } from "convex/react";
-import { api } from "../convex/_generated/api";
+import { useQuery, useMutation } from 'convex/react';
+import { api } from '../convex/_generated/api';
 
 function Tasks() {
   const tasks = useQuery(api.tasks.list);
@@ -331,7 +324,7 @@ function Tasks() {
 
   return (
     <div>
-      <button onClick={() => create({ text: "New task" })}>Add</button>
+      <button onClick={() => create({ text: 'New task' })}>Add</button>
       {tasks?.map((t) => (
         <div key={t._id}>{t.text}</div>
       ))}

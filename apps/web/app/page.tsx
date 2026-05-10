@@ -4,13 +4,7 @@ import { useQuery } from 'convex/react';
 import { UserButton } from '@clerk/nextjs';
 import { api } from '../../../convex/_generated/api';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 export default function Home() {
   const me = useQuery(api.profiles.getMe);
