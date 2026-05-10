@@ -50,6 +50,17 @@ export class PageNodeShapeUtil extends ShapeUtil<Shape> {
     });
   }
 
+  override onDoubleClick(shape: Shape) {
+    // Tldraw intercepts double-click before any DOM handler we put on the
+    // shape body. Hook into the shape-util lifecycle instead and dispatch
+    // via the Zustand store's vanilla API (no React context required).
+    const shapeId = shape.id;
+    const prefix = 'shape:';
+    if (!shapeId.startsWith(prefix)) return;
+    const nodeId = shapeId.slice(prefix.length) as Id<'nodes'>;
+    useModalStore.getState().open(nodeId);
+  }
+
   override component(shape: Shape) {
     return <PageNodeShapeBody shape={shape} />;
   }
@@ -62,20 +73,8 @@ export class PageNodeShapeUtil extends ShapeUtil<Shape> {
 }
 
 function PageNodeShapeBody({ shape }: { shape: Shape }) {
-  const open = useModalStore((s) => s.open);
-  const shapeId = shape.id;
-
-  const onDoubleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const prefix = 'shape:';
-    if (!shapeId.startsWith(prefix)) return;
-    const nodeId = shapeId.slice(prefix.length) as Id<'nodes'>;
-    open(nodeId);
-  };
-
   return (
     <HTMLContainer
-      onDoubleClick={onDoubleClick}
       style={{
         width: shape.props.w,
         height: shape.props.h,
