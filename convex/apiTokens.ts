@@ -1,5 +1,8 @@
-import { query } from './_generated/server';
-import { getProfile } from './lib/auth';
+import { v } from 'convex/values';
+import { mutation, query } from './_generated/server';
+import { getProfile, requireProjectAccess } from './lib/auth';
+import { generateRawToken, hashToken } from './lib/tokens';
+import { tokenNameSchema } from '@arch-viz/shared';
 
 export const list = query({
   args: {},
@@ -26,5 +29,28 @@ export const list = query({
         };
       }),
     );
+  },
+});
+
+export const create = mutation({
+  args: {
+    projectId: v.id('projects'),
+    name: v.string(),
+  },
+  handler: async (ctx, { projectId, name }) => {
+    const parsedName = tokenNameSchema.parse(name);
+    const project = await requireProjectAccess(ctx, projectId);
+
+    const rawToken = generateRawToken();
+    const tokenHash = await hashToken(rawToken);
+
+    const tokenId = await ctx.db.insert('apiTokens', {
+      userId: project.userId,
+      projectId,
+      name: parsedName,
+      tokenHash,
+    });
+
+    return { tokenId, rawToken };
   },
 });
