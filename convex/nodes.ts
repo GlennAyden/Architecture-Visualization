@@ -1,0 +1,100 @@
+import { v } from 'convex/values';
+import { mutation, query } from './_generated/server';
+import { requireProjectAccess } from './lib/auth';
+
+export const listByProject = query({
+  args: { projectId: v.id('projects') },
+  handler: async (ctx, { projectId }) => {
+    await requireProjectAccess(ctx, projectId);
+    return ctx.db
+      .query('nodes')
+      .withIndex('by_project', (q) => q.eq('projectId', projectId))
+      .collect();
+  },
+});
+
+export const create = mutation({
+  args: {
+    projectId: v.id('projects'),
+    type: v.union(v.literal('page'), v.literal('feature')),
+    name: v.string(),
+    parentId: v.optional(v.id('nodes')),
+    positionX: v.number(),
+    positionY: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const trimmed = args.name.trim();
+    if (trimmed.length === 0) throw new Error('Node name is required');
+    if (trimmed.length > 80) throw new Error('Node name must be 80 characters or fewer');
+
+    await requireProjectAccess(ctx, args.projectId);
+
+    if (args.parentId) {
+      const parent = await ctx.db.get(args.parentId);
+      if (!parent || parent.projectId !== args.projectId) {
+        throw new Error('Parent node must belong to the same project');
+      }
+    }
+
+    return await ctx.db.insert('nodes', {
+      projectId: args.projectId,
+      parentId: args.parentId,
+      type: args.type,
+      name: trimmed,
+      positionX: args.positionX,
+      positionY: args.positionY,
+    });
+  },
+});
+
+export const update = mutation({
+  args: {
+    id: v.id('nodes'),
+    name: v.optional(v.string()),
+    positionX: v.optional(v.number()),
+    positionY: v.optional(v.number()),
+    description: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const node = await ctx.db.get(args.id);
+    if (!node) throw new Error('Node not found');
+    await requireProjectAccess(ctx, node.projectId);
+
+    const patch: Partial<typeof node> = {};
+
+    if (args.name !== undefined) {
+      const trimmed = args.name.trim();
+      if (trimmed.length === 0) throw new Error('Node name is required');
+      if (trimmed.length > 80) throw new Error('Node name must be 80 characters or fewer');
+      patch.name = trimmed;
+    }
+    if (args.positionX !== undefined) patch.positionX = args.positionX;
+    if (args.positionY !== undefined) patch.positionY = args.positionY;
+    if (args.description !== undefined) patch.description = args.description;
+
+    if (Object.keys(patch).length > 0) {
+      await ctx.db.patch(args.id, patch);
+    }
+  },
+});
+
+export const remove = mutation({
+  args: { id: v.id('nodes') },
+  handler: async (ctx, { id }) => {
+    const node = await ctx.db.get(id);
+    if (!node) throw new Error('Node not found');
+    await requireProjectAccess(ctx, node.projectId);
+
+    // Cascade-delete child nodes (nested features in 1C). For 1B there are
+    // no children, but the recursion is harmless and forward-compatible.
+    const children = await ctx.db
+      .query('nodes')
+      .withIndex('by_parent', (q) => q.eq('parentId', id))
+      .collect();
+    for (const child of children) {
+      await ctx.db.delete(child._id);
+    }
+
+    await ctx.db.delete(id);
+  },
+});

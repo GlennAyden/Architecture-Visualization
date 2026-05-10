@@ -79,7 +79,16 @@ export const remove = mutation({
   args: { id: v.id('projects') },
   handler: async (ctx, { id }) => {
     await requireProjectAccess(ctx, id);
+
+    // Cascade: delete all nodes belonging to this project.
+    const nodes = await ctx.db
+      .query('nodes')
+      .withIndex('by_project', (q) => q.eq('projectId', id))
+      .collect();
+    for (const node of nodes) {
+      await ctx.db.delete(node._id);
+    }
+
     await ctx.db.delete(id);
-    // No child rows yet (nodes/kanban arrive in Phase 1B/1C); cascade will be added then.
   },
 });
