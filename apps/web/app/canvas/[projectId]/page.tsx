@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from 'convex/react';
 import { useParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -37,11 +37,16 @@ export default function CanvasPage() {
   const [editor, setEditor] = useState<Editor | null>(null);
   useCanvasSync({ editor, nodes });
 
+  // Redirect when the project is gone (e.g. cascade-deleted in another tab).
+  // Must run as an effect, not during render, to avoid setState-in-render warnings.
+  useEffect(() => {
+    if (project === null) router.replace('/projects');
+  }, [project, router]);
+
   if (project === undefined) {
     return <p className="p-8 text-muted-foreground">Loading…</p>;
   }
   if (project === null) {
-    router.replace('/projects');
     return null;
   }
 
