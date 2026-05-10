@@ -27,7 +27,10 @@ export default function ProjectsPage() {
 
   return (
     <main className="mx-auto max-w-3xl p-8">
-      <div className="absolute right-4 top-4">
+      <div className="absolute right-4 top-4 flex items-center gap-3">
+        <Link href="/settings/tokens" className="text-sm underline">
+          Settings
+        </Link>
         <UserButton />
       </div>
       <div className="mb-6 flex items-center justify-between">
