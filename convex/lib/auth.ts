@@ -69,7 +69,7 @@ export async function requireProjectAccess(
   projectId: Id<'projects'>,
 ): Promise<Doc<'projects'>> {
   const profile = await getProfile(ctx);
-  if (!profile) throw new UnauthorizedError('No profile yet — create a project first');
+  if (!profile) throw new UnauthorizedError('Unauthorized: no profile yet');
   const project = await ctx.db.get(projectId);
   if (!project) throw new NotFoundError('Project not found');
   if (project.userId !== profile._id) throw new UnauthorizedError('You do not own this project');
