@@ -146,10 +146,7 @@ function TaskCard({ task }: TaskCardProps) {
               </DropdownMenuItem>
             ))}
             <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="text-destructive"
-              onClick={() => remove({ id: task._id })}
-            >
+            <DropdownMenuItem className="text-destructive" onClick={() => remove({ id: task._id })}>
               Delete
             </DropdownMenuItem>
           </DropdownMenuContent>
