@@ -44,6 +44,12 @@ interface ColumnProps {
   tasks: Doc<'kanbanTasks'>[];
 }
 
+const STATUS_DOT: Record<KanbanStatus, string> = {
+  todo: 'bg-muted-foreground/40',
+  doing: 'bg-primary',
+  done: 'bg-emerald-500',
+};
+
 function Column({ nodeId, status, tasks }: ColumnProps) {
   const create = useMutation(api.kanban.create);
   const [title, setTitle] = useState('');
@@ -58,10 +64,11 @@ function Column({ nodeId, status, tasks }: ColumnProps) {
   };
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border bg-muted/40 p-2">
-      <div className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {KANBAN_STATUS_LABEL[status]}{' '}
-        <span className="text-muted-foreground/70">({tasks.length})</span>
+    <div className="flex flex-col gap-2 rounded-lg border border-border/60 bg-muted/30 p-2">
+      <div className="flex items-center gap-1.5 px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[status]}`} />
+        <span>{KANBAN_STATUS_LABEL[status]}</span>
+        <span className="text-muted-foreground/60">{tasks.length}</span>
       </div>
       <div className="flex flex-col gap-2">
         {tasks.map((task) => (
@@ -125,9 +132,9 @@ function TaskCard({ task }: TaskCardProps) {
   const remove = useMutation(api.kanban.remove);
 
   return (
-    <div className="rounded-md border bg-background p-2 text-sm shadow-sm">
+    <div className="group rounded-lg border border-border/60 bg-background p-2 text-sm shadow-sm transition-colors hover:border-border">
       <div className="flex items-start justify-between gap-2">
-        <span className="flex-1 whitespace-pre-wrap">{task.title}</span>
+        <span className="flex-1 whitespace-pre-wrap leading-snug">{task.title}</span>
         <DropdownMenu>
           <DropdownMenuTrigger
             render={

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, KeyRound } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -33,20 +33,30 @@ export function TokenRevealDialog({ open, onOpenChange, rawToken, tokenName }: P
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
+          <div className="mb-2 inline-flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <KeyRound className="h-4 w-4" />
+          </div>
           <DialogTitle>Copy your token now</DialogTitle>
           <DialogDescription>
-            This is the only time the raw value for <span className="font-medium">{tokenName}</span>{' '}
-            will be shown. Store it in your MCP client config now — if you lose it you must revoke
-            and create a new one.
+            This is the only time the raw value for{' '}
+            <span className="font-medium text-foreground">{tokenName}</span> will be shown. Store it
+            in your MCP client config — if lost, you must revoke and create a new one.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex items-center gap-2">
-          <code className="flex-1 break-all rounded-md bg-muted px-3 py-2 font-mono text-xs">
+        <div className="flex items-stretch gap-2">
+          <code className="flex-1 break-all rounded-lg border border-border/60 bg-muted/60 px-3 py-2.5 font-mono text-xs leading-relaxed">
             {rawToken}
           </code>
-          <Button type="button" size="icon" variant="outline" onClick={copy} aria-label="Copy">
-            {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+          <Button
+            type="button"
+            size="icon"
+            variant="outline"
+            onClick={copy}
+            aria-label="Copy token"
+            className="h-auto"
+          >
+            {copied ? <Check className="h-4 w-4 text-primary" /> : <Copy className="h-4 w-4" />}
           </Button>
         </div>
 
