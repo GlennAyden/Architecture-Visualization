@@ -1,6 +1,7 @@
 import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 import { getOrCreateProfile, getProfile, requireProjectAccess } from './lib/auth';
+import { deleteNodeCascade } from './lib/cascade';
 import { slugify } from '@arch-viz/shared';
 
 export const list = query({
@@ -80,13 +81,12 @@ export const remove = mutation({
   handler: async (ctx, { id }) => {
     await requireProjectAccess(ctx, id);
 
-    // Cascade: delete all nodes belonging to this project.
     const nodes = await ctx.db
       .query('nodes')
       .withIndex('by_project', (q) => q.eq('projectId', id))
       .collect();
     for (const node of nodes) {
-      await ctx.db.delete(node._id);
+      await deleteNodeCascade(ctx, node._id);
     }
 
     await ctx.db.delete(id);

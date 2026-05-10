@@ -1,6 +1,7 @@
 import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 import { requireProjectAccess } from './lib/auth';
+import { deleteNodeCascade } from './lib/cascade';
 
 export const listByProject = query({
   args: { projectId: v.id('projects') },
@@ -84,21 +85,8 @@ export const remove = mutation({
   args: { id: v.id('nodes') },
   handler: async (ctx, { id }) => {
     const node = await ctx.db.get(id);
-    // Idempotent: silently no-op if the node was already deleted (e.g. by a
-    // cascade from project removal, or by the same delete arriving twice).
     if (!node) return;
     await requireProjectAccess(ctx, node.projectId);
-
-    // Cascade-delete child nodes (nested features in 1C). For 1B there are
-    // no children, but the recursion is harmless and forward-compatible.
-    const children = await ctx.db
-      .query('nodes')
-      .withIndex('by_parent', (q) => q.eq('parentId', id))
-      .collect();
-    for (const child of children) {
-      await ctx.db.delete(child._id);
-    }
-
-    await ctx.db.delete(id);
+    await deleteNodeCascade(ctx, id);
   },
 });
