@@ -14,6 +14,16 @@ export const listByProject = query({
   },
 });
 
+export const get = query({
+  args: { id: v.id('nodes') },
+  handler: async (ctx, { id }) => {
+    const node = await ctx.db.get(id);
+    if (!node) return null;
+    await requireProjectAccess(ctx, node.projectId);
+    return node;
+  },
+});
+
 export const create = mutation({
   args: {
     projectId: v.id('projects'),
