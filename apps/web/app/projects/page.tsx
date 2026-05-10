@@ -63,10 +63,7 @@ export default function ProjectsPage() {
                 />
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem onClick={() => setRenameTarget(p)}>Rename</DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setDeleteTarget(p)}
-                    className="text-destructive"
-                  >
+                  <DropdownMenuItem onClick={() => setDeleteTarget(p)} className="text-destructive">
                     Delete
                   </DropdownMenuItem>
                 </DropdownMenuContent>
