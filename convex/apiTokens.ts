@@ -1,6 +1,6 @@
 import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
-import { getProfile, requireProjectAccess } from './lib/auth';
+import { UnauthorizedError, getProfile, requireProjectAccess } from './lib/auth';
 import { generateRawToken, hashToken } from './lib/tokens';
 import { tokenNameSchema } from '@arch-viz/shared';
 
@@ -52,5 +52,21 @@ export const create = mutation({
     });
 
     return { tokenId, rawToken };
+  },
+});
+
+export const revoke = mutation({
+  args: { id: v.id('apiTokens') },
+  handler: async (ctx, { id }) => {
+    const token = await ctx.db.get(id);
+    if (!token) return; // idempotent — already gone
+
+    const profile = await getProfile(ctx);
+    if (!profile || token.userId !== profile._id) {
+      throw new UnauthorizedError('Unauthorized: you do not own this token');
+    }
+
+    if (token.revokedAt) return; // already revoked — idempotent
+    await ctx.db.patch(id, { revokedAt: Date.now() });
   },
 });

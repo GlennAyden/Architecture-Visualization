@@ -81,3 +81,51 @@ describe('apiTokens.create', () => {
     ).rejects.toThrow(/Token name is required/);
   });
 });
+
+describe('apiTokens.revoke', () => {
+  test('sets revokedAt on the user’s own token', async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fakeIdentity('user_a', 'a@example.com'));
+    const projectId = await asUser.mutation(api.projects.create, { name: 'P' });
+    const { tokenId } = await asUser.mutation(api.apiTokens.create, {
+      projectId,
+      name: 'laptop',
+    });
+
+    const before = Date.now();
+    await asUser.mutation(api.apiTokens.revoke, { id: tokenId });
+    const list = await asUser.query(api.apiTokens.list);
+
+    expect(list[0]?.revokedAt).toBeGreaterThanOrEqual(before);
+  });
+
+  test('refuses to revoke another user’s token', async () => {
+    const t = convexTest(schema, modules);
+    const asA = t.withIdentity(fakeIdentity('user_a', 'a@example.com'));
+    const asB = t.withIdentity(fakeIdentity('user_b', 'b@example.com'));
+    const projectId = await asA.mutation(api.projects.create, { name: 'A' });
+    const { tokenId } = await asA.mutation(api.apiTokens.create, {
+      projectId,
+      name: 'laptop',
+    });
+
+    await expect(asB.mutation(api.apiTokens.revoke, { id: tokenId })).rejects.toThrow(
+      /Unauthorized/,
+    );
+  });
+
+  test('is idempotent on already-revoked tokens (does not throw)', async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fakeIdentity('user_a', 'a@example.com'));
+    const projectId = await asUser.mutation(api.projects.create, { name: 'P' });
+    const { tokenId } = await asUser.mutation(api.apiTokens.create, {
+      projectId,
+      name: 'laptop',
+    });
+
+    await asUser.mutation(api.apiTokens.revoke, { id: tokenId });
+    await expect(
+      asUser.mutation(api.apiTokens.revoke, { id: tokenId }),
+    ).resolves.not.toThrow();
+  });
+});
