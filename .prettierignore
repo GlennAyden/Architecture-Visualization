@@ -1,0 +1,11 @@
+node_modules
+pnpm-lock.yaml
+.next
+.turbo
+dist
+build
+coverage
+convex/_generated
+.eslintcache
+.prettiercache
+*.tsbuildinfo
