@@ -34,6 +34,7 @@ export default function ProjectsPage() {
             <Button
               variant="ghost"
               size="sm"
+              nativeButton={false}
               render={
                 <Link href="/settings/tokens">
                   <Settings className="h-4 w-4" />

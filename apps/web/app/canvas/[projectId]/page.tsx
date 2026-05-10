@@ -59,6 +59,7 @@ export default function CanvasPage() {
           <Button
             variant="ghost"
             size="sm"
+            nativeButton={false}
             render={
               <Link href="/projects">
                 <ChevronLeft className="h-4 w-4" />
