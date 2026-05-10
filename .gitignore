@@ -11,6 +11,7 @@ out/
 *.log
 .vercel
 .convex/
+convex/_generated/
 coverage/
 .pnpm-store/
 *.tsbuildinfo
