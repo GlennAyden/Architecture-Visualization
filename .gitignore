@@ -3,12 +3,16 @@ node_modules/
 .turbo/
 dist/
 build/
+out/
 .env
 .env.local
 .env.*.local
 .DS_Store
 *.log
 .vercel
-.supabase/
+.convex/
 coverage/
 .pnpm-store/
+*.tsbuildinfo
+.eslintcache
+.prettiercache
