@@ -94,6 +94,14 @@ export const remove = mutation({
       await deleteNodeCascade(ctx, node._id);
     }
 
+    const tokens = await ctx.db
+      .query('apiTokens')
+      .withIndex('by_project', (q) => q.eq('projectId', id))
+      .collect();
+    for (const tok of tokens) {
+      await ctx.db.delete(tok._id);
+    }
+
     await ctx.db.delete(id);
   },
 });

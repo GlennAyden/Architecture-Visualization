@@ -129,3 +129,17 @@ describe('apiTokens.revoke', () => {
     ).resolves.not.toThrow();
   });
 });
+
+describe('apiTokens cascade on project delete', () => {
+  test('tokens are deleted when their project is deleted', async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fakeIdentity('user_a', 'a@example.com'));
+    const projectId = await asUser.mutation(api.projects.create, { name: 'P' });
+    await asUser.mutation(api.apiTokens.create, { projectId, name: 'laptop' });
+
+    await asUser.mutation(api.projects.remove, { id: projectId });
+
+    const list = await asUser.query(api.apiTokens.list);
+    expect(list).toEqual([]);
+  });
+});
