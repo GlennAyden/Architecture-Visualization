@@ -5,11 +5,13 @@ import { useQuery } from 'convex/react';
 import { useParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
+import { ChevronLeft } from 'lucide-react';
 import type { Editor, TLComponents } from 'tldraw';
 
 import { api } from '../../../../../convex/_generated/api';
 import type { Id } from '../../../../../convex/_generated/dataModel';
 import { Button } from '@/components/ui/button';
+import { BrandMark } from '@/components/brand-mark';
 import { PageNodeShapeUtil } from '@/components/canvas/page-node-shape';
 import { AddPageButton } from '@/components/canvas/add-page-button';
 import { NodeModal } from '@/components/node-modal/node-modal';
@@ -51,15 +53,25 @@ export default function CanvasPage() {
   }
 
   return (
-    <main className="flex h-screen flex-col">
-      <header className="flex items-center justify-between border-b px-4 py-2">
+    <main className="flex h-screen flex-col bg-background">
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-border/60 bg-background/80 px-4 backdrop-blur-md">
         <div className="flex items-center gap-3">
-          <Link href="/projects">
-            <Button variant="ghost" size="sm">
-              ← Projects
-            </Button>
-          </Link>
-          <h1 className="text-lg font-medium">{project.name}</h1>
+          <Button
+            variant="ghost"
+            size="sm"
+            render={
+              <Link href="/projects">
+                <ChevronLeft className="h-4 w-4" />
+                Projects
+              </Link>
+            }
+          />
+          <span className="h-5 w-px bg-border" aria-hidden />
+          <BrandMark />
+          <span className="text-muted-foreground/60" aria-hidden>
+            /
+          </span>
+          <h1 className="text-sm font-medium tracking-tight">{project.name}</h1>
         </div>
         <div>
           <AddPageButton projectId={projectId} editor={editor} />

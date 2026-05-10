@@ -3,13 +3,13 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { useQuery } from 'convex/react';
-import { MoreVertical } from 'lucide-react';
+import { MoreVertical, ArrowUpRight, Settings } from 'lucide-react';
 import { UserButton } from '@clerk/nextjs';
 
 import { api } from '../../../../convex/_generated/api';
 import type { Doc } from '../../../../convex/_generated/dataModel';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { BrandMark } from '@/components/brand-mark';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,55 +26,95 @@ export default function ProjectsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Doc<'projects'> | null>(null);
 
   return (
-    <main className="mx-auto max-w-3xl p-8">
-      <div className="absolute right-4 top-4 flex items-center gap-3">
-        <Link href="/settings/tokens" className="text-sm underline">
-          Settings
-        </Link>
-        <UserButton />
-      </div>
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Projects</h1>
-        <CreateProjectDialog />
-      </div>
+    <div className="min-h-screen bg-background">
+      <header className="sticky top-0 z-10 border-b border-border/60 bg-background/80 backdrop-blur-md">
+        <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-6">
+          <BrandMark />
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              render={
+                <Link href="/settings/tokens">
+                  <Settings className="h-4 w-4" />
+                  Settings
+                </Link>
+              }
+            />
+            <UserButton />
+          </div>
+        </div>
+      </header>
 
-      {projects === undefined && <p className="text-muted-foreground">Loading…</p>}
-      {projects && projects.length === 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>No projects yet</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">Create your first project to begin.</p>
-          </CardContent>
-        </Card>
-      )}
-      {projects && projects.length > 0 && (
-        <ul className="space-y-2">
-          {projects.map((p) => (
-            <li key={p._id} className="flex items-center justify-between rounded-md border p-4">
-              <Link href={`/canvas/${p._id}`} className="flex-1 hover:underline">
-                {p.name}
-              </Link>
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <Button variant="ghost" size="icon" aria-label="Project actions">
-                      <MoreVertical className="h-4 w-4" />
-                    </Button>
-                  }
-                />
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => setRenameTarget(p)}>Rename</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setDeleteTarget(p)} className="text-destructive">
-                    Delete
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </li>
-          ))}
-        </ul>
-      )}
+      <main className="mx-auto max-w-4xl px-6 py-10">
+        <div className="mb-8 flex items-end justify-between gap-4">
+          <div className="space-y-1.5">
+            <h1 className="text-3xl font-semibold tracking-tight">Projects</h1>
+            <p className="text-sm text-muted-foreground">
+              Each project gets its own living architecture canvas.
+            </p>
+          </div>
+          <CreateProjectDialog />
+        </div>
+
+        {projects === undefined && (
+          <div className="rounded-lg border border-border/60 bg-card p-8 text-sm text-muted-foreground">
+            Loading projects…
+          </div>
+        )}
+
+        {projects && projects.length === 0 && (
+          <div className="rounded-xl border border-dashed border-border bg-card/50 p-12 text-center">
+            <h2 className="text-base font-medium">No projects yet</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Create your first project to begin mapping your architecture.
+            </p>
+            <div className="mt-6">
+              <CreateProjectDialog />
+            </div>
+          </div>
+        )}
+
+        {projects && projects.length > 0 && (
+          <ul className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border/60 bg-card">
+            {projects.map((p) => (
+              <li
+                key={p._id}
+                className="group flex items-center gap-2 px-4 py-3 transition-colors hover:bg-muted/40"
+              >
+                <Link
+                  href={`/canvas/${p._id}`}
+                  className="flex flex-1 items-center justify-between gap-3"
+                >
+                  <div className="space-y-0.5">
+                    <div className="text-sm font-medium">{p.name}</div>
+                    <div className="font-mono text-[11px] text-muted-foreground">{p.slug}</div>
+                  </div>
+                  <ArrowUpRight className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                </Link>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button variant="ghost" size="icon" aria-label="Project actions">
+                        <MoreVertical className="h-4 w-4" />
+                      </Button>
+                    }
+                  />
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => setRenameTarget(p)}>Rename</DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => setDeleteTarget(p)}
+                      className="text-destructive"
+                    >
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </li>
+            ))}
+          </ul>
+        )}
+      </main>
 
       {renameTarget && (
         <RenameProjectDialog
@@ -92,6 +132,6 @@ export default function ProjectsPage() {
           onOpenChange={(open) => !open && setDeleteTarget(null)}
         />
       )}
-    </main>
+    </div>
   );
 }
