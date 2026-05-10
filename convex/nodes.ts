@@ -57,7 +57,9 @@ export const update = mutation({
   },
   handler: async (ctx, args) => {
     const node = await ctx.db.get(args.id);
-    if (!node) throw new Error('Node not found');
+    // Idempotent: silently no-op if the node was already deleted by another
+    // session or by a cascade (e.g. project removal).
+    if (!node) return;
     await requireProjectAccess(ctx, node.projectId);
 
     const patch: Partial<typeof node> = {};
@@ -82,7 +84,9 @@ export const remove = mutation({
   args: { id: v.id('nodes') },
   handler: async (ctx, { id }) => {
     const node = await ctx.db.get(id);
-    if (!node) throw new Error('Node not found');
+    // Idempotent: silently no-op if the node was already deleted (e.g. by a
+    // cascade from project removal, or by the same delete arriving twice).
+    if (!node) return;
     await requireProjectAccess(ctx, node.projectId);
 
     // Cascade-delete child nodes (nested features in 1C). For 1B there are
