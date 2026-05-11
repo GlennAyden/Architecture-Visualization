@@ -716,3 +716,206 @@ describe('POST /api/mcp/activity/log_by_file', () => {
     expect((await res.json()).matched).toBe(true);
   });
 });
+
+describe('POST /api/mcp/files/auto_link', () => {
+  // Why: when an importer file already lives in a node, every fresh import
+  // discovered by the scanner must follow it onto that same node — that's
+  // the whole point of "strict sync". A regression here means the canvas
+  // silently desyncs from the code.
+  test('200 attaches imported paths to the single node owning the importer', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, rawToken } = await seedTokenForUser(t);
+    const nodeId = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'Login',
+      positionX: 0,
+      positionY: 0,
+    });
+    await asUser.mutation(api.nodeFiles.add, {
+      nodeId,
+      path: 'apps/web/components/LoginForm.tsx',
+    });
+
+    const res = await t.fetch('/api/mcp/files/auto_link', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        originFilePath: 'apps/web/components/LoginForm.tsx',
+        importedFilePaths: ['apps/web/hooks/use-auth-store.ts'],
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.linked).toBe(1);
+    expect(body.matchedNodes).toBe(1);
+
+    const files = await asUser.query(api.nodeFiles.listByNode, { nodeId });
+    expect(files.map((f) => f.path).sort()).toEqual([
+      'apps/web/components/LoginForm.tsx',
+      'apps/web/hooks/use-auth-store.ts',
+    ]);
+  });
+
+  // Why: a file is allowed to be linked to multiple nodes (e.g. a shared util
+  // belongs to two features). Auto-link must mirror onto BOTH, otherwise one
+  // of the nodes drifts away from the import graph.
+  test('200 fans out to every node that already owns the importer', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, rawToken } = await seedTokenForUser(t);
+    const nodeA = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'A',
+      positionX: 0,
+      positionY: 0,
+    });
+    const nodeB = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'B',
+      positionX: 0,
+      positionY: 0,
+    });
+    await asUser.mutation(api.nodeFiles.add, { nodeId: nodeA, path: 'shared.ts' });
+    await asUser.mutation(api.nodeFiles.add, { nodeId: nodeB, path: 'shared.ts' });
+
+    const res = await t.fetch('/api/mcp/files/auto_link', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        originFilePath: 'shared.ts',
+        importedFilePaths: ['lodash-helper.ts'],
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.linked).toBe(2);
+    expect(body.matchedNodes).toBe(2);
+
+    const filesA = await asUser.query(api.nodeFiles.listByNode, { nodeId: nodeA });
+    const filesB = await asUser.query(api.nodeFiles.listByNode, { nodeId: nodeB });
+    expect(filesA.map((f) => f.path)).toContain('lodash-helper.ts');
+    expect(filesB.map((f) => f.path)).toContain('lodash-helper.ts');
+  });
+
+  // Why: hooks fire on every edited file — including files not yet linked.
+  // A no-match must be a silent 200 (linked:0), not an error, so the hook
+  // pipeline stays clean.
+  test('200 with linked:0 when the importer is not linked to any node', async () => {
+    const t = convexTest(schema, modules);
+    const { rawToken } = await seedTokenForUser(t);
+    const res = await t.fetch('/api/mcp/files/auto_link', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        originFilePath: 'apps/web/utils/not-linked-yet.ts',
+        importedFilePaths: ['some-import.ts'],
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.linked).toBe(0);
+    expect(body.matchedNodes).toBe(0);
+  });
+
+  // Why: dedup keeps the table clean across repeated hook fires. Same edit
+  // re-running shouldn't double-link.
+  test('200 does not duplicate when the imported path is already linked', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, rawToken } = await seedTokenForUser(t);
+    const nodeId = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'A',
+      positionX: 0,
+      positionY: 0,
+    });
+    await asUser.mutation(api.nodeFiles.add, { nodeId, path: 'a.ts' });
+    await asUser.mutation(api.nodeFiles.add, { nodeId, path: 'b.ts' });
+
+    const res = await t.fetch('/api/mcp/files/auto_link', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        originFilePath: 'a.ts',
+        importedFilePaths: ['b.ts'],
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.linked).toBe(0);
+    expect(body.alreadyLinked).toBe(1);
+
+    const files = await asUser.query(api.nodeFiles.listByNode, { nodeId });
+    expect(files).toHaveLength(2);
+  });
+});
+
+describe('POST /api/mcp/scans/push + /get_latest', () => {
+  // Why: orphan/drift scans are write-once-replace-prev — the UI always reads
+  // "the latest" with no need to filter by timestamp. If push left old rows
+  // behind, the UI would show stale data after every new scan.
+  test('200 stores a fresh orphans snapshot and replaces any previous one', async () => {
+    const t = convexTest(schema, modules);
+    const { rawToken } = await seedTokenForUser(t);
+
+    const first = await t.fetch('/api/mcp/scans/push', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        kind: 'orphans',
+        data: { orphans: ['a.ts', 'b.ts'], timestamp: 1 },
+      }),
+    });
+    expect(first.status).toBe(200);
+    expect((await first.json()).replaced).toBe(0);
+
+    const second = await t.fetch('/api/mcp/scans/push', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        kind: 'orphans',
+        data: { orphans: ['c.ts'], timestamp: 2 },
+      }),
+    });
+    expect(second.status).toBe(200);
+    expect((await second.json()).replaced).toBe(1);
+
+    const get = await t.fetch('/api/mcp/scans/get_latest', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'orphans' }),
+    });
+    expect(get.status).toBe(200);
+    const body = await get.json();
+    expect(body.snapshot.data.orphans).toEqual(['c.ts']);
+  });
+
+  // Why: a runaway scan (binary file, massive repo) could fill the table.
+  // 1MB cap protects the deployment without surfacing as Convex platform 500.
+  test('413 when payload exceeds the 1MB cap', async () => {
+    const t = convexTest(schema, modules);
+    const { rawToken } = await seedTokenForUser(t);
+    const huge = 'x'.repeat(1_000_001);
+    const res = await t.fetch('/api/mcp/scans/push', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'orphans', data: { blob: huge } }),
+    });
+    expect(res.status).toBe(413);
+  });
+
+  test('200 returns null snapshot when no scan has been pushed yet', async () => {
+    const t = convexTest(schema, modules);
+    const { rawToken } = await seedTokenForUser(t);
+    const res = await t.fetch('/api/mcp/scans/get_latest', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'drift' }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.snapshot).toBeNull();
+  });
+});

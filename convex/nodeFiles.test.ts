@@ -79,4 +79,40 @@ describe('nodeFiles', () => {
       expect(remaining.filter((f) => f.nodeId === nodeId)).toEqual([]);
     });
   });
+
+  // Why: drift acknowledgements need to stick. If the user marks a deleted
+  // file as "archived" (keep as history), the next scan must NOT resurface
+  // it — that would defeat the purpose of acknowledging. The `archived`
+  // flag is how the drift CLI knows to skip the row.
+  test('setArchived persists across re-queries so drift scans can skip it', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, nodeId } = await makeNode(t);
+    await asUser.mutation(api.nodeFiles.add, { nodeId, path: 'gone.ts' });
+    const initial = await asUser.query(api.nodeFiles.listByNode, { nodeId });
+    expect(initial[0].archived).toBeUndefined();
+
+    await asUser.mutation(api.nodeFiles.setArchived, {
+      id: initial[0]._id,
+      archived: true,
+    });
+
+    const after = await asUser.query(api.nodeFiles.listByNode, { nodeId });
+    expect(after[0].archived).toBe(true);
+  });
+
+  // Why: only the project owner should be able to flip the archived flag.
+  // Without this, a non-owner who somehow knows the nodeFiles id could
+  // silently change the drift-visibility of someone else's project.
+  test('setArchived from a non-owner is rejected', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, nodeId } = await makeNode(t);
+    await asUser.mutation(api.nodeFiles.add, { nodeId, path: 'x.ts' });
+    const files = await asUser.query(api.nodeFiles.listByNode, { nodeId });
+    const fileId = files[0]._id;
+
+    const asBob = t.withIdentity(fakeIdentity('user_bob', 'bob@example.com'));
+    await expect(
+      asBob.mutation(api.nodeFiles.setArchived, { id: fileId, archived: true }),
+    ).rejects.toThrow(/Unauthorized/);
+  });
 });

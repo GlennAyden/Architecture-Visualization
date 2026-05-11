@@ -31,6 +31,10 @@ export default defineSchema({
   nodeFiles: defineTable({
     nodeId: v.id('nodes'),
     path: v.string(),
+    // `archived` lets the user acknowledge a drifted file (path no longer
+    // exists on disk) without deleting the link, so it stays as historical
+    // breadcrumb but never resurfaces in future drift scans. Absent = false.
+    archived: v.optional(v.boolean()),
   }).index('by_node', ['nodeId']),
 
   kanbanTasks: defineTable({
@@ -80,4 +84,14 @@ export default defineSchema({
     .index('by_project', ['projectId'])
     .index('by_source', ['sourceNodeId'])
     .index('by_target', ['targetNodeId']),
+
+  // Filesystem scan results pushed from `arch-viz-mcp scan-orphans` and
+  // `scan-drift`. Only the most recent row per (projectId, kind) is meaningful;
+  // older rows are kept briefly so the UI can show "last scanned X ago" and
+  // are pruned by the same archival cron pass that already trims activityLog.
+  scanSnapshots: defineTable({
+    projectId: v.id('projects'),
+    kind: v.union(v.literal('orphans'), v.literal('drift')),
+    data: v.any(),
+  }).index('by_project_kind', ['projectId', 'kind']),
 });

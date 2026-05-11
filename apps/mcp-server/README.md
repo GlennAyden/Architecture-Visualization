@@ -1,8 +1,28 @@
 # @arch-viz/mcp-server
 
-Local stdio MCP server that lets AI agents (Claude Code, Codex, Cursor) read and update an Arch Viz canvas as they work.
+Local stdio MCP server that lets AI agents (Claude Code, Codex, Cursor) read and update an Arch Viz canvas as they work — plus CLI subcommands for keeping the canvas strictly in sync with the codebase.
 
 One server instance is bound to exactly **one project**. Configure each MCP client that should write to that project to launch this server with the project's environment variables.
+
+## Two modes
+
+### 1. stdio MCP server (default — no args)
+
+```bash
+npx -y arch-viz-mcp
+```
+
+AI agents call the tools below over MCP. This is what your editor wires up.
+
+### 2. CLI subcommands (Sprint 2)
+
+```bash
+npx -y arch-viz-mcp scan-imports   # auto-link imports of every linked file
+npx -y arch-viz-mcp scan-orphans   # surface repo source files not linked yet
+npx -y arch-viz-mcp scan-drift     # find linked files that disappeared on disk
+```
+
+Run from the repo root. Each subcommand reuses the same `ARCHITECTURE_*` env vars as the stdio mode. `scan-orphans` and `scan-drift` push a snapshot to the project — view results at `/canvas/<projectId>/orphans` and in the node modal's `Drift` tab.
 
 ## Tools exposed
 

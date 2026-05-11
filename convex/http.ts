@@ -1,6 +1,7 @@
 import { httpRouter } from 'convex/server';
 import {
   addKanbanTaskInput,
+  autoLinkImportsInput,
   createNodeInput,
   deleteNodeInput,
   getNodeInput,
@@ -8,6 +9,8 @@ import {
   listNodesInput,
   logActivityByFileInput,
   logActivityInput,
+  scanSnapshotGetInput,
+  scanSnapshotPushInput,
   updateKanbanStatusInput,
   updateNodeInput,
 } from '@arch-viz/shared';
@@ -18,6 +21,11 @@ import { errorResponse, jsonResponse, requireApiToken } from './lib/mcpAuth';
 import { withMcpRoute } from './lib/mcpRoute';
 
 const http = httpRouter();
+
+// Hard cap on scan snapshot payload size. Roughly enough for a repo with
+// ~10k file paths at 100 bytes each, well beyond any realistic personal
+// project. Pushing more is almost always a CLI bug (e.g. accidental binary).
+const SCAN_PAYLOAD_BYTES_LIMIT = 1_000_000;
 
 /* -------------------------------------------------------------------------- */
 /* /api/mcp/health                                                            */
@@ -253,6 +261,119 @@ http.route({
         message: input.message,
         metadata: input.metadata,
       }),
+  }),
+});
+
+/* -------------------------------------------------------------------------- */
+/* /api/mcp/files/auto_link                                                   */
+/*                                                                            */
+/* Hook + CLI endpoint: takes an importer file path and resolved imported     */
+/* paths, then links the imports to every node that already owns the          */
+/* importer. No-op when the importer is unlinked. See `convex/mcp/files.ts`   */
+/* `autoLinkByOrigin` for the inner logic.                                    */
+/* -------------------------------------------------------------------------- */
+
+http.route({
+  path: '/api/mcp/files/auto_link',
+  method: 'POST',
+  handler: withMcpRoute({
+    input: autoLinkImportsInput,
+    run: async (ctx, auth, input) =>
+      ctx.runMutation(internal.mcp.files.autoLinkByOrigin, {
+        userId: auth.userId,
+        scopeProjectId: auth.projectId,
+        originFilePath: input.originFilePath,
+        importedFilePaths: input.importedFilePaths,
+      }),
+  }),
+});
+
+/* -------------------------------------------------------------------------- */
+/* /api/mcp/scans/push                                                        */
+/*                                                                            */
+/* CLI endpoint: scan-orphans / scan-drift push their JSON payload here.     */
+/* The 1MB cap is enforced inline because withMcpRoute doesn't (yet) know     */
+/* about size limits, and the request body size matters before we hit Zod.   */
+/* -------------------------------------------------------------------------- */
+
+http.route({
+  path: '/api/mcp/scans/push',
+  method: 'POST',
+  handler: httpAction(async (ctx, req) => {
+    const auth = await requireApiToken(ctx, req);
+    if (!auth) {
+      return errorResponse(
+        401,
+        'unauthorized',
+        'Missing or invalid API token.',
+        'Set ARCHITECTURE_API_KEY to a token issued in /settings/tokens.',
+      );
+    }
+
+    const rawText = await req.text().catch(() => '');
+    if (rawText.length > SCAN_PAYLOAD_BYTES_LIMIT) {
+      return errorResponse(
+        413,
+        'payload_too_large',
+        `Scan payload exceeds ${SCAN_PAYLOAD_BYTES_LIMIT} bytes`,
+        'Reduce the number of files included in the scan, or split into multiple pushes.',
+      );
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = rawText.length > 0 ? JSON.parse(rawText) : {};
+    } catch {
+      return errorResponse(400, 'invalid_input', 'Invalid JSON body');
+    }
+
+    const validated = scanSnapshotPushInput.safeParse(parsed);
+    if (!validated.success) {
+      return errorResponse(
+        400,
+        'invalid_input',
+        validated.error.issues[0]?.message ?? 'invalid',
+      );
+    }
+
+    try {
+      const result = await ctx.runMutation(internal.mcp.scans.pushSnapshot, {
+        userId: auth.userId,
+        scopeProjectId: auth.projectId,
+        kind: validated.data.kind,
+        data: validated.data.data,
+      });
+      return jsonResponse(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('Forbidden') || msg.includes('not in token scope')) {
+        return errorResponse(403, 'forbidden', msg);
+      }
+      return errorResponse(400, 'invalid_input', msg);
+    }
+  }),
+});
+
+/* -------------------------------------------------------------------------- */
+/* /api/mcp/scans/get_latest                                                  */
+/*                                                                            */
+/* CLI endpoint: for `arch-viz-mcp scan-orphans --check`-style flows that    */
+/* want to know what was pushed last without hitting the UI.                 */
+/* -------------------------------------------------------------------------- */
+
+http.route({
+  path: '/api/mcp/scans/get_latest',
+  method: 'POST',
+  handler: withMcpRoute({
+    input: scanSnapshotGetInput,
+    run: async (ctx, auth, input) => {
+      const snapshot = await ctx.runQuery(internal.mcp.scans.getLatestSnapshot, {
+        userId: auth.userId,
+        scopeProjectId: auth.projectId,
+        kind: input.kind,
+      });
+      return { snapshot };
+    },
   }),
 });
 

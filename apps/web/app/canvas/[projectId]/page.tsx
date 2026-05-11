@@ -5,7 +5,7 @@ import { useQuery } from 'convex/react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { ChevronLeft, History } from 'lucide-react';
+import { ChevronLeft, FileQuestion, History } from 'lucide-react';
 import type { Editor, TLComponents } from 'tldraw';
 
 import { api } from '../../../../../convex/_generated/api';
@@ -91,6 +91,17 @@ export default function CanvasPage() {
           <h1 className="text-sm font-medium tracking-tight">{project.name}</h1>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            nativeButton={false}
+            render={
+              <Link href={`/canvas/${projectId}/orphans`}>
+                <FileQuestion className="h-4 w-4" />
+                Orphans
+              </Link>
+            }
+          />
           <Button
             variant="ghost"
             size="sm"

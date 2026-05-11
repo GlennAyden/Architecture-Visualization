@@ -84,3 +84,33 @@ export const logActivityByFileInput = z
     metadata: z.unknown().optional(),
   })
   .strict();
+
+// Sprint 2 — auto-link by import analysis. Hook / CLI passes a single origin
+// (the file just edited) plus the resolved import targets. Server looks up
+// the nodes that own the origin and link_files-deduplicates the imports onto
+// the same nodes. Cap 20 imports per call so a runaway parse can't fan out.
+export const autoLinkImportsInput = z
+  .object({
+    originFilePath: pathPattern,
+    importedFilePaths: z.array(pathPattern).min(1).max(20),
+  })
+  .strict();
+
+// Sprint 2 — orphan/drift scan snapshot push. Caller is the CLI; the server
+// stores the most recent payload per (projectId, kind). Payload shape is
+// open-ended on purpose (validated client-side); we cap size at 1MB at the
+// HTTP layer so a misbehaving CLI can't fill the table.
+const scanKindSchema = z.enum(['orphans', 'drift']);
+
+export const scanSnapshotPushInput = z
+  .object({
+    kind: scanKindSchema,
+    data: z.unknown(),
+  })
+  .strict();
+
+export const scanSnapshotGetInput = z
+  .object({
+    kind: scanKindSchema,
+  })
+  .strict();

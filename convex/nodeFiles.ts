@@ -50,3 +50,23 @@ export const remove = mutation({
     await ctx.db.delete(id);
   },
 });
+
+/**
+ * Marks a linked file as archived (or un-archives it). Archived rows are kept
+ * for historical breadcrumb but are never surfaced as drift again — the user
+ * is saying "yes, this file is gone on disk and that's intentional".
+ *
+ * Idempotent: setting the same value twice is a no-op.
+ */
+export const setArchived = mutation({
+  args: { id: v.id('nodeFiles'), archived: v.boolean() },
+  handler: async (ctx, { id, archived }) => {
+    const file = await ctx.db.get(id);
+    if (!file) return; // idempotent on cascade-deleted rows
+    const node = await ctx.db.get(file.nodeId);
+    if (!node) return;
+    await requireProjectAccess(ctx, node.projectId);
+    if ((file.archived ?? false) === archived) return;
+    await ctx.db.patch(id, { archived });
+  },
+});
