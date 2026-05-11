@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { ConfigError, loadConfig } from './config';
+import { ConfigError, loadConfig } from './config.js';
 
 const valid = {
   ARCHITECTURE_CONVEX_URL: 'https://dazzling-seahorse-444.convex.site',

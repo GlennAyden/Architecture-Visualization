@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
-import { ConvexApiError, ConvexMcpClient } from './client';
-import type { McpConfig } from './config';
+import { ConvexApiError, ConvexMcpClient } from './client.js';
+import type { McpConfig } from './config.js';
 
 const config: McpConfig = {
   convexUrl: 'https://x.convex.site',

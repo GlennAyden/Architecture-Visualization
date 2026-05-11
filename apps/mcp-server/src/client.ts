@@ -1,4 +1,4 @@
-import type { McpConfig } from './config';
+import type { McpConfig } from './config.js';
 
 /**
  * Structured error returned by Convex MCP HTTP routes.
