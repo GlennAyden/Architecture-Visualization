@@ -1,5 +1,6 @@
 import { v } from 'convex/values';
 import { internalMutation, internalQuery } from '../_generated/server';
+import { deleteNodeCascade } from '../lib/cascade';
 import { ForbiddenError, requireNodeOwnership, requireOwnership } from './lib';
 
 export const getProjectSummary = internalQuery({
@@ -162,5 +163,22 @@ export const updateForProject = internalMutation({
     if (Object.keys(patch).length > 0) {
       await ctx.db.patch(args.nodeId, patch);
     }
+  },
+});
+
+export const removeForProject = internalMutation({
+  args: {
+    userId: v.id('profiles'),
+    scopeProjectId: v.id('projects'),
+    nodeId: v.id('nodes'),
+  },
+  handler: async (ctx, { userId, scopeProjectId, nodeId }) => {
+    const node = await ctx.db.get(nodeId);
+    if (!node) return; // idempotent
+    await requireOwnership(ctx, userId, node.projectId);
+    if (node.projectId !== scopeProjectId) {
+      throw new ForbiddenError('Node not in token scope');
+    }
+    await deleteNodeCascade(ctx, nodeId);
   },
 });

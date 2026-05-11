@@ -325,3 +325,46 @@ describe('POST /api/mcp/nodes/update', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('POST /api/mcp/nodes/delete', () => {
+  test('200 deletes a node and cascades', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, rawToken } = await seedTokenForUser(t);
+    const nodeId = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'Doomed',
+      positionX: 0,
+      positionY: 0,
+    });
+
+    const res = await t.fetch('/api/mcp/nodes/delete', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId }),
+    });
+    expect(res.status).toBe(200);
+    const after = await asUser.query(api.nodes.get, { id: nodeId });
+    expect(after).toBeNull();
+  });
+
+  test('200 is idempotent on already-deleted node', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, rawToken } = await seedTokenForUser(t);
+    const nodeId = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'Doomed',
+      positionX: 0,
+      positionY: 0,
+    });
+    await asUser.mutation(api.nodes.remove, { id: nodeId });
+
+    const res = await t.fetch('/api/mcp/nodes/delete', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId }),
+    });
+    expect(res.status).toBe(200);
+  });
+});
