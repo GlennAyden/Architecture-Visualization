@@ -1,19 +1,49 @@
 {
-  "name": "@arch-viz/mcp-server",
-  "version": "0.0.0",
-  "private": true,
+  "name": "arch-viz-mcp",
+  "version": "0.1.0",
+  "description": "MCP server bridging stdio to the Architecture Visualization Convex backend. Lets AI agents (Claude Code, Codex, Cursor) read and update an architecture canvas as they work.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude-code",
+    "codex",
+    "cursor",
+    "ai-agents",
+    "architecture",
+    "convex",
+    "stdio"
+  ],
+  "homepage": "https://github.com/GlennAyden/Architecture-Visualization#readme",
+  "bugs": {
+    "url": "https://github.com/GlennAyden/Architecture-Visualization/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GlennAyden/Architecture-Visualization.git",
+    "directory": "apps/mcp-server"
+  },
+  "license": "MIT",
+  "author": "GlennAyden <glennayden15@gmail.com>",
   "type": "module",
   "bin": {
     "arch-viz-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
   },
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@arch-viz/shared": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^3.25.76"
   },

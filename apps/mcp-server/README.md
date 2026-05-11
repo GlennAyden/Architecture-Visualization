@@ -18,15 +18,15 @@ One server instance is bound to exactly **one project**. Configure each MCP clie
 | `update_kanban_status` | Move a task across columns; auto-positions to bottom of destination.    |
 | `log_activity`         | Append a free-form activity log entry attributing the change to `actor`.|
 
-## Build
+## Install
 
-From repo root:
+Published on npm — no clone needed:
 
 ```bash
-pnpm --filter @arch-viz/mcp-server build
+npx -y arch-viz-mcp
 ```
 
-Output: `apps/mcp-server/dist/index.js` (executable, has `#!/usr/bin/env node` shebang).
+For local development from a checkout, build with `pnpm --filter arch-viz-mcp build`; the entrypoint is `apps/mcp-server/dist/index.js`.
 
 ## Configuration
 
@@ -42,16 +42,16 @@ Three environment variables are required:
 
 ### Claude Code (claude.ai/code)
 
-Add to your MCP settings via the Claude Code UI, or directly to `~/.claude/mcp.json`:
+Add to your MCP settings via the Claude Code UI, or directly to `~/.claude.json` (`mcpServers` section):
 
 ```json
 {
   "mcpServers": {
     "arch-viz": {
-      "command": "node",
-      "args": ["C:/Data/Tools/architecture-visualization/apps/mcp-server/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "arch-viz-mcp"],
       "env": {
-        "ARCHITECTURE_CONVEX_URL": "https://dazzling-seahorse-444.convex.site",
+        "ARCHITECTURE_CONVEX_URL": "https://your-deployment.convex.site",
         "ARCHITECTURE_API_KEY": "archv_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
         "ARCHITECTURE_PROJECT_ID": "jXXXXXXXXXXXXXXXXXXXXXXXXXXX"
       }
@@ -60,7 +60,7 @@ Add to your MCP settings via the Claude Code UI, or directly to `~/.claude/mcp.j
 }
 ```
 
-Replace the path, URL, key, and project id with your own values. Use an absolute path to `dist/index.js`.
+Replace URL, key, and project id with your own values. `npx -y` downloads `arch-viz-mcp` from the npm registry on first run and caches it.
 
 ### Codex CLI
 
@@ -70,8 +70,8 @@ Edit `~/.codex/mcp.json`:
 {
   "mcpServers": {
     "arch-viz": {
-      "command": "node",
-      "args": ["/abs/path/to/apps/mcp-server/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "arch-viz-mcp"],
       "env": { "ARCHITECTURE_CONVEX_URL": "…", "ARCHITECTURE_API_KEY": "…", "ARCHITECTURE_PROJECT_ID": "…" }
     }
   }
@@ -81,6 +81,10 @@ Edit `~/.codex/mcp.json`:
 ### Cursor
 
 `Settings → MCP → Add Server`, same shape as above.
+
+### Pin a version
+
+`npx -y arch-viz-mcp@0.1.0` locks to a specific release if you want reproducibility instead of always-latest.
 
 ## Verify it works
 
