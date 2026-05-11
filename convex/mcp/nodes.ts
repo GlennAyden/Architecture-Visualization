@@ -1,6 +1,7 @@
 import { v } from 'convex/values';
 import { internalMutation, internalQuery } from '../_generated/server';
 import { deleteNodeCascade } from '../lib/cascade';
+import { ensureHierarchyEdge } from '../lib/edges';
 import { ForbiddenError, requireNodeOwnership, requireOwnership } from './lib';
 
 export const getProjectSummary = internalQuery({
@@ -125,6 +126,10 @@ export const createForProject = internalMutation({
         seen.add(p);
         await ctx.db.insert('nodeFiles', { nodeId, path: p });
       }
+    }
+
+    if (args.parentId) {
+      await ensureHierarchyEdge(ctx, args.scopeProjectId, args.parentId, nodeId);
     }
 
     return { nodeId, name: trimmed };

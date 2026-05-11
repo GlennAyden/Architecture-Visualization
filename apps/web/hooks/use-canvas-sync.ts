@@ -15,6 +15,7 @@ import type { Doc, Id } from '../../../convex/_generated/dataModel';
 
 const DEBOUNCE_MS = 250;
 const MANAGED_TYPES = new Set(['page-node', 'feature-node']);
+const EDGE_ARROW_PREFIX = 'shape:edge:';
 
 function nodeIdToShapeId(nodeId: Id<'nodes'>): TLShapeId {
   return `shape:${nodeId}` as TLShapeId;
@@ -23,7 +24,14 @@ function nodeIdToShapeId(nodeId: Id<'nodes'>): TLShapeId {
 function shapeIdToNodeId(shapeId: TLShapeId): Id<'nodes'> | null {
   const prefix = 'shape:';
   if (!shapeId.startsWith(prefix)) return null;
+  // Edge arrows live in the same `shape:` namespace but with a sub-prefix —
+  // exclude them so an arrow delete doesn't trigger a node remove mutation.
+  if (shapeId.startsWith(EDGE_ARROW_PREFIX)) return null;
   return shapeId.slice(prefix.length) as Id<'nodes'>;
+}
+
+function edgeIdToArrowShapeId(edgeId: Id<'nodeEdges'>): TLShapeId {
+  return `${EDGE_ARROW_PREFIX}${edgeId}` as TLShapeId;
 }
 
 function shapeTypeFor(node: Doc<'nodes'>): 'page-node' | 'feature-node' {
@@ -49,6 +57,7 @@ function shapePropsFor(node: Doc<'nodes'>, parentName: string | null) {
 interface Args {
   editor: Editor | null;
   nodes: Doc<'nodes'>[] | undefined;
+  edges: Doc<'nodeEdges'>[] | undefined;
 }
 
 /**
@@ -60,7 +69,7 @@ interface Args {
  * response to a Convex change, the editor fires update events; we must
  * ignore those so we don't loop.
  */
-export function useCanvasSync({ editor, nodes }: Args) {
+export function useCanvasSync({ editor, nodes, edges }: Args) {
   const updateMutation = useMutation(api.nodes.update);
   const removeMutation = useMutation(api.nodes.remove);
 
@@ -141,6 +150,74 @@ export function useCanvasSync({ editor, nodes }: Args) {
       });
     }
   }, [editor, nodes]);
+
+  // Convex -> editor: reconcile arrow shapes for hierarchy edges. Runs AFTER
+  // the nodes effect (declaration order) so source/target shapes exist before
+  // bindings reference them. We render arrows with tldraw bindings so they
+  // track node moves without our intervention.
+  useEffect(() => {
+    if (!editor || !nodes || !edges) return;
+    const nodeIdSet = new Set(nodes.map((n) => n._id as string));
+
+    applyingRemoteRef.current = true;
+    try {
+      const desiredArrowIds = new Set<string>();
+      for (const edge of edges) {
+        // Defensive: an edge that points at a node not yet in the nodes
+        // snapshot (stale subscription) will produce a dangling arrow. Skip
+        // and let the next reconcile retry.
+        if (!nodeIdSet.has(edge.sourceNodeId as string)) continue;
+        if (!nodeIdSet.has(edge.targetNodeId as string)) continue;
+
+        const arrowId = edgeIdToArrowShapeId(edge._id);
+        desiredArrowIds.add(arrowId);
+
+        if (editor.getShape(arrowId)) continue;
+
+        editor.createShape({
+          id: arrowId,
+          type: 'arrow',
+          x: 0,
+          y: 0,
+        });
+        editor.createBinding({
+          type: 'arrow',
+          fromId: arrowId,
+          toId: nodeIdToShapeId(edge.sourceNodeId),
+          props: {
+            terminal: 'start',
+            normalizedAnchor: { x: 0.5, y: 0.5 },
+            isExact: false,
+            isPrecise: false,
+            snap: 'none',
+          },
+        });
+        editor.createBinding({
+          type: 'arrow',
+          fromId: arrowId,
+          toId: nodeIdToShapeId(edge.targetNodeId),
+          props: {
+            terminal: 'end',
+            normalizedAnchor: { x: 0.5, y: 0.5 },
+            isExact: false,
+            isPrecise: false,
+            snap: 'none',
+          },
+        });
+      }
+
+      // Remove arrows whose backing edge has been deleted.
+      const existingArrows = editor
+        .getCurrentPageShapes()
+        .filter((s) => s.type === 'arrow' && s.id.startsWith(EDGE_ARROW_PREFIX));
+      const toRemove = existingArrows.filter((s) => !desiredArrowIds.has(s.id));
+      if (toRemove.length > 0) editor.deleteShapes(toRemove.map((s) => s.id));
+    } finally {
+      queueMicrotask(() => {
+        applyingRemoteRef.current = false;
+      });
+    }
+  }, [editor, nodes, edges]);
 
   // Editor -> Convex: listen for user moves and deletions.
   useEffect(() => {

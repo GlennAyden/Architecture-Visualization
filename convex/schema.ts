@@ -61,4 +61,23 @@ export default defineSchema({
     message: v.string(),
     metadata: v.optional(v.any()),
   }).index('by_node', ['nodeId']),
+
+  // Directed edges between nodes. `hierarchy` is mirrored from `nodes.parentId`
+  // and auto-maintained on create/cascade-delete; other types are reserved for
+  // future sprints (dependency, navigation, data_flow). The `type` field is an
+  // enum-from-day-one to keep migrations cheap once the other kinds land.
+  nodeEdges: defineTable({
+    projectId: v.id('projects'),
+    sourceNodeId: v.id('nodes'),
+    targetNodeId: v.id('nodes'),
+    type: v.union(
+      v.literal('hierarchy'),
+      v.literal('dependency'),
+      v.literal('navigation'),
+      v.literal('data_flow'),
+    ),
+  })
+    .index('by_project', ['projectId'])
+    .index('by_source', ['sourceNodeId'])
+    .index('by_target', ['targetNodeId']),
 });

@@ -1,10 +1,12 @@
 import { Id } from '../_generated/dataModel';
 import { MutationCtx } from '../_generated/server';
+import { removeEdgesForNode } from './edges';
 
 /**
  * Delete a node together with everything that hangs off it: child nodes
- * (nested features), linked files, and kanban tasks. Recursive so deleting
- * a parent of nested features cascades cleanly.
+ * (nested features), linked files, kanban tasks, activity log, and any
+ * edges referencing it. Recursive so deleting a parent of nested features
+ * cascades cleanly.
  */
 export async function deleteNodeCascade(ctx: MutationCtx, nodeId: Id<'nodes'>) {
   const node = await ctx.db.get(nodeId);
@@ -41,6 +43,8 @@ export async function deleteNodeCascade(ctx: MutationCtx, nodeId: Id<'nodes'>) {
   for (const entry of activity) {
     await ctx.db.delete(entry._id);
   }
+
+  await removeEdgesForNode(ctx, nodeId);
 
   await ctx.db.delete(nodeId);
 }

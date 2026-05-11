@@ -38,10 +38,11 @@ export default function CanvasPage() {
   const projectId = params.projectId as Id<'projects'>;
   const project = useQuery(api.projects.get, { id: projectId });
   const nodes = useQuery(api.nodes.listByProject, { projectId });
+  const edges = useQuery(api.nodeEdges.listByProject, { projectId });
   const openModal = useModalStore((s) => s.open);
 
   const [editor, setEditor] = useState<Editor | null>(null);
-  useCanvasSync({ editor, nodes });
+  useCanvasSync({ editor, nodes, edges });
 
   // Redirect when the project is gone (e.g. cascade-deleted in another tab).
   // Must run as an effect, not during render, to avoid setState-in-render warnings.

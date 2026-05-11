@@ -2,6 +2,7 @@ import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 import { getNodeIfOwned, getProjectIfOwned, requireProjectAccess } from './lib/auth';
 import { deleteNodeCascade } from './lib/cascade';
+import { ensureHierarchyEdge } from './lib/edges';
 
 export const listByProject = query({
   args: { projectId: v.id('projects') },
@@ -45,7 +46,7 @@ export const create = mutation({
       }
     }
 
-    return await ctx.db.insert('nodes', {
+    const nodeId = await ctx.db.insert('nodes', {
       projectId: args.projectId,
       parentId: args.parentId,
       type: args.type,
@@ -53,6 +54,12 @@ export const create = mutation({
       positionX: args.positionX,
       positionY: args.positionY,
     });
+
+    if (args.parentId) {
+      await ensureHierarchyEdge(ctx, args.projectId, args.parentId, nodeId);
+    }
+
+    return nodeId;
   },
 });
 
