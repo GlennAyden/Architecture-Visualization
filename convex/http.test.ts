@@ -263,3 +263,65 @@ describe('POST /api/mcp/nodes/create', () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe('POST /api/mcp/nodes/update', () => {
+  test('200 updates description', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, rawToken } = await seedTokenForUser(t);
+    const nodeId = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'X',
+      positionX: 0,
+      positionY: 0,
+    });
+
+    const res = await t.fetch('/api/mcp/nodes/update', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId, description: 'updated desc' }),
+    });
+    expect(res.status).toBe(200);
+    const node = await asUser.query(api.nodes.get, { id: nodeId });
+    expect(node?.description).toEqual('updated desc');
+  });
+
+  test('403 for node outside token scope', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, rawToken } = await seedTokenForUser(t);
+    const other = await asUser.mutation(api.projects.create, { name: 'Other' });
+    const foreign = await asUser.mutation(api.nodes.create, {
+      projectId: other,
+      type: 'page',
+      name: 'Leaked',
+      positionX: 0,
+      positionY: 0,
+    });
+
+    const res = await t.fetch('/api/mcp/nodes/update', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: foreign, name: 'pwned' }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  test('400 when no fields are updated', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, rawToken } = await seedTokenForUser(t);
+    const nodeId = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'X',
+      positionX: 0,
+      positionY: 0,
+    });
+
+    const res = await t.fetch('/api/mcp/nodes/update', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId }),
+    });
+    expect(res.status).toBe(400);
+  });
+});

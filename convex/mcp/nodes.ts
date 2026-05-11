@@ -129,3 +129,38 @@ export const createForProject = internalMutation({
     return { nodeId, name: trimmed };
   },
 });
+
+export const updateForProject = internalMutation({
+  args: {
+    userId: v.id('profiles'),
+    scopeProjectId: v.id('projects'),
+    nodeId: v.id('nodes'),
+    name: v.optional(v.string()),
+    description: v.optional(v.string()),
+    positionX: v.optional(v.number()),
+    positionY: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const node = await ctx.db.get(args.nodeId);
+    if (!node) return; // idempotent
+    await requireOwnership(ctx, args.userId, node.projectId);
+    if (node.projectId !== args.scopeProjectId) {
+      throw new ForbiddenError('Node not in token scope');
+    }
+
+    const patch: Partial<typeof node> = {};
+    if (args.name !== undefined) {
+      const trimmed = args.name.trim();
+      if (trimmed.length === 0) throw new Error('Node name is required');
+      if (trimmed.length > 80) throw new Error('Node name must be 80 characters or fewer');
+      patch.name = trimmed;
+    }
+    if (args.description !== undefined) patch.description = args.description.trim() || undefined;
+    if (args.positionX !== undefined) patch.positionX = args.positionX;
+    if (args.positionY !== undefined) patch.positionY = args.positionY;
+
+    if (Object.keys(patch).length > 0) {
+      await ctx.db.patch(args.nodeId, patch);
+    }
+  },
+});
