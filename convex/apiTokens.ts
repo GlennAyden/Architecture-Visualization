@@ -1,5 +1,5 @@
 import { v } from 'convex/values';
-import { internalMutation, mutation, query } from './_generated/server';
+import { internalMutation, internalQuery, mutation, query } from './_generated/server';
 import { UnauthorizedError, getProfile, requireProjectAccess } from './lib/auth';
 import { generateRawToken, hashToken } from './lib/tokens';
 import { tokenNameSchema } from '@arch-viz/shared';
@@ -88,5 +88,12 @@ export const verifyToken = internalMutation({
       projectId: token.projectId,
       tokenId: token._id,
     };
+  },
+});
+
+export const getTokenForHealth = internalQuery({
+  args: { tokenId: v.id('apiTokens') },
+  handler: async (ctx, { tokenId }) => {
+    return await ctx.db.get(tokenId);
   },
 });
