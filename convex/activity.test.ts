@@ -1,6 +1,6 @@
 import { convexTest } from 'convex-test';
 import { describe, expect, test } from 'vitest';
-import { api } from './_generated/api';
+import { api, internal } from './_generated/api';
 import schema from './schema';
 
 const modules = import.meta.glob('./**/*.{ts,js}');
@@ -242,5 +242,83 @@ describe('activity.listByProject', () => {
       limit: 4,
     });
     expect(entries).toHaveLength(4);
+  });
+});
+
+describe('activity.cleanup', () => {
+  // Drive `cutoff` into the future by passing a negative retention. Every
+  // entry's _creationTime is in the past, so all qualify as "stale".
+  // Keeps the test independent of clock manipulation.
+  const ALL_STALE = -1;
+
+  test('deletes every entry when retentionDays is negative', async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fakeIdentity('user_a', 'a@example.com'));
+    const projectId = await asUser.mutation(api.projects.create, { name: 'P' });
+    const nodeId = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'Home',
+      positionX: 0,
+      positionY: 0,
+    });
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 3; i++) {
+        await ctx.db.insert('activityLog', { nodeId, actor: 'a', message: `e${i}` });
+      }
+    });
+
+    const result = await t.mutation(internal.activity.cleanup, {
+      retentionDays: ALL_STALE,
+    });
+    expect(result.deleted).toBe(3);
+    expect(await asUser.query(api.activity.listByNode, { nodeId })).toEqual([]);
+  });
+
+  test('keeps entries newer than retention window', async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fakeIdentity('user_a', 'a@example.com'));
+    const projectId = await asUser.mutation(api.projects.create, { name: 'P' });
+    const nodeId = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'Home',
+      positionX: 0,
+      positionY: 0,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert('activityLog', { nodeId, actor: 'a', message: 'fresh' });
+    });
+
+    const result = await t.mutation(internal.activity.cleanup, {});
+    expect(result.deleted).toBe(0);
+    const entries = await asUser.query(api.activity.listByNode, { nodeId });
+    expect(entries.map((e) => e.message)).toEqual(['fresh']);
+  });
+
+  test('respects batchLimit so a long-untouched DB does not get deleted all at once', async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fakeIdentity('user_a', 'a@example.com'));
+    const projectId = await asUser.mutation(api.projects.create, { name: 'P' });
+    const nodeId = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'Home',
+      positionX: 0,
+      positionY: 0,
+    });
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 10; i++) {
+        await ctx.db.insert('activityLog', { nodeId, actor: 'a', message: `e${i}` });
+      }
+    });
+
+    const result = await t.mutation(internal.activity.cleanup, {
+      retentionDays: ALL_STALE,
+      batchLimit: 3,
+    });
+    expect(result.deleted).toBe(3);
+    const remaining = await asUser.query(api.activity.listByNode, { nodeId });
+    expect(remaining).toHaveLength(7);
   });
 });

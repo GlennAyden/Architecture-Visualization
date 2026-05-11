@@ -17,3 +17,6 @@ coverage/
 *.tsbuildinfo
 .eslintcache
 .prettiercache
+
+# Per-user Claude Code overrides; project-level .claude/settings.json + hooks stay tracked
+.claude/settings.local.json

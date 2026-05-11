@@ -583,3 +583,136 @@ describe('POST /api/mcp/activity/log', () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe('POST /api/mcp/activity/log_by_file', () => {
+  test('200 matched:true when the file path is linked to a node in scope', async () => {
+    const t = convexTest(schema, modules);
+    const { projectId, rawToken } = await seedTokenForUser(t);
+    const asUser = t.withIdentity(fakeIdentity('user_a', 'a@example.com'));
+    const nodeId = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'Login',
+      positionX: 0,
+      positionY: 0,
+    });
+    await asUser.mutation(api.nodeFiles.add, {
+      nodeId,
+      path: 'apps/web/components/login.tsx',
+    });
+
+    const res = await t.fetch('/api/mcp/activity/log_by_file', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        filePath: 'apps/web/components/login.tsx',
+        actor: 'hook:claude-code',
+        message: 'Edited apps/web/components/login.tsx',
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.matched).toBe(true);
+    expect(body.nodeId).toBe(nodeId);
+
+    const entries = await t.run(async (ctx) =>
+      ctx.db.query('activityLog').collect(),
+    );
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.actor).toBe('hook:claude-code');
+  });
+
+  test('200 matched:false when no node has the path linked (hook can silently no-op)', async () => {
+    const t = convexTest(schema, modules);
+    const { rawToken } = await seedTokenForUser(t);
+
+    const res = await t.fetch('/api/mcp/activity/log_by_file', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        filePath: 'apps/web/random-file.tsx',
+        actor: 'hook:claude-code',
+        message: 'should silently skip',
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.matched).toBe(false);
+
+    const entries = await t.run(async (ctx) =>
+      ctx.db.query('activityLog').collect(),
+    );
+    expect(entries).toEqual([]);
+  });
+
+  test('does not match a node owned by a different project (token scope guard)', async () => {
+    const t = convexTest(schema, modules);
+    // The token's project is `projectId`.
+    const { projectId, rawToken } = await seedTokenForUser(t);
+    const asUser = t.withIdentity(fakeIdentity('user_a', 'a@example.com'));
+
+    // A second project owned by the same user, with the same file linked.
+    const otherProjectId = await asUser.mutation(api.projects.create, {
+      name: 'Other',
+    });
+    const otherNodeId = await asUser.mutation(api.nodes.create, {
+      projectId: otherProjectId,
+      type: 'page',
+      name: 'Other',
+      positionX: 0,
+      positionY: 0,
+    });
+    await asUser.mutation(api.nodeFiles.add, {
+      nodeId: otherNodeId,
+      path: 'apps/web/components/login.tsx',
+    });
+
+    // Token is scoped to `projectId` — must not log into the other project.
+    const res = await t.fetch('/api/mcp/activity/log_by_file', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        filePath: 'apps/web/components/login.tsx',
+        actor: 'hook:claude-code',
+        message: 'should not cross project boundary',
+      }),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).matched).toBe(false);
+    expect(projectId).not.toBe(otherProjectId);
+
+    const entries = await t.run(async (ctx) =>
+      ctx.db.query('activityLog').collect(),
+    );
+    expect(entries).toEqual([]);
+  });
+
+  test('normalizes Windows backslashes in the file path', async () => {
+    const t = convexTest(schema, modules);
+    const { projectId, rawToken } = await seedTokenForUser(t);
+    const asUser = t.withIdentity(fakeIdentity('user_a', 'a@example.com'));
+    const nodeId = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'Win',
+      positionX: 0,
+      positionY: 0,
+    });
+    await asUser.mutation(api.nodeFiles.add, {
+      nodeId,
+      path: 'apps/web/components/login.tsx',
+    });
+
+    const res = await t.fetch('/api/mcp/activity/log_by_file', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        filePath: 'apps\\web\\components\\login.tsx',
+        actor: 'hook:claude-code',
+        message: 'from windows shell',
+      }),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).matched).toBe(true);
+  });
+});

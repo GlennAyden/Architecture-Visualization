@@ -6,6 +6,7 @@ import {
   getNodeInput,
   linkFilesInput,
   listNodesInput,
+  logActivityByFileInput,
   logActivityInput,
   updateKanbanStatusInput,
   updateNodeInput,
@@ -226,6 +227,32 @@ http.route({
       });
       return { ok: true };
     },
+  }),
+});
+
+/* -------------------------------------------------------------------------- */
+/* /api/mcp/activity/log_by_file                                              */
+/*                                                                            */
+/* Hook-friendly endpoint: caller passes a repo-relative file path, server   */
+/* resolves the linked node. Returns `{ matched: false }` when no node has   */
+/* that file linked so a hook can no-op silently. Used by                    */
+/* `.claude/hooks/log-activity.mjs` after Edit/Write tool calls.             */
+/* -------------------------------------------------------------------------- */
+
+http.route({
+  path: '/api/mcp/activity/log_by_file',
+  method: 'POST',
+  handler: withMcpRoute({
+    input: logActivityByFileInput,
+    run: async (ctx, auth, input) =>
+      ctx.runMutation(internal.mcp.activity.logByFile, {
+        userId: auth.userId,
+        scopeProjectId: auth.projectId,
+        filePath: input.filePath,
+        actor: input.actor,
+        message: input.message,
+        metadata: input.metadata,
+      }),
   }),
 });
 

@@ -82,16 +82,15 @@ docs/             superpowers/specs/ (design spec) and superpowers/plans/ (phase
 
 ## MCP server
 
-Build the stdio MCP server:
+The stdio MCP server is published to npm as [`arch-viz-mcp`](https://www.npmjs.com/package/arch-viz-mcp). Wire it into your MCP client with `npx -y arch-viz-mcp` and three env vars — see [`apps/mcp-server/README.md`](apps/mcp-server/README.md). The server talks to Convex HTTP actions on `.convex.site` (not `.convex.cloud`).
 
-```bash
-pnpm --filter @arch-viz/mcp-server build
-```
+## Claude Code hooks (auto-log file edits)
 
-Then configure your MCP client (Claude Code, Cursor, etc.) per [`apps/mcp-server/README.md`](apps/mcp-server/README.md). Note that the server talks to Convex HTTP actions on `.convex.site` (not `.convex.cloud`).
+`.claude/hooks/log-activity.mjs` runs after every Claude Code `Edit` / `Write` / `MultiEdit` and asks Convex to append an activity entry to whichever node has that file linked. Silent no-op when the file isn't linked, the env is missing, or the API call fails — never blocks tool execution.
+
+Hook reads `ARCHITECTURE_CONVEX_URL`, `ARCHITECTURE_API_KEY`, `ARCHITECTURE_PROJECT_ID` from process env first, then falls back to repo-root `.env.local`. Wired up in [`.claude/settings.json`](.claude/settings.json).
 
 ## What's not done
 
-- Production deploy on Vercel + Convex prod.
 - Drill-down navigation for nested features.
 - Multi-user invite flow.

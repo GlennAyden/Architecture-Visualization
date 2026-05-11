@@ -75,3 +75,12 @@ export const logActivityInput = z
     metadata: z.unknown().optional(),
   })
   .strict();
+
+export const logActivityByFileInput = z
+  .object({
+    filePath: pathPattern,
+    actor: z.string().trim().min(1).max(80),
+    message: z.string().trim().min(1).max(2000),
+    metadata: z.unknown().optional(),
+  })
+  .strict();

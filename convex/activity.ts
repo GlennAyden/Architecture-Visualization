@@ -1,10 +1,12 @@
 import { v } from 'convex/values';
-import { query } from './_generated/server';
+import { internalMutation, query } from './_generated/server';
 import { getNodeIfOwned, getProjectIfOwned } from './lib/auth';
 
 const DEFAULT_LIMIT = 50;
 const PROJECT_DEFAULT_LIMIT = 100;
 const PROJECT_MAX_LIMIT = 500;
+const RETENTION_DAYS = 90;
+const CLEANUP_BATCH_LIMIT = 500;
 
 /**
  * Lists activity log entries for a node, newest first.
@@ -84,5 +86,34 @@ export const listByProject = query({
         nodeId: entry.nodeId,
         nodeName: nodeNameById.get(entry.nodeId as string) ?? '(deleted node)',
       }));
+  },
+});
+
+/**
+ * Daily cron target. Deletes activity entries older than RETENTION_DAYS.
+ *
+ * Personal-tool scale: a full table scan via `.collect()` would be cheapest
+ * at current row counts, but we cap each run at CLEANUP_BATCH_LIMIT so a
+ * long-untouched deployment doesn't get hit with a multi-second delete on
+ * the first run. Subsequent days catch up.
+ */
+export const cleanup = internalMutation({
+  args: {
+    retentionDays: v.optional(v.number()),
+    batchLimit: v.optional(v.number()),
+  },
+  handler: async (ctx, { retentionDays, batchLimit }) => {
+    const days = retentionDays ?? RETENTION_DAYS;
+    const limit = Math.min(batchLimit ?? CLEANUP_BATCH_LIMIT, 5000);
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+
+    const stale = await ctx.db
+      .query('activityLog')
+      .filter((q) => q.lt(q.field('_creationTime'), cutoff))
+      .take(limit);
+
+    for (const entry of stale) await ctx.db.delete(entry._id);
+
+    return { deleted: stale.length, cutoff, retentionDays: days };
   },
 });
