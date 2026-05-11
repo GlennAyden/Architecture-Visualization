@@ -5,6 +5,7 @@ import {
   deleteNodeInput,
   getNodeInput,
   linkFilesInput,
+  listNodesInput,
   logActivityInput,
   updateKanbanStatusInput,
   updateNodeInput,
@@ -13,8 +14,17 @@ import { httpAction } from './_generated/server';
 import { internal } from './_generated/api';
 import { Id } from './_generated/dataModel';
 import { errorResponse, jsonResponse, requireApiToken } from './lib/mcpAuth';
+import { withMcpRoute } from './lib/mcpRoute';
 
 const http = httpRouter();
+
+/* -------------------------------------------------------------------------- */
+/* /api/mcp/health                                                            */
+/*                                                                            */
+/* Kept inline (not via withMcpRoute) because it has unique multi-step logic: */
+/* it joins the project + token name and uses a custom 404 message when the   */
+/* token's project has been deleted out from under it.                        */
+/* -------------------------------------------------------------------------- */
 
 http.route({
   path: '/api/mcp/health',
@@ -56,286 +66,166 @@ http.route({
   }),
 });
 
+/* -------------------------------------------------------------------------- */
+/* MCP tool routes                                                            */
+/*                                                                            */
+/* Each route shares the same pipeline (auth → Zod parse → run → JSON), so    */
+/* we use `withMcpRoute` to keep the handler bodies focused on the one piece  */
+/* that actually differs: the call into a `convex/mcp/*` internal handler.    */
+/* -------------------------------------------------------------------------- */
+
 http.route({
   path: '/api/mcp/nodes/list',
   method: 'POST',
-  handler: httpAction(async (ctx, req) => {
-    const auth = await requireApiToken(ctx, req);
-    if (!auth) {
-      return errorResponse(401, 'unauthorized', 'Missing or invalid API token.');
-    }
-    try {
+  handler: withMcpRoute({
+    input: listNodesInput,
+    run: async (ctx, auth) => {
       const nodes = await ctx.runQuery(internal.mcp.nodes.listForProject, {
         userId: auth.userId,
         projectId: auth.projectId,
       });
-      return jsonResponse({ nodes });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('Forbidden')) return errorResponse(403, 'forbidden', msg);
-      if (msg.includes('Not found')) return errorResponse(404, 'not_found', msg);
-      return errorResponse(500, 'internal', msg);
-    }
+      return { nodes };
+    },
   }),
 });
 
 http.route({
   path: '/api/mcp/nodes/get',
   method: 'POST',
-  handler: httpAction(async (ctx, req) => {
-    const auth = await requireApiToken(ctx, req);
-    if (!auth) return errorResponse(401, 'unauthorized', 'Missing or invalid API token.');
-
-    const raw = await req.json().catch(() => ({}));
-    const parsed = getNodeInput.safeParse(raw);
-    if (!parsed.success) {
-      return errorResponse(400, 'invalid_input', parsed.error.issues[0]?.message ?? 'invalid');
-    }
-
-    try {
+  handler: withMcpRoute({
+    input: getNodeInput,
+    run: async (ctx, auth, { nodeId }) => {
       const node = await ctx.runQuery(internal.mcp.nodes.getDetail, {
         userId: auth.userId,
         scopeProjectId: auth.projectId,
-        nodeId: parsed.data.nodeId as Id<'nodes'>,
+        nodeId: nodeId as Id<'nodes'>,
       });
-      return jsonResponse({ node });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('Forbidden') || msg.includes('not in token scope'))
-        return errorResponse(403, 'forbidden', msg);
-      if (msg.includes('Not found') || msg.includes('not found'))
-        return errorResponse(404, 'not_found', msg);
-      return errorResponse(400, 'invalid_input', msg);
-    }
+      return { node };
+    },
   }),
 });
 
 http.route({
   path: '/api/mcp/nodes/create',
   method: 'POST',
-  handler: httpAction(async (ctx, req) => {
-    const auth = await requireApiToken(ctx, req);
-    if (!auth) return errorResponse(401, 'unauthorized', 'Missing or invalid API token.');
-
-    const raw = await req.json().catch(() => ({}));
-    const parsed = createNodeInput.safeParse(raw);
-    if (!parsed.success) {
-      return errorResponse(400, 'invalid_input', parsed.error.issues[0]?.message ?? 'invalid');
-    }
-
-    try {
-      const result = await ctx.runMutation(internal.mcp.nodes.createForProject, {
+  handler: withMcpRoute({
+    input: createNodeInput,
+    run: async (ctx, auth, input) =>
+      ctx.runMutation(internal.mcp.nodes.createForProject, {
         userId: auth.userId,
         scopeProjectId: auth.projectId,
-        type: parsed.data.type,
-        name: parsed.data.name,
-        parentId: parsed.data.parentId as Id<'nodes'> | undefined,
-        description: parsed.data.description,
-        files: parsed.data.files,
-        positionX: parsed.data.positionX,
-        positionY: parsed.data.positionY,
-      });
-      return jsonResponse(result);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('Forbidden') || msg.includes('not in token scope'))
-        return errorResponse(403, 'forbidden', msg);
-      if (msg.includes('Not found')) return errorResponse(404, 'not_found', msg);
-      return errorResponse(400, 'invalid_input', msg);
-    }
+        type: input.type,
+        name: input.name,
+        parentId: input.parentId as Id<'nodes'> | undefined,
+        description: input.description,
+        files: input.files,
+        positionX: input.positionX,
+        positionY: input.positionY,
+      }),
   }),
 });
 
 http.route({
   path: '/api/mcp/nodes/update',
   method: 'POST',
-  handler: httpAction(async (ctx, req) => {
-    const auth = await requireApiToken(ctx, req);
-    if (!auth) return errorResponse(401, 'unauthorized', 'Missing or invalid API token.');
-
-    const raw = await req.json().catch(() => ({}));
-    const parsed = updateNodeInput.safeParse(raw);
-    if (!parsed.success) {
-      return errorResponse(400, 'invalid_input', parsed.error.issues[0]?.message ?? 'invalid');
-    }
-
-    try {
+  handler: withMcpRoute({
+    input: updateNodeInput,
+    run: async (ctx, auth, input) => {
       await ctx.runMutation(internal.mcp.nodes.updateForProject, {
         userId: auth.userId,
         scopeProjectId: auth.projectId,
-        nodeId: parsed.data.nodeId as Id<'nodes'>,
-        name: parsed.data.name,
-        description: parsed.data.description,
-        positionX: parsed.data.positionX,
-        positionY: parsed.data.positionY,
+        nodeId: input.nodeId as Id<'nodes'>,
+        name: input.name,
+        description: input.description,
+        positionX: input.positionX,
+        positionY: input.positionY,
       });
-      return jsonResponse({ ok: true });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('Forbidden') || msg.includes('not in token scope'))
-        return errorResponse(403, 'forbidden', msg);
-      if (msg.includes('Not found')) return errorResponse(404, 'not_found', msg);
-      return errorResponse(400, 'invalid_input', msg);
-    }
+      return { ok: true };
+    },
   }),
 });
 
 http.route({
   path: '/api/mcp/nodes/delete',
   method: 'POST',
-  handler: httpAction(async (ctx, req) => {
-    const auth = await requireApiToken(ctx, req);
-    if (!auth) return errorResponse(401, 'unauthorized', 'Missing or invalid API token.');
-
-    const raw = await req.json().catch(() => ({}));
-    const parsed = deleteNodeInput.safeParse(raw);
-    if (!parsed.success) {
-      return errorResponse(400, 'invalid_input', parsed.error.issues[0]?.message ?? 'invalid');
-    }
-
-    try {
+  handler: withMcpRoute({
+    input: deleteNodeInput,
+    run: async (ctx, auth, { nodeId }) => {
       await ctx.runMutation(internal.mcp.nodes.removeForProject, {
         userId: auth.userId,
         scopeProjectId: auth.projectId,
-        nodeId: parsed.data.nodeId as Id<'nodes'>,
+        nodeId: nodeId as Id<'nodes'>,
       });
-      return jsonResponse({ ok: true });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('Forbidden') || msg.includes('not in token scope'))
-        return errorResponse(403, 'forbidden', msg);
-      if (msg.includes('Not found')) return errorResponse(404, 'not_found', msg);
-      return errorResponse(400, 'invalid_input', msg);
-    }
+      return { ok: true };
+    },
   }),
 });
 
 http.route({
   path: '/api/mcp/files/link',
   method: 'POST',
-  handler: httpAction(async (ctx, req) => {
-    const auth = await requireApiToken(ctx, req);
-    if (!auth) return errorResponse(401, 'unauthorized', 'Missing or invalid API token.');
-
-    const raw = await req.json().catch(() => ({}));
-    const parsed = linkFilesInput.safeParse(raw);
-    if (!parsed.success) {
-      return errorResponse(400, 'invalid_input', parsed.error.issues[0]?.message ?? 'invalid');
-    }
-
-    try {
-      const result = await ctx.runMutation(internal.mcp.files.linkMany, {
+  handler: withMcpRoute({
+    input: linkFilesInput,
+    run: async (ctx, auth, { nodeId, paths }) =>
+      ctx.runMutation(internal.mcp.files.linkMany, {
         userId: auth.userId,
         scopeProjectId: auth.projectId,
-        nodeId: parsed.data.nodeId as Id<'nodes'>,
-        paths: parsed.data.paths,
-      });
-      return jsonResponse(result);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('Forbidden') || msg.includes('not in token scope'))
-        return errorResponse(403, 'forbidden', msg);
-      if (msg.includes('Not found')) return errorResponse(404, 'not_found', msg);
-      return errorResponse(400, 'invalid_input', msg);
-    }
+        nodeId: nodeId as Id<'nodes'>,
+        paths,
+      }),
   }),
 });
 
 http.route({
   path: '/api/mcp/kanban/add',
   method: 'POST',
-  handler: httpAction(async (ctx, req) => {
-    const auth = await requireApiToken(ctx, req);
-    if (!auth) return errorResponse(401, 'unauthorized', 'Missing or invalid API token.');
-
-    const raw = await req.json().catch(() => ({}));
-    const parsed = addKanbanTaskInput.safeParse(raw);
-    if (!parsed.success) {
-      return errorResponse(400, 'invalid_input', parsed.error.issues[0]?.message ?? 'invalid');
-    }
-
-    try {
-      const result = await ctx.runMutation(internal.mcp.kanban.addTask, {
+  handler: withMcpRoute({
+    input: addKanbanTaskInput,
+    run: async (ctx, auth, input) =>
+      ctx.runMutation(internal.mcp.kanban.addTask, {
         userId: auth.userId,
         scopeProjectId: auth.projectId,
-        nodeId: parsed.data.nodeId as Id<'nodes'>,
-        title: parsed.data.title,
-        description: parsed.data.description,
-        status: parsed.data.status,
-      });
-      return jsonResponse(result);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('Forbidden') || msg.includes('not in token scope'))
-        return errorResponse(403, 'forbidden', msg);
-      if (msg.includes('Not found')) return errorResponse(404, 'not_found', msg);
-      return errorResponse(400, 'invalid_input', msg);
-    }
+        nodeId: input.nodeId as Id<'nodes'>,
+        title: input.title,
+        description: input.description,
+        status: input.status,
+      }),
   }),
 });
 
 http.route({
   path: '/api/mcp/kanban/status',
   method: 'POST',
-  handler: httpAction(async (ctx, req) => {
-    const auth = await requireApiToken(ctx, req);
-    if (!auth) return errorResponse(401, 'unauthorized', 'Missing or invalid API token.');
-
-    const raw = await req.json().catch(() => ({}));
-    const parsed = updateKanbanStatusInput.safeParse(raw);
-    if (!parsed.success) {
-      return errorResponse(400, 'invalid_input', parsed.error.issues[0]?.message ?? 'invalid');
-    }
-
-    try {
+  handler: withMcpRoute({
+    input: updateKanbanStatusInput,
+    run: async (ctx, auth, { taskId, status }) => {
       await ctx.runMutation(internal.mcp.kanban.updateStatus, {
         userId: auth.userId,
         scopeProjectId: auth.projectId,
-        taskId: parsed.data.taskId as Id<'kanbanTasks'>,
-        status: parsed.data.status,
+        taskId: taskId as Id<'kanbanTasks'>,
+        status,
       });
-      return jsonResponse({ ok: true });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('Forbidden') || msg.includes('not in token scope'))
-        return errorResponse(403, 'forbidden', msg);
-      if (msg.includes('Not found') || msg.includes('not found'))
-        return errorResponse(404, 'not_found', msg);
-      return errorResponse(400, 'invalid_input', msg);
-    }
+      return { ok: true };
+    },
   }),
 });
 
 http.route({
   path: '/api/mcp/activity/log',
   method: 'POST',
-  handler: httpAction(async (ctx, req) => {
-    const auth = await requireApiToken(ctx, req);
-    if (!auth) return errorResponse(401, 'unauthorized', 'Missing or invalid API token.');
-
-    const raw = await req.json().catch(() => ({}));
-    const parsed = logActivityInput.safeParse(raw);
-    if (!parsed.success) {
-      return errorResponse(400, 'invalid_input', parsed.error.issues[0]?.message ?? 'invalid');
-    }
-
-    try {
+  handler: withMcpRoute({
+    input: logActivityInput,
+    run: async (ctx, auth, input) => {
       await ctx.runMutation(internal.mcp.activity.log, {
         userId: auth.userId,
         scopeProjectId: auth.projectId,
-        nodeId: parsed.data.nodeId as Id<'nodes'>,
-        actor: parsed.data.actor,
-        message: parsed.data.message,
-        metadata: parsed.data.metadata,
+        nodeId: input.nodeId as Id<'nodes'>,
+        actor: input.actor,
+        message: input.message,
+        metadata: input.metadata,
       });
-      return jsonResponse({ ok: true });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('Forbidden') || msg.includes('not in token scope'))
-        return errorResponse(403, 'forbidden', msg);
-      if (msg.includes('Not found')) return errorResponse(404, 'not_found', msg);
-      return errorResponse(400, 'invalid_input', msg);
-    }
+      return { ok: true };
+    },
   }),
 });
 
