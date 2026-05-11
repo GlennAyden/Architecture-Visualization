@@ -54,4 +54,11 @@ export default defineSchema({
     .index('by_user', ['userId'])
     .index('by_project', ['projectId'])
     .index('by_hash', ['tokenHash']),
+
+  activityLog: defineTable({
+    nodeId: v.id('nodes'),
+    actor: v.string(),
+    message: v.string(),
+    metadata: v.optional(v.any()),
+  }).index('by_node', ['nodeId']),
 });
