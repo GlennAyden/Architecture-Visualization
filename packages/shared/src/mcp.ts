@@ -24,6 +24,10 @@ export const createNodeInput = z
   })
   .strict();
 
+// Metadata is a free-form JSON object used for Sprint 3 heuristic edges:
+// `route` (string) feeds the navigation walker (`<Link href=>`); `apiPaths`
+// (string[]) feeds the data-flow walker (`fetch('/api/...')`). Other fields
+// are reserved for future heuristics — keep the shape open.
 export const updateNodeInput = z
   .object({
     nodeId: nodeIdSchema,
@@ -31,6 +35,7 @@ export const updateNodeInput = z
     description: descriptionPattern,
     positionX: z.number().optional(),
     positionY: z.number().optional(),
+    metadata: z.record(z.unknown()).optional(),
   })
   .strict()
   .refine(
@@ -38,7 +43,8 @@ export const updateNodeInput = z
       v.name !== undefined ||
       v.description !== undefined ||
       v.positionX !== undefined ||
-      v.positionY !== undefined,
+      v.positionY !== undefined ||
+      v.metadata !== undefined,
     { message: 'At least one field must be updated' },
   );
 
@@ -112,5 +118,42 @@ export const scanSnapshotPushInput = z
 export const scanSnapshotGetInput = z
   .object({
     kind: scanKindSchema,
+  })
+  .strict();
+
+// Sprint 3 — non-hierarchy edge types. Hierarchy is auto-mirrored from
+// `parentId` and never manipulated through these endpoints.
+export const manualEdgeTypeSchema = z.enum(['dependency', 'navigation', 'data_flow']);
+
+// AI/user-driven edge creation. Reconciles "manually classified" relations
+// the import scanner can't see (cross-language, cross-process).
+export const linkNodesInput = z
+  .object({
+    sourceNodeId: nodeIdSchema,
+    targetNodeId: nodeIdSchema,
+    type: manualEdgeTypeSchema,
+  })
+  .strict()
+  .refine((v) => v.sourceNodeId !== v.targetNodeId, {
+    message: 'source and target must differ',
+  });
+
+export const unlinkNodesInput = linkNodesInput;
+
+// CLI reconcile payload from `arch-viz-mcp scan-imports`. Server diffs each
+// (type, projectId) tuple against the auto-inserted rows and converges.
+// Manual edges (source='manual') survive the reconcile because they encode
+// classifications the import graph can't observe.
+const reconcileEdgeEntry = z
+  .object({
+    sourceNodeId: nodeIdSchema,
+    targetNodeId: nodeIdSchema,
+    type: manualEdgeTypeSchema,
+  })
+  .strict();
+
+export const reconcileEdgesInput = z
+  .object({
+    edges: z.array(reconcileEdgeEntry).max(2000),
   })
   .strict();

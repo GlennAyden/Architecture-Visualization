@@ -67,9 +67,17 @@ export default defineSchema({
   }).index('by_node', ['nodeId']),
 
   // Directed edges between nodes. `hierarchy` is mirrored from `nodes.parentId`
-  // and auto-maintained on create/cascade-delete; other types are reserved for
-  // future sprints (dependency, navigation, data_flow). The `type` field is an
-  // enum-from-day-one to keep migrations cheap once the other kinds land.
+  // and auto-maintained on create/cascade-delete; the remaining types are
+  // populated by Sprint 3 — `dependency` from the TypeScript import graph,
+  // `navigation` from JSX `<Link>` / `router.push` calls, `data_flow` from
+  // `fetch`/`useMutation`/`useQuery` calls against `metadata.apiPaths`.
+  //
+  // The `source` field distinguishes scan-inserted ('auto') edges from
+  // AI/user-inserted ('manual') ones. The reconcile pass from
+  // `arch-viz-mcp scan-imports` only deletes 'auto' rows for the types it
+  // owns — manual edges (e.g. AI's link_nodes for a cross-language Python
+  // → Go relationship) survive reconciliation. Absent = 'auto' for
+  // backwards-compat with Sprint 1 hierarchy edges.
   nodeEdges: defineTable({
     projectId: v.id('projects'),
     sourceNodeId: v.id('nodes'),
@@ -80,10 +88,12 @@ export default defineSchema({
       v.literal('navigation'),
       v.literal('data_flow'),
     ),
+    source: v.optional(v.union(v.literal('auto'), v.literal('manual'))),
   })
     .index('by_project', ['projectId'])
     .index('by_source', ['sourceNodeId'])
-    .index('by_target', ['targetNodeId']),
+    .index('by_target', ['targetNodeId'])
+    .index('by_project_type', ['projectId', 'type']),
 
   // Filesystem scan results pushed from `arch-viz-mcp scan-orphans` and
   // `scan-drift`. Only the most recent row per (projectId, kind) is meaningful;

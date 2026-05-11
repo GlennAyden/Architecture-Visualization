@@ -852,6 +852,298 @@ describe('POST /api/mcp/files/auto_link', () => {
   });
 });
 
+describe('POST /api/mcp/edges/link + unlink + reconcile', () => {
+  async function seedTwoNodes(t: ReturnType<typeof convexTest>) {
+    const { asUser, projectId, rawToken } = await seedTokenForUser(t);
+    const a = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'A',
+      positionX: 0,
+      positionY: 0,
+    });
+    const b = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'B',
+      positionX: 0,
+      positionY: 0,
+    });
+    return { asUser, projectId, rawToken, a, b };
+  }
+
+  // Why: AI's manual classification must persist with source='manual', so a
+  // later scan-imports reconcile won't think it owns the row and delete it.
+  // Without this, every weekly CLI run would silently nuke the AI's
+  // cross-language relations.
+  test('link inserts a manual dependency edge', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, rawToken, a, b } = await seedTwoNodes(t);
+
+    const res = await t.fetch('/api/mcp/edges/link', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ sourceNodeId: a, targetNodeId: b, type: 'dependency' }),
+    });
+    expect(res.status).toBe(200);
+
+    const edges = await asUser.query(api.nodeEdges.listByProject, { projectId });
+    expect(edges).toHaveLength(1);
+    expect(edges[0]!.type).toBe('dependency');
+    expect(edges[0]!.source).toBe('manual');
+  });
+
+  // Why: re-calling link_nodes after the scanner has already inserted the
+  // edge must promote source 'auto' → 'manual', otherwise the AI's
+  // explicit re-assertion gets lost on the next reconcile.
+  test('link upgrades a pre-existing auto edge to manual', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, rawToken, a, b } = await seedTwoNodes(t);
+
+    // Simulate scan: insert via reconcile first (will be source='auto').
+    await t.fetch('/api/mcp/edges/reconcile', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        edges: [{ sourceNodeId: a, targetNodeId: b, type: 'dependency' }],
+      }),
+    });
+    const before = await asUser.query(api.nodeEdges.listByProject, { projectId });
+    expect(before).toHaveLength(1);
+    expect(before[0]!.source).toBe('auto');
+
+    // Now an AI / human re-asserts the relation manually.
+    await t.fetch('/api/mcp/edges/link', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ sourceNodeId: a, targetNodeId: b, type: 'dependency' }),
+    });
+
+    const after = await asUser.query(api.nodeEdges.listByProject, { projectId });
+    expect(after).toHaveLength(1);
+    expect(after[0]!.source).toBe('manual');
+  });
+
+  test('link rejects source==target (400)', async () => {
+    const t = convexTest(schema, modules);
+    const { rawToken, a } = await seedTwoNodes(t);
+    const res = await t.fetch('/api/mcp/edges/link', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ sourceNodeId: a, targetNodeId: a, type: 'dependency' }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  test('link rejects edges crossing project boundary (403)', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, rawToken, a } = await seedTwoNodes(t);
+
+    const otherProject = await asUser.mutation(api.projects.create, { name: 'Other' });
+    const foreign = await asUser.mutation(api.nodes.create, {
+      projectId: otherProject,
+      type: 'page',
+      name: 'Foreign',
+      positionX: 0,
+      positionY: 0,
+    });
+
+    const res = await t.fetch('/api/mcp/edges/link', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ sourceNodeId: a, targetNodeId: foreign, type: 'dependency' }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  test('unlink removes the edge', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, rawToken, a, b } = await seedTwoNodes(t);
+
+    await t.fetch('/api/mcp/edges/link', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ sourceNodeId: a, targetNodeId: b, type: 'navigation' }),
+    });
+
+    const res = await t.fetch('/api/mcp/edges/unlink', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ sourceNodeId: a, targetNodeId: b, type: 'navigation' }),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).removed).toBe(1);
+
+    const edges = await asUser.query(api.nodeEdges.listByProject, { projectId });
+    expect(edges).toEqual([]);
+  });
+
+  // Why: reconcile is called by every CLI run, so it must converge cleanly
+  // when there's nothing to remove — otherwise running `scan-imports` twice
+  // in a row would surface phantom errors.
+  test('unlink idempotent on no-match (removed:0)', async () => {
+    const t = convexTest(schema, modules);
+    const { rawToken, a, b } = await seedTwoNodes(t);
+    const res = await t.fetch('/api/mcp/edges/unlink', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ sourceNodeId: a, targetNodeId: b, type: 'data_flow' }),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).removed).toBe(0);
+  });
+
+  // Why: this is the core contract of reconcile. The CLI emits every edge
+  // the scanner currently sees; anything missing from the emit list that
+  // exists in the DB as `auto` is presumed stale and must be removed.
+  // Without this property, deleted code's edges would persist forever.
+  test('reconcile deletes stale auto edges that the scan did not re-emit', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, rawToken, a, b } = await seedTwoNodes(t);
+    const c = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'C',
+      positionX: 0,
+      positionY: 0,
+    });
+
+    // First scan: discovers A→B AND A→C dependencies.
+    await t.fetch('/api/mcp/edges/reconcile', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        edges: [
+          { sourceNodeId: a, targetNodeId: b, type: 'dependency' },
+          { sourceNodeId: a, targetNodeId: c, type: 'dependency' },
+        ],
+      }),
+    });
+    let edges = await asUser.query(api.nodeEdges.listByProject, { projectId });
+    expect(edges.filter((e) => e.type === 'dependency')).toHaveLength(2);
+
+    // Second scan: import A→C has been removed in the code.
+    const res = await t.fetch('/api/mcp/edges/reconcile', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        edges: [{ sourceNodeId: a, targetNodeId: b, type: 'dependency' }],
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.deleted).toBe(1);
+
+    edges = await asUser.query(api.nodeEdges.listByProject, { projectId });
+    const deps = edges.filter((e) => e.type === 'dependency');
+    expect(deps).toHaveLength(1);
+    expect(deps[0]!.targetNodeId).toBe(b);
+  });
+
+  // Why: the manual-edge survival contract is critical for cross-language
+  // / cross-process classifications. If reconcile wiped manual rows, every
+  // weekly scan would erase the AI's curated knowledge.
+  test('reconcile preserves manual edges across diff passes', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, rawToken, a, b } = await seedTwoNodes(t);
+
+    // AI manually classifies A→B as data_flow (cross-language).
+    await t.fetch('/api/mcp/edges/link', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ sourceNodeId: a, targetNodeId: b, type: 'data_flow' }),
+    });
+
+    // CLI's import scanner cannot see this relation — runs reconcile with
+    // a dependency-only emit list. The manual data_flow edge is for a
+    // different type entirely, so reconcile must leave it untouched.
+    const res = await t.fetch('/api/mcp/edges/reconcile', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        edges: [{ sourceNodeId: a, targetNodeId: b, type: 'dependency' }],
+      }),
+    });
+    expect(res.status).toBe(200);
+
+    const edges = await asUser.query(api.nodeEdges.listByProject, { projectId });
+    const dataFlow = edges.find((e) => e.type === 'data_flow');
+    expect(dataFlow).toBeDefined();
+    expect(dataFlow!.source).toBe('manual');
+  });
+
+  // Why: same-type protection — if the scanner DOES emit edges of the
+  // same type as a manual one, the manual edge still survives because
+  // reconcile only deletes rows with source='auto'.
+  test('reconcile keeps manual edge of the SAME type the scan covers', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, rawToken, a, b } = await seedTwoNodes(t);
+    const c = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'C',
+      positionX: 0,
+      positionY: 0,
+    });
+
+    // Manual dependency A→B (cross-language case the scanner can't see).
+    await t.fetch('/api/mcp/edges/link', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ sourceNodeId: a, targetNodeId: b, type: 'dependency' }),
+    });
+
+    // Scanner emits a dependency A→C but NOT A→B (the manual one).
+    await t.fetch('/api/mcp/edges/reconcile', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        edges: [{ sourceNodeId: a, targetNodeId: c, type: 'dependency' }],
+      }),
+    });
+
+    const edges = await asUser.query(api.nodeEdges.listByProject, { projectId });
+    const deps = edges.filter((e) => e.type === 'dependency');
+    // Both deps survive: the auto A→C from the scan, and the manual A→B.
+    expect(deps).toHaveLength(2);
+    const manual = deps.find((e) => e.targetNodeId === b);
+    expect(manual!.source).toBe('manual');
+  });
+
+  // Why: navigation and data_flow walkers need a way to know a node's
+  // route / API paths. Without metadata propagation through update_node,
+  // the only way to populate these is direct DB writes — which the AI
+  // can't do via MCP, defeating Sprint 3's automation.
+  test('update_node propagates metadata.route + metadata.apiPaths', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, rawToken, a } = await seedTwoNodes(t);
+
+    const res = await t.fetch('/api/mcp/nodes/update', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        nodeId: a,
+        metadata: { route: '/dashboard', apiPaths: ['api.dashboard.summary'] },
+      }),
+    });
+    expect(res.status).toBe(200);
+
+    const node = await asUser.query(api.nodes.get, { id: a });
+    expect(node!.metadata.route).toBe('/dashboard');
+    expect(node!.metadata.apiPaths).toEqual(['api.dashboard.summary']);
+
+    // Second update merges, doesn't replace.
+    await t.fetch('/api/mcp/nodes/update', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: a, metadata: { description_hint: 'home' } }),
+    });
+    const merged = await asUser.query(api.nodes.get, { id: a });
+    expect(merged!.metadata.route).toBe('/dashboard');
+    expect(merged!.metadata.description_hint).toBe('home');
+  });
+});
+
 describe('POST /api/mcp/scans/push + /get_latest', () => {
   // Why: orphan/drift scans are write-once-replace-prev — the UI always reads
   // "the latest" with no need to filter by timestamp. If push left old rows

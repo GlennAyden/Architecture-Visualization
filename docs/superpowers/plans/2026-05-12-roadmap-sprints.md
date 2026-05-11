@@ -1,7 +1,9 @@
 # Architecture Visualization — Roadmap (Sprints 1–5)
 
-> **Status snapshot:** Sprint 1 + Sprint 2 shipped.
-> Sprints 3–5 are planned but not implemented.
+> **Status snapshot:** Sprint 1 + Sprint 2 + Sprint 3 shipped (npm publish
+> for Sprint 3 held back at user request — code merged, v0.3.0 in
+> package.json but not yet on npm; deploy to prod completed).
+> Sprints 4–5 are planned but not implemented.
 > Author: Claude Code session, 2026-05-12.
 
 This is the operating roadmap. Each sprint section is self-contained enough to
@@ -95,6 +97,48 @@ tool yet).
      hot path).
    - Convex prod deployed (`scanSnapshots.by_project_kind` index
      added; no destructive schema changes).
+9. **Sprint 3 (shipped 2026-05-12 — npm publish held back):**
+   - Schema: `nodeEdges.source: 'auto' | 'manual'` (optional, default
+     'auto') + new index `by_project_type`. Manual edges survive scan
+     reconciliations; auto edges are owned by the CLI scanner.
+   - 2 new MCP tools: `link_nodes(source, target, type)` and
+     `unlink_nodes(source, target, type)`. Hierarchy edges are not
+     accessible through either — they remain auto-mirrored from
+     `parentId`. `update_node` now accepts `metadata` (merge semantics)
+     so AI can populate `metadata.route` / `metadata.apiPaths` per node.
+   - 3 new HTTP routes (`/api/mcp/edges/{link,unlink,reconcile}`).
+     Reconcile diff is per (projectId, type) — partial emits in a
+     single type bucket would delete rows the scan didn't cover, so
+     the CLI MUST emit the full per-type list each run.
+   - CLI: `arch-viz-mcp scan-imports` extended with three walkers
+     under `apps/mcp-server/src/cli/walkers/*.ts`:
+     - dependency — origin file's owning node(s) → imported file's
+       owning node(s).
+     - navigation — JSX `<Link href="/...">` + `router.push('/...')`
+       (+ `redirect`) string literals matched against node
+       `metadata.route` (exact).
+     - data_flow — `fetch('/api/...')` string literals + Convex
+       `useMutation(api.foo.bar)` / `useQuery` / `useAction` calls
+       (canonical apiPaths form is the dotted path AFTER the `api.`
+       prefix). Plain `convexClient.mutation(api.x.y)` also matched.
+   - `--skip-edges` flag for development. Reconcile cap 2000 edges.
+     Single batched call covers all three types.
+   - UI: `apps/web/hooks/use-canvas-sync.ts` renders edges with
+     distinct tldraw arrow styles per type — `EDGE_STYLE_BY_TYPE`
+     map is exhaustive against the schema enum (would fail typecheck
+     if a type lands without a style). Hierarchy edges are NOT
+     user-deletable via canvas (un-delete + skip the mutation);
+     dependency / navigation / data_flow can be deleted by the user
+     in tldraw, calling the new `api.nodeEdges.remove` mutation.
+   - 27 new tests (161 → 186 total). 11 walker tests, 11 edge HTTP
+     tests, 3 `nodeEdges.remove` tests, 2 `update_node metadata`,
+     plus a CLI flag parse test.
+   - Deploy: Convex prod live with `nodeEdges.by_project_type` index
+     added. `arch-viz-mcp@0.3.0` built locally but publish to npm
+     held back by user (will publish later via manual `pnpm publish`).
+   - Weekly reconcile cron NOT shipped — Convex cron runs server-side
+     without filesystem access, so it cannot run the scanner. The
+     hook (Sprint 2) plus manual `scan-imports` runs cover the gap.
 
 ---
 
@@ -333,7 +377,16 @@ new path).
 
 ---
 
-## Sprint 3 — **Arrow expansion** (dependency / navigation / data_flow)
+## Sprint 3 — **SHIPPED ✅** (Arrow expansion: dependency / navigation / data_flow)
+
+> See commit on `main` (feat(sprint-3): arrow expansion — dependency +
+> navigation + data_flow). v0.3.0 of `arch-viz-mcp` built but not yet
+> on npm (user request). Open Question #2 resolved: always-rebuild
+> with manual-edge survival via `source: 'auto'|'manual'`. The weekly
+> cron from the original spec was dropped because Convex crons cannot
+> read the filesystem; hook + manual scan-imports cover the gap.
+
+### Original spec (kept for context)
 
 **Goal:** make the canvas show *what* nodes do to each other, not just *which* nests under which. By the end of Sprint 3, a glance at the canvas tells you which features call which features (dependency), which pages route to which pages (navigation), and which pages send data to which features (data_flow).
 

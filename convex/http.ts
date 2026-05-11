@@ -6,11 +6,14 @@ import {
   deleteNodeInput,
   getNodeInput,
   linkFilesInput,
+  linkNodesInput,
   listNodesInput,
   logActivityByFileInput,
   logActivityInput,
+  reconcileEdgesInput,
   scanSnapshotGetInput,
   scanSnapshotPushInput,
+  unlinkNodesInput,
   updateKanbanStatusInput,
   updateNodeInput,
 } from '@arch-viz/shared';
@@ -148,6 +151,7 @@ http.route({
         description: input.description,
         positionX: input.positionX,
         positionY: input.positionY,
+        metadata: input.metadata,
       });
       return { ok: true };
     },
@@ -374,6 +378,65 @@ http.route({
       });
       return { snapshot };
     },
+  }),
+});
+
+/* -------------------------------------------------------------------------- */
+/* /api/mcp/edges/{link,unlink,reconcile}                                     */
+/*                                                                            */
+/* Sprint 3 edge endpoints. `link` / `unlink` are AI-facing manual            */
+/* classification tools. `reconcile` is the CLI's batch update — it diffs    */
+/* the scanner's view of (dependency / navigation / data_flow) against the   */
+/* persisted auto edges and converges, leaving manual edges alone.           */
+/* -------------------------------------------------------------------------- */
+
+http.route({
+  path: '/api/mcp/edges/link',
+  method: 'POST',
+  handler: withMcpRoute({
+    input: linkNodesInput,
+    run: async (ctx, auth, input) =>
+      ctx.runMutation(internal.mcp.edges.linkNodes, {
+        userId: auth.userId,
+        scopeProjectId: auth.projectId,
+        sourceNodeId: input.sourceNodeId as Id<'nodes'>,
+        targetNodeId: input.targetNodeId as Id<'nodes'>,
+        type: input.type,
+      }),
+  }),
+});
+
+http.route({
+  path: '/api/mcp/edges/unlink',
+  method: 'POST',
+  handler: withMcpRoute({
+    input: unlinkNodesInput,
+    run: async (ctx, auth, input) =>
+      ctx.runMutation(internal.mcp.edges.unlinkNodes, {
+        userId: auth.userId,
+        scopeProjectId: auth.projectId,
+        sourceNodeId: input.sourceNodeId as Id<'nodes'>,
+        targetNodeId: input.targetNodeId as Id<'nodes'>,
+        type: input.type,
+      }),
+  }),
+});
+
+http.route({
+  path: '/api/mcp/edges/reconcile',
+  method: 'POST',
+  handler: withMcpRoute({
+    input: reconcileEdgesInput,
+    run: async (ctx, auth, input) =>
+      ctx.runMutation(internal.mcp.edges.reconcileEdges, {
+        userId: auth.userId,
+        scopeProjectId: auth.projectId,
+        edges: input.edges.map((e) => ({
+          sourceNodeId: e.sourceNodeId as Id<'nodes'>,
+          targetNodeId: e.targetNodeId as Id<'nodes'>,
+          type: e.type,
+        })),
+      }),
   }),
 });
 

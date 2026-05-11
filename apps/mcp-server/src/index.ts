@@ -70,7 +70,7 @@ async function runStdioServer(): Promise<void> {
   const client = new ConvexMcpClient(config);
   const server = new McpServer({
     name: 'arch-viz',
-    version: '0.2.0',
+    version: '0.3.0',
   });
 
   registerTools(server, client);

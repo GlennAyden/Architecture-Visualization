@@ -6,6 +6,7 @@ import {
   chunk,
   extractImportSpecifiers,
   isLocalImport,
+  parseScanImportsArgs,
   resolveLocalImport,
 } from './scan-imports.js';
 
@@ -113,5 +114,19 @@ describe('chunk', () => {
     expect(chunk([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
     expect(chunk<number>([], 3)).toEqual([]);
     expect(chunk([1, 2, 3], 10)).toEqual([[1, 2, 3]]);
+  });
+});
+
+describe('parseScanImportsArgs', () => {
+  test('flips skipEdges only when --skip-edges is in argv', () => {
+    // WHY: this flag is the only escape hatch from a partial-emit
+    // disaster — if a user is iterating on a walker locally and the
+    // emit list is incomplete, the reconcile would delete edges the
+    // scan didn't cover. Misparsing the flag (e.g. requiring an =value
+    // form) would defeat the safety valve.
+    expect(parseScanImportsArgs([])).toEqual({ skipEdges: false });
+    expect(parseScanImportsArgs(['--skip-edges'])).toEqual({ skipEdges: true });
+    expect(parseScanImportsArgs(['other', '--skip-edges'])).toEqual({ skipEdges: true });
+    expect(parseScanImportsArgs(['--skipedges'])).toEqual({ skipEdges: false });
   });
 });

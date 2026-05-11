@@ -63,6 +63,10 @@ export const getDetail = internalQuery({
       description: node.description ?? null,
       positionX: node.positionX,
       positionY: node.positionY,
+      // Surface metadata (especially route + apiPaths) so the CLI's
+      // navigation / data-flow walkers can build a route→node and
+      // apiPath→node lookup from a single `nodes/get` pass per node.
+      metadata: (node.metadata ?? null) as Record<string, unknown> | null,
       files: files.map((f) => ({ id: f._id, path: f.path })),
       kanbanTasks: tasks
         .sort((a, b) => a.position - b.position)
@@ -145,6 +149,9 @@ export const updateForProject = internalMutation({
     description: v.optional(v.string()),
     positionX: v.optional(v.number()),
     positionY: v.optional(v.number()),
+    // Free-form JSON. Sprint 3 reads `metadata.route` and `metadata.apiPaths`
+    // from this when running the navigation / data-flow heuristic walkers.
+    metadata: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
     const node = await ctx.db.get(args.nodeId);
@@ -164,6 +171,16 @@ export const updateForProject = internalMutation({
     if (args.description !== undefined) patch.description = args.description.trim() || undefined;
     if (args.positionX !== undefined) patch.positionX = args.positionX;
     if (args.positionY !== undefined) patch.positionY = args.positionY;
+    if (args.metadata !== undefined) {
+      // Merge over existing metadata so a partial update doesn't wipe other
+      // heuristic fields. Pass an empty object to clear, or set specific
+      // keys to undefined / null to remove them.
+      const merged: Record<string, unknown> = {
+        ...(node.metadata as Record<string, unknown> | undefined),
+        ...(args.metadata as Record<string, unknown>),
+      };
+      patch.metadata = merged;
+    }
 
     if (Object.keys(patch).length > 0) {
       await ctx.db.patch(args.nodeId, patch);

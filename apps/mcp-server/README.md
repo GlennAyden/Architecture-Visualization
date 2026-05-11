@@ -29,11 +29,13 @@ Run from the repo root. Each subcommand reuses the same `ARCHITECTURE_*` env var
 | Tool                   | Purpose                                                                 |
 | ---------------------- | ----------------------------------------------------------------------- |
 | `list_nodes`           | Read current canvas state. Call first so the AI knows what exists.      |
-| `get_node`             | Drill into one node — description, linked files, kanban tasks.          |
+| `get_node`             | Drill into one node — description, linked files, kanban tasks, metadata. |
 | `create_node`          | Create a page or feature node. Optional `parentId`, `files`, position.  |
-| `update_node`          | Partial update: name, description, position.                            |
+| `update_node`          | Partial update: name, description, position, `metadata` (route / apiPaths). |
 | `delete_node`          | Cascade-delete a node, its children, files, kanban, and activity log.   |
 | `link_files`           | Attach one or more file paths to a node (dedupes against existing).     |
+| `link_nodes`           | Manually classify an edge (dependency / navigation / data_flow) between two nodes — for cross-language relations the import scanner cannot see. |
+| `unlink_nodes`         | Remove a manually-classified edge. Hierarchy edges are not removable here (they follow `parentId`). |
 | `add_kanban_task`      | Add a task to a node's kanban (status: `todo` / `doing` / `done`).      |
 | `update_kanban_status` | Move a task across columns; auto-positions to bottom of destination.    |
 | `log_activity`         | Append a free-form activity log entry attributing the change to `actor`.|

@@ -114,6 +114,110 @@ describe('nodeEdges hierarchy maintenance', () => {
   });
 });
 
+describe('nodeEdges.remove (UI delete)', () => {
+  // Why: hierarchy edges are derived from parentId. Letting the UI delete
+  // them would create a desync — the parent would still point at the child
+  // but no edge would render. We fail loud so the user picks a different
+  // action (change parentId via update_node) instead of silently breaking.
+  test('rejects deletion of a hierarchy edge', async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fakeIdentity('u', 'u@example.com'));
+    const projectId = await asUser.mutation(api.projects.create, { name: 'P' });
+    const parentId = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'P',
+      positionX: 0,
+      positionY: 0,
+    });
+    await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'feature',
+      name: 'C',
+      parentId,
+      positionX: 0,
+      positionY: 0,
+    });
+    const edges = await asUser.query(api.nodeEdges.listByProject, { projectId });
+    const hierarchyEdgeId = edges[0]!._id;
+
+    await expect(asUser.mutation(api.nodeEdges.remove, { id: hierarchyEdgeId })).rejects.toThrow(
+      /Hierarchy edges cannot be deleted/,
+    );
+  });
+
+  test('removes a non-hierarchy edge', async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fakeIdentity('u', 'u@example.com'));
+    const projectId = await asUser.mutation(api.projects.create, { name: 'P' });
+    const a = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'A',
+      positionX: 0,
+      positionY: 0,
+    });
+    const b = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'B',
+      positionX: 0,
+      positionY: 0,
+    });
+    // Insert a dependency edge directly so we can target it for removal.
+    let edgeId = '' as never;
+    await t.run(async (ctx) => {
+      edgeId = (await ctx.db.insert('nodeEdges', {
+        projectId,
+        sourceNodeId: a,
+        targetNodeId: b,
+        type: 'dependency',
+        source: 'auto',
+      })) as never;
+    });
+
+    await asUser.mutation(api.nodeEdges.remove, { id: edgeId });
+
+    const after = await asUser.query(api.nodeEdges.listByProject, { projectId });
+    expect(after).toEqual([]);
+  });
+
+  test('non-owner cannot delete edges (Unauthorized)', async () => {
+    const t = convexTest(schema, modules);
+    const asA = t.withIdentity(fakeIdentity('a', 'a@example.com'));
+    const asB = t.withIdentity(fakeIdentity('b', 'b@example.com'));
+    const projectId = await asA.mutation(api.projects.create, { name: 'P' });
+    const a = await asA.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'A',
+      positionX: 0,
+      positionY: 0,
+    });
+    const b = await asA.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'B',
+      positionX: 0,
+      positionY: 0,
+    });
+    let edgeId = '' as never;
+    await t.run(async (ctx) => {
+      edgeId = (await ctx.db.insert('nodeEdges', {
+        projectId,
+        sourceNodeId: a,
+        targetNodeId: b,
+        type: 'dependency',
+        source: 'auto',
+      })) as never;
+    });
+
+    await expect(asB.mutation(api.nodeEdges.remove, { id: edgeId })).rejects.toThrow(
+      /Unauthorized/,
+    );
+  });
+});
+
 describe('nodeEdges.backfillHierarchy', () => {
   test('creates missing hierarchy edges for pre-existing parentId rows', async () => {
     const t = convexTest(schema, modules);

@@ -1,6 +1,6 @@
 import { v } from 'convex/values';
-import { internalMutation, query } from './_generated/server';
-import { getProjectIfOwned } from './lib/auth';
+import { internalMutation, mutation, query } from './_generated/server';
+import { getProjectIfOwned, requireProjectAccess } from './lib/auth';
 import { ensureHierarchyEdge } from './lib/edges';
 
 /**
@@ -17,6 +17,31 @@ export const listByProject = query({
       .query('nodeEdges')
       .withIndex('by_project', (q) => q.eq('projectId', projectId))
       .collect();
+  },
+});
+
+/**
+ * UI-driven edge deletion. When the user deletes an arrow on the canvas,
+ * `useCanvasSync` dispatches this mutation. Hierarchy edges throw because
+ * they're auto-mirrored from `parentId` — deleting one would just have it
+ * re-created on the next reconcile, so we surface the conflict instead of
+ * silently no-op'ing.
+ *
+ * Idempotent for already-deleted ids (returns early on null lookup) so a
+ * double-click or stale subscription doesn't error the UI.
+ */
+export const remove = mutation({
+  args: { id: v.id('nodeEdges') },
+  handler: async (ctx, { id }) => {
+    const edge = await ctx.db.get(id);
+    if (!edge) return; // idempotent
+    await requireProjectAccess(ctx, edge.projectId);
+    if (edge.type === 'hierarchy') {
+      throw new Error(
+        'Hierarchy edges cannot be deleted directly. Change the node parentId instead.',
+      );
+    }
+    await ctx.db.delete(id);
   },
 });
 

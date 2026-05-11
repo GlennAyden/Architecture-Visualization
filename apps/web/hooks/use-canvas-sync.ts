@@ -17,6 +17,48 @@ const DEBOUNCE_MS = 250;
 const MANAGED_TYPES = new Set(['page-node', 'feature-node']);
 const EDGE_ARROW_PREFIX = 'shape:edge:';
 
+// Per-type styling for edge arrows. Keep keys aligned with the schema's
+// `nodeEdges.type` union; tldraw 5's arrow shape rejects unknown values, so
+// stick to the documented `DefaultColorStyle` / arrowhead enums.
+type EdgeType = Doc<'nodeEdges'>['type'];
+type EdgeArrowStyle = {
+  dash: 'solid' | 'dashed' | 'dotted' | 'draw';
+  color: 'grey' | 'light-blue' | 'orange';
+  size: 's' | 'm' | 'l' | 'xl';
+  arrowheadStart: 'arrow' | 'triangle' | 'none' | 'dot' | 'pipe';
+  arrowheadEnd: 'arrow' | 'triangle' | 'none' | 'dot' | 'pipe';
+};
+const EDGE_STYLE_BY_TYPE: Record<EdgeType, EdgeArrowStyle> = {
+  hierarchy: {
+    dash: 'solid',
+    color: 'grey',
+    size: 'm',
+    arrowheadStart: 'none',
+    arrowheadEnd: 'arrow',
+  },
+  dependency: {
+    dash: 'dashed',
+    color: 'grey',
+    size: 's',
+    arrowheadStart: 'none',
+    arrowheadEnd: 'arrow',
+  },
+  navigation: {
+    dash: 'solid',
+    color: 'light-blue',
+    size: 'm',
+    arrowheadStart: 'none',
+    arrowheadEnd: 'triangle',
+  },
+  data_flow: {
+    dash: 'dotted',
+    color: 'orange',
+    size: 'm',
+    arrowheadStart: 'none',
+    arrowheadEnd: 'arrow',
+  },
+};
+
 function nodeIdToShapeId(nodeId: Id<'nodes'>): TLShapeId {
   return `shape:${nodeId}` as TLShapeId;
 }
@@ -32,6 +74,53 @@ function shapeIdToNodeId(shapeId: TLShapeId): Id<'nodes'> | null {
 
 function edgeIdToArrowShapeId(edgeId: Id<'nodeEdges'>): TLShapeId {
   return `${EDGE_ARROW_PREFIX}${edgeId}` as TLShapeId;
+}
+
+function shapeIdToEdgeId(shapeId: string): Id<'nodeEdges'> | null {
+  if (!shapeId.startsWith(EDGE_ARROW_PREFIX)) return null;
+  return shapeId.slice(EDGE_ARROW_PREFIX.length) as Id<'nodeEdges'>;
+}
+
+/**
+ * Creates the arrow shape + start/end bindings for an edge. Assumes the
+ * caller has set `applyingRemoteRef.current = true` so the echoing
+ * editor events don't loop back into a mutation. Also assumes both
+ * endpoint shapes already exist on the page.
+ */
+function createEdgeArrow(editor: Editor, edge: Doc<'nodeEdges'>): void {
+  const arrowId = edgeIdToArrowShapeId(edge._id);
+  const style = EDGE_STYLE_BY_TYPE[edge.type];
+  editor.createShape({
+    id: arrowId,
+    type: 'arrow',
+    x: 0,
+    y: 0,
+    props: style,
+  });
+  editor.createBinding({
+    type: 'arrow',
+    fromId: arrowId,
+    toId: nodeIdToShapeId(edge.sourceNodeId),
+    props: {
+      terminal: 'start',
+      normalizedAnchor: { x: 0.5, y: 0.5 },
+      isExact: false,
+      isPrecise: false,
+      snap: 'none',
+    },
+  });
+  editor.createBinding({
+    type: 'arrow',
+    fromId: arrowId,
+    toId: nodeIdToShapeId(edge.targetNodeId),
+    props: {
+      terminal: 'end',
+      normalizedAnchor: { x: 0.5, y: 0.5 },
+      isExact: false,
+      isPrecise: false,
+      snap: 'none',
+    },
+  });
 }
 
 function shapeTypeFor(node: Doc<'nodes'>): 'page-node' | 'feature-node' {
@@ -72,9 +161,15 @@ interface Args {
 export function useCanvasSync({ editor, nodes, edges }: Args) {
   const updateMutation = useMutation(api.nodes.update);
   const removeMutation = useMutation(api.nodes.remove);
+  const removeEdgeMutation = useMutation(api.nodeEdges.remove);
 
   const applyingRemoteRef = useRef(false);
   const debounceTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Latest edges snapshot, mirrored into a ref so the editor.store listener
+  // (which is installed once per editor) can read the current edge map
+  // without forcing a re-subscribe on every edge change.
+  const edgesRef = useRef<Doc<'nodeEdges'>[] | undefined>(edges);
+  edgesRef.current = edges;
 
   // Convex -> editor: reconcile shapes whenever `nodes` changes.
   useEffect(() => {
@@ -172,38 +267,30 @@ export function useCanvasSync({ editor, nodes, edges }: Args) {
         const arrowId = edgeIdToArrowShapeId(edge._id);
         desiredArrowIds.add(arrowId);
 
-        if (editor.getShape(arrowId)) continue;
+        const existing = editor.getShape(arrowId);
+        if (!existing) {
+          createEdgeArrow(editor, edge);
+          continue;
+        }
 
-        editor.createShape({
-          id: arrowId,
-          type: 'arrow',
-          x: 0,
-          y: 0,
-        });
-        editor.createBinding({
-          type: 'arrow',
-          fromId: arrowId,
-          toId: nodeIdToShapeId(edge.sourceNodeId),
-          props: {
-            terminal: 'start',
-            normalizedAnchor: { x: 0.5, y: 0.5 },
-            isExact: false,
-            isPrecise: false,
-            snap: 'none',
-          },
-        });
-        editor.createBinding({
-          type: 'arrow',
-          fromId: arrowId,
-          toId: nodeIdToShapeId(edge.targetNodeId),
-          props: {
-            terminal: 'end',
-            normalizedAnchor: { x: 0.5, y: 0.5 },
-            isExact: false,
-            isPrecise: false,
-            snap: 'none',
-          },
-        });
+        // Sprint 3: each edge type has a distinct visual. Defensive — if the
+        // type swapped (or this edge was rendered before the styling map
+        // existed), patch the affected props back into shape.
+        const style = EDGE_STYLE_BY_TYPE[edge.type];
+        const curProps = existing.props as Record<string, unknown>;
+        const styleDrifted =
+          curProps.dash !== style.dash ||
+          curProps.color !== style.color ||
+          curProps.size !== style.size ||
+          curProps.arrowheadStart !== style.arrowheadStart ||
+          curProps.arrowheadEnd !== style.arrowheadEnd;
+        if (styleDrifted) {
+          editor.updateShape({
+            id: arrowId,
+            type: 'arrow',
+            props: style,
+          });
+        }
       }
 
       // Remove arrows whose backing edge has been deleted.
@@ -230,9 +317,41 @@ export function useCanvasSync({ editor, nodes, edges }: Args) {
         for (const id of Object.keys(entry.changes.removed)) {
           if (!id.startsWith('shape:')) continue;
           const shape = entry.changes.removed[id as keyof typeof entry.changes.removed];
-          if (shape && 'type' in shape && MANAGED_TYPES.has(shape.type as string)) {
+          if (!shape || !('type' in shape)) continue;
+          const shapeType = shape.type as string;
+
+          if (MANAGED_TYPES.has(shapeType)) {
             const nodeId = shapeIdToNodeId(id as TLShapeId);
             if (nodeId) removeMutation({ id: nodeId });
+            continue;
+          }
+
+          // Sprint 3: arrow delete → removeEdge. Hierarchy edges are
+          // auto-mirrored from `parentId`, so we un-delete the arrow on
+          // the spot instead of forwarding the removal.
+          if (shapeType === 'arrow' && id.startsWith(EDGE_ARROW_PREFIX)) {
+            const edgeId = shapeIdToEdgeId(id);
+            if (!edgeId) continue;
+            const edge = edgesRef.current?.find((e) => e._id === edgeId);
+            if (!edge) {
+              // Edge already gone server-side; nothing to do. Avoid calling
+              // the mutation since it'd be a no-op anyway.
+              continue;
+            }
+            if (edge.type === 'hierarchy') {
+              // Recreate inside the remote guard so our own createShape /
+              // createBinding events don't loop back through this listener.
+              applyingRemoteRef.current = true;
+              try {
+                createEdgeArrow(editor, edge);
+              } finally {
+                queueMicrotask(() => {
+                  applyingRemoteRef.current = false;
+                });
+              }
+              continue;
+            }
+            removeEdgeMutation({ id: edgeId });
           }
         }
 
@@ -266,5 +385,5 @@ export function useCanvasSync({ editor, nodes, edges }: Args) {
       for (const t of timers.values()) clearTimeout(t);
       timers.clear();
     };
-  }, [editor, updateMutation, removeMutation]);
+  }, [editor, updateMutation, removeMutation, removeEdgeMutation]);
 }

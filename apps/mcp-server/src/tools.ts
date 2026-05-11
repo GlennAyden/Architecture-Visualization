@@ -20,6 +20,8 @@ export function registerTools(server: McpServer, client: ConvexMcpClient) {
   registerAddKanbanTask(server, client);
   registerUpdateKanbanStatus(server, client);
   registerLogActivity(server, client);
+  registerLinkNodes(server, client);
+  registerUnlinkNodes(server, client);
 }
 
 /* ----------------------------- helpers ----------------------------------- */
@@ -103,13 +105,17 @@ function registerUpdateNode(server: McpServer, client: ConvexMcpClient) {
     'update_node',
     {
       description:
-        'Partially update a node. At least one of name / description / positionX / positionY must be provided.',
+        'Partially update a node. At least one field must be provided. `metadata` is a free-form JSON object; set `metadata.route` (e.g. "/dashboard") so navigation arrows can target this node, and `metadata.apiPaths` (e.g. ["api.auth.login"]) so data-flow arrows resolve to it.',
       inputSchema: {
         nodeId: z.string(),
         name: z.string().optional(),
         description: z.string().optional(),
         positionX: z.number().optional(),
         positionY: z.number().optional(),
+        metadata: z
+          .record(z.unknown())
+          .optional()
+          .describe('Free-form JSON. Merged over existing metadata, not replaced.'),
       },
     },
     async (args) => run(() => client.post('/api/mcp/nodes/update', args)),
@@ -199,5 +205,45 @@ function registerLogActivity(server: McpServer, client: ConvexMcpClient) {
       },
     },
     async (args) => run(() => client.post('/api/mcp/activity/log', args)),
+  );
+}
+
+/* --------------------------- tool: link_nodes ---------------------------- */
+
+function registerLinkNodes(server: McpServer, client: ConvexMcpClient) {
+  server.registerTool(
+    'link_nodes',
+    {
+      description:
+        'Manually classify a directed edge between two nodes (dependency / navigation / data_flow). Use this when you know two nodes are related but the import scanner cannot see it — e.g. cross-language calls, cross-process messaging, or runtime-resolved dynamic dispatch. The edge is marked `manual` and is preserved across scan-imports reconciliations.',
+      inputSchema: {
+        sourceNodeId: z.string(),
+        targetNodeId: z.string(),
+        type: z
+          .enum(['dependency', 'navigation', 'data_flow'])
+          .describe(
+            'dependency = X uses Y; navigation = X links/routes to Y; data_flow = X sends data to Y.',
+          ),
+      },
+    },
+    async (args) => run(() => client.post('/api/mcp/edges/link', args)),
+  );
+}
+
+/* -------------------------- tool: unlink_nodes --------------------------- */
+
+function registerUnlinkNodes(server: McpServer, client: ConvexMcpClient) {
+  server.registerTool(
+    'unlink_nodes',
+    {
+      description:
+        'Remove a previously-classified edge (any source) between two nodes. Hierarchy edges cannot be unlinked through this tool; they follow `parentId`. Idempotent — removing a nonexistent edge is fine.',
+      inputSchema: {
+        sourceNodeId: z.string(),
+        targetNodeId: z.string(),
+        type: z.enum(['dependency', 'navigation', 'data_flow']),
+      },
+    },
+    async (args) => run(() => client.post('/api/mcp/edges/unlink', args)),
   );
 }
