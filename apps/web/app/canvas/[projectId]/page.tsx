@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { useQuery } from 'convex/react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, History } from 'lucide-react';
 import type { Editor, TLComponents } from 'tldraw';
 
 import { api } from '../../../../../convex/_generated/api';
@@ -14,9 +14,10 @@ import { Button } from '@/components/ui/button';
 import { BrandMark } from '@/components/brand-mark';
 import { PageNodeShapeUtil } from '@/components/canvas/page-node-shape';
 import { FeatureNodeShapeUtil } from '@/components/canvas/feature-node-shape';
-import { AddPageButton } from '@/components/canvas/add-page-button';
+import { AddNodeButton } from '@/components/canvas/add-node-button';
 import { NodeModal } from '@/components/node-modal/node-modal';
 import { useCanvasSync } from '@/hooks/use-canvas-sync';
+import { useModalStore } from '@/store/modal-store';
 
 // tldraw uses browser-only APIs; load it client-side only.
 const Tldraw = dynamic(() => import('tldraw').then((m) => m.Tldraw), { ssr: false });
@@ -33,9 +34,11 @@ const components: TLComponents = {
 export default function CanvasPage() {
   const router = useRouter();
   const params = useParams<{ projectId: string }>();
+  const searchParams = useSearchParams();
   const projectId = params.projectId as Id<'projects'>;
   const project = useQuery(api.projects.get, { id: projectId });
   const nodes = useQuery(api.nodes.listByProject, { projectId });
+  const openModal = useModalStore((s) => s.open);
 
   const [editor, setEditor] = useState<Editor | null>(null);
   useCanvasSync({ editor, nodes });
@@ -45,6 +48,17 @@ export default function CanvasPage() {
   useEffect(() => {
     if (project === null) router.replace('/projects');
   }, [project, router]);
+
+  // Allow deep-linking from the activity feed: `?node=<id>` opens the modal
+  // for that node, then strips the param so refreshing doesn't re-trigger.
+  const nodeParam = searchParams.get('node');
+  useEffect(() => {
+    if (!nodeParam || !nodes) return;
+    const exists = nodes.some((n) => n._id === nodeParam);
+    if (!exists) return;
+    openModal(nodeParam as Id<'nodes'>);
+    router.replace(`/canvas/${projectId}`);
+  }, [nodeParam, nodes, openModal, router, projectId]);
 
   if (project === undefined) {
     return <p className="p-8 text-muted-foreground">Loading…</p>;
@@ -75,8 +89,19 @@ export default function CanvasPage() {
           </span>
           <h1 className="text-sm font-medium tracking-tight">{project.name}</h1>
         </div>
-        <div>
-          <AddPageButton projectId={projectId} editor={editor} />
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            nativeButton={false}
+            render={
+              <Link href={`/canvas/${projectId}/activity`}>
+                <History className="h-4 w-4" />
+                Activity
+              </Link>
+            }
+          />
+          <AddNodeButton projectId={projectId} editor={editor} nodes={nodes} />
         </div>
       </header>
       <div className="flex-1">
