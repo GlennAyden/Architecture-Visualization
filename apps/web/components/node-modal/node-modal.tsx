@@ -14,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DescriptionTab } from './description-tab';
 import { LinkedFilesTab } from './linked-files-tab';
 import { KanbanTab } from './kanban-tab';
+import { ActivityTab } from './activity-tab';
 
 export function NodeModal() {
   const selectedNodeId = useModalStore((s) => s.selectedNodeId);
@@ -36,6 +37,7 @@ export function NodeModal() {
               <TabsTrigger value="description">Description</TabsTrigger>
               <TabsTrigger value="files">Linked files</TabsTrigger>
               <TabsTrigger value="kanban">Kanban</TabsTrigger>
+              <TabsTrigger value="activity">Activity</TabsTrigger>
             </TabsList>
             <TabsContent value="description">
               <DescriptionTab nodeId={selectedNodeId} description={node?.description ?? ''} />
@@ -45,6 +47,9 @@ export function NodeModal() {
             </TabsContent>
             <TabsContent value="kanban">
               <KanbanTab nodeId={selectedNodeId} />
+            </TabsContent>
+            <TabsContent value="activity">
+              <ActivityTab nodeId={selectedNodeId} />
             </TabsContent>
           </Tabs>
         )}
