@@ -3,11 +3,18 @@
 import { useEffect, useRef } from 'react';
 import { useMutation } from 'convex/react';
 import type { Editor, TLShapeId } from 'tldraw';
+import {
+  FEATURE_NODE_DEFAULT_HEIGHT,
+  FEATURE_NODE_DEFAULT_WIDTH,
+  PAGE_NODE_DEFAULT_HEIGHT,
+  PAGE_NODE_DEFAULT_WIDTH,
+} from '@arch-viz/shared';
 
 import { api } from '../../../convex/_generated/api';
 import type { Doc, Id } from '../../../convex/_generated/dataModel';
 
 const DEBOUNCE_MS = 250;
+const MANAGED_TYPES = new Set(['page-node', 'feature-node']);
 
 function nodeIdToShapeId(nodeId: Id<'nodes'>): TLShapeId {
   return `shape:${nodeId}` as TLShapeId;
@@ -17,6 +24,26 @@ function shapeIdToNodeId(shapeId: TLShapeId): Id<'nodes'> | null {
   const prefix = 'shape:';
   if (!shapeId.startsWith(prefix)) return null;
   return shapeId.slice(prefix.length) as Id<'nodes'>;
+}
+
+function shapeTypeFor(node: Doc<'nodes'>): 'page-node' | 'feature-node' {
+  return node.type === 'feature' ? 'feature-node' : 'page-node';
+}
+
+function shapePropsFor(node: Doc<'nodes'>, parentName: string | null) {
+  if (node.type === 'feature') {
+    return {
+      name: node.name,
+      parentName,
+      w: FEATURE_NODE_DEFAULT_WIDTH,
+      h: FEATURE_NODE_DEFAULT_HEIGHT,
+    };
+  }
+  return {
+    name: node.name,
+    w: PAGE_NODE_DEFAULT_WIDTH,
+    h: PAGE_NODE_DEFAULT_HEIGHT,
+  };
 }
 
 interface Args {
@@ -47,42 +74,61 @@ export function useCanvasSync({ editor, nodes }: Args) {
     applyingRemoteRef.current = true;
     try {
       const desiredById = new Map(nodes.map((n) => [nodeIdToShapeId(n._id), n]));
-      const existingShapes = editor.getCurrentPageShapes().filter((s) => s.type === 'page-node');
+      const nodesById = new Map(nodes.map((n) => [n._id, n]));
+      const existingShapes = editor
+        .getCurrentPageShapes()
+        .filter((s) => MANAGED_TYPES.has(s.type));
       const existingIds = new Set(existingShapes.map((s) => s.id));
 
       // Remove shapes whose backing node has been deleted.
       const toDelete = existingShapes.filter((s) => !desiredById.has(s.id));
       if (toDelete.length > 0) editor.deleteShapes(toDelete.map((s) => s.id));
 
-      // Create shapes for new nodes; patch shapes whose position drifted.
+      // Create shapes for new nodes; patch shapes whose position / name / parent changed.
       for (const node of nodes) {
         const shapeId = nodeIdToShapeId(node._id);
+        const type = shapeTypeFor(node);
+        const parent = node.parentId ? nodesById.get(node.parentId) : undefined;
+        const parentName = parent?.name ?? null;
+        const props = shapePropsFor(node, parentName);
+
         if (!existingIds.has(shapeId)) {
           editor.createShape({
             id: shapeId,
-            type: 'page-node',
+            type,
             x: node.positionX,
             y: node.positionY,
-            props: {
-              name: node.name,
-              w: 220,
-              h: 96,
-            },
+            props,
           });
         } else {
           const current = editor.getShape(shapeId);
           if (!current) continue;
+          // Shape type may have changed (page <-> feature). Replace by
+          // delete + create rather than trying to mutate type in place.
+          if (current.type !== type) {
+            editor.deleteShapes([shapeId]);
+            editor.createShape({
+              id: shapeId,
+              type,
+              x: node.positionX,
+              y: node.positionY,
+              props,
+            });
+            continue;
+          }
+          const curProps = current.props as Record<string, unknown>;
           const drifted =
             current.x !== node.positionX ||
             current.y !== node.positionY ||
-            (current.props as { name: string }).name !== node.name;
+            curProps.name !== node.name ||
+            (type === 'feature-node' && curProps.parentName !== parentName);
           if (drifted) {
             editor.updateShape({
               id: shapeId,
-              type: 'page-node',
+              type,
               x: node.positionX,
               y: node.positionY,
-              props: { name: node.name, w: 220, h: 96 },
+              props,
             });
           }
         }
@@ -107,7 +153,7 @@ export function useCanvasSync({ editor, nodes }: Args) {
         for (const id of Object.keys(entry.changes.removed)) {
           if (!id.startsWith('shape:')) continue;
           const shape = entry.changes.removed[id as keyof typeof entry.changes.removed];
-          if (shape && 'type' in shape && shape.type === 'page-node') {
+          if (shape && 'type' in shape && MANAGED_TYPES.has(shape.type as string)) {
             const nodeId = shapeIdToNodeId(id as TLShapeId);
             if (nodeId) removeMutation({ id: nodeId });
           }
@@ -115,7 +161,7 @@ export function useCanvasSync({ editor, nodes }: Args) {
 
         for (const [id, [from, to]] of Object.entries(entry.changes.updated)) {
           if (!id.startsWith('shape:')) continue;
-          if ('type' in from && from.type !== 'page-node') continue;
+          if ('type' in from && !MANAGED_TYPES.has(from.type as string)) continue;
           const fromX = (from as { x?: number }).x;
           const fromY = (from as { y?: number }).y;
           const toX = (to as { x?: number }).x;

@@ -13,6 +13,7 @@ import type { Id } from '../../../../../convex/_generated/dataModel';
 import { Button } from '@/components/ui/button';
 import { BrandMark } from '@/components/brand-mark';
 import { PageNodeShapeUtil } from '@/components/canvas/page-node-shape';
+import { FeatureNodeShapeUtil } from '@/components/canvas/feature-node-shape';
 import { AddPageButton } from '@/components/canvas/add-page-button';
 import { NodeModal } from '@/components/node-modal/node-modal';
 import { useCanvasSync } from '@/hooks/use-canvas-sync';
@@ -20,7 +21,7 @@ import { useCanvasSync } from '@/hooks/use-canvas-sync';
 // tldraw uses browser-only APIs; load it client-side only.
 const Tldraw = dynamic(() => import('tldraw').then((m) => m.Tldraw), { ssr: false });
 
-const shapeUtils = [PageNodeShapeUtil];
+const shapeUtils = [PageNodeShapeUtil, FeatureNodeShapeUtil];
 
 // Hide tldraw's default page menu / actions menu since we render our own header.
 const components: TLComponents = {

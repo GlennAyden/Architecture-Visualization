@@ -13,3 +13,6 @@ export type NodeType = z.infer<typeof nodeTypeSchema>;
 
 export const PAGE_NODE_DEFAULT_WIDTH = 220;
 export const PAGE_NODE_DEFAULT_HEIGHT = 96;
+
+export const FEATURE_NODE_DEFAULT_WIDTH = 180;
+export const FEATURE_NODE_DEFAULT_HEIGHT = 72;
