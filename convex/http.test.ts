@@ -525,3 +525,61 @@ describe('POST /api/mcp/kanban/status', () => {
     expect([400, 404]).toContain(res.status);
   });
 });
+
+describe('POST /api/mcp/activity/log', () => {
+  test('200 records an activity entry', async () => {
+    const t = convexTest(schema, modules);
+    const { projectId, rawToken } = await seedTokenForUser(t);
+    const asUser = t.withIdentity(fakeIdentity('user_a', 'a@example.com'));
+    const nodeId = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'X',
+      positionX: 0,
+      positionY: 0,
+    });
+
+    const res = await t.fetch('/api/mcp/activity/log', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        nodeId,
+        actor: 'mcp:claude-code',
+        message: 'Implemented form',
+        metadata: { commit: 'abc123' },
+      }),
+    });
+    expect(res.status).toBe(200);
+
+    const entries = await t.run(async (ctx) =>
+      ctx.db.query('activityLog').collect(),
+    );
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.actor).toEqual('mcp:claude-code');
+    expect(entries[0]!.message).toEqual('Implemented form');
+  });
+
+  test('403 for node outside token scope', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, rawToken } = await seedTokenForUser(t);
+    const other = await asUser.mutation(api.projects.create, { name: 'Other' });
+    const foreign = await asUser.mutation(api.nodes.create, {
+      projectId: other,
+      type: 'page',
+      name: 'X',
+      positionX: 0,
+      positionY: 0,
+    });
+
+    const res = await t.fetch('/api/mcp/activity/log', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        nodeId: foreign,
+        actor: 'mcp:claude-code',
+        message: 'should fail',
+      }),
+    });
+    expect(res.status).toBe(403);
+  });
+});
