@@ -485,3 +485,43 @@ describe('POST /api/mcp/kanban/add', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('POST /api/mcp/kanban/status', () => {
+  test('200 moves task across columns and re-positions', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, rawToken } = await seedTokenForUser(t);
+    const nodeId = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'X',
+      positionX: 0,
+      positionY: 0,
+    });
+    const taskId = await asUser.mutation(api.kanban.create, {
+      nodeId,
+      title: 'T',
+      status: 'todo',
+    });
+
+    const res = await t.fetch('/api/mcp/kanban/status', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ taskId, status: 'done' }),
+    });
+    expect(res.status).toBe(200);
+
+    const tasks = await asUser.query(api.kanban.listByNode, { nodeId });
+    expect(tasks[0]!.status).toEqual('done');
+  });
+
+  test('404 for unknown taskId', async () => {
+    const t = convexTest(schema, modules);
+    const { rawToken } = await seedTokenForUser(t);
+    const res = await t.fetch('/api/mcp/kanban/status', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ taskId: 'kanbanTasks:nope', status: 'done' }),
+    });
+    expect([400, 404]).toContain(res.status);
+  });
+});
