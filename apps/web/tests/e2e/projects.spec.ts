@@ -15,10 +15,11 @@ test.describe('projects page', () => {
     await page.getByLabel('Name').fill('E2E Test Project');
     await page.getByRole('button', { name: 'Create' }).click();
 
-    // After create, we redirect to /canvas/[id]; assert tldraw mounted.
-    await expect(page.getByRole('button', { name: '← Projects' })).toBeVisible();
+    // After create, we redirect to /canvas/[id]; assert the canvas header back-link
+    // rendered (the Button uses `render={<Link>...}` so the accessible role is `link`).
+    await expect(page.getByRole('link', { name: 'Projects' })).toBeVisible();
 
-    await page.getByRole('button', { name: '← Projects' }).click();
+    await page.getByRole('link', { name: 'Projects' }).click();
     await expect(page.getByText('E2E Test Project')).toBeVisible();
 
     // Delete via dropdown.
