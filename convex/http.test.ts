@@ -111,3 +111,67 @@ describe('POST /api/mcp/nodes/list', () => {
     expect(body.nodes[0].name).toEqual('Home');
   });
 });
+
+describe('POST /api/mcp/nodes/get', () => {
+  test('404 for unknown nodeId', async () => {
+    const t = convexTest(schema, modules);
+    const { rawToken } = await seedTokenForUser(t);
+    const res = await t.fetch('/api/mcp/nodes/get', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: 'nodes:notreal' }),
+    });
+    expect([400, 404]).toContain(res.status);
+  });
+
+  test('200 returns node detail with files and kanban', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, rawToken } = await seedTokenForUser(t);
+    const nodeId = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'Settings',
+      positionX: 10,
+      positionY: 20,
+    });
+    await asUser.mutation(api.nodeFiles.add, { nodeId, path: 'src/settings.tsx' });
+    await asUser.mutation(api.kanban.create, {
+      nodeId,
+      title: 'Build form',
+      status: 'doing',
+    });
+
+    const res = await t.fetch('/api/mcp/nodes/get', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.node.name).toEqual('Settings');
+    expect(body.node.files).toHaveLength(1);
+    expect(body.node.files[0].path).toEqual('src/settings.tsx');
+    expect(body.node.kanbanTasks).toHaveLength(1);
+    expect(body.node.kanbanTasks[0].status).toEqual('doing');
+  });
+
+  test('403 when node belongs to a different project than the token', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, rawToken } = await seedTokenForUser(t);
+    const other = await asUser.mutation(api.projects.create, { name: 'Other' });
+    const foreignNode = await asUser.mutation(api.nodes.create, {
+      projectId: other,
+      type: 'page',
+      name: 'Leaked',
+      positionX: 0,
+      positionY: 0,
+    });
+
+    const res = await t.fetch('/api/mcp/nodes/get', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: foreignNode }),
+    });
+    expect(res.status).toBe(403);
+  });
+});

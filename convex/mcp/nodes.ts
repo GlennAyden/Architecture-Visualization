@@ -1,6 +1,6 @@
 import { v } from 'convex/values';
 import { internalQuery } from '../_generated/server';
-import { requireOwnership } from './lib';
+import { ForbiddenError, requireNodeOwnership, requireOwnership } from './lib';
 
 export const getProjectSummary = internalQuery({
   args: { userId: v.id('profiles'), projectId: v.id('projects') },
@@ -31,5 +31,46 @@ export const listForProject = internalQuery({
       positionX: n.positionX,
       positionY: n.positionY,
     }));
+  },
+});
+
+export const getDetail = internalQuery({
+  args: {
+    userId: v.id('profiles'),
+    scopeProjectId: v.id('projects'),
+    nodeId: v.id('nodes'),
+  },
+  handler: async (ctx, { userId, scopeProjectId, nodeId }) => {
+    const node = await requireNodeOwnership(ctx, userId, nodeId);
+    if (node.projectId !== scopeProjectId) {
+      throw new ForbiddenError('Node not in token scope');
+    }
+    const files = await ctx.db
+      .query('nodeFiles')
+      .withIndex('by_node', (q) => q.eq('nodeId', nodeId))
+      .collect();
+    const tasks = await ctx.db
+      .query('kanbanTasks')
+      .withIndex('by_node', (q) => q.eq('nodeId', nodeId))
+      .collect();
+    return {
+      id: node._id,
+      type: node.type,
+      name: node.name,
+      parentId: node.parentId ?? null,
+      description: node.description ?? null,
+      positionX: node.positionX,
+      positionY: node.positionY,
+      files: files.map((f) => ({ id: f._id, path: f.path })),
+      kanbanTasks: tasks
+        .sort((a, b) => a.position - b.position)
+        .map((t) => ({
+          id: t._id,
+          title: t.title,
+          description: t.description ?? null,
+          status: t.status,
+          position: t.position,
+        })),
+    };
   },
 });
