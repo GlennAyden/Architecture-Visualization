@@ -2418,11 +2418,12 @@ In browser at `http://localhost:3000`:
 1. Sign in.
 2. Go to `/settings/tokens`. Pick a project, create a token named "curl smoke", copy the raw value.
 3. Get the Convex deployment URL (usually printed by `convex dev`, like `https://dazzling-seahorse-444.convex.cloud`).
+4. **IMPORTANT:** for HTTP Actions, replace `.convex.cloud` with **`.convex.site`** — Convex serves HTTP routes on a separate domain.
 
 Export to shell (PowerShell):
 
 ```powershell
-$env:URL = "https://dazzling-seahorse-444.convex.cloud"
+$env:URL = "https://dazzling-seahorse-444.convex.site"
 $env:TOKEN = "archv_<paste-token-here>"
 ```
 
