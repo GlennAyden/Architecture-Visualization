@@ -368,3 +368,74 @@ describe('POST /api/mcp/nodes/delete', () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe('POST /api/mcp/files/link', () => {
+  test('200 links multiple paths and dedupes', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, rawToken } = await seedTokenForUser(t);
+    const nodeId = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'Files',
+      positionX: 0,
+      positionY: 0,
+    });
+
+    const res = await t.fetch('/api/mcp/files/link', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        nodeId,
+        paths: ['a.ts', 'b.ts', 'a.ts'],
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.linked).toBe(2);
+
+    const files = await asUser.query(api.nodeFiles.listByNode, { nodeId });
+    expect(files.map((f) => f.path).sort()).toEqual(['a.ts', 'b.ts']);
+  });
+
+  test('200 ignores paths that already exist on the node', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, rawToken } = await seedTokenForUser(t);
+    const nodeId = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'Files',
+      positionX: 0,
+      positionY: 0,
+    });
+    await asUser.mutation(api.nodeFiles.add, { nodeId, path: 'a.ts' });
+
+    const res = await t.fetch('/api/mcp/files/link', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId, paths: ['a.ts', 'b.ts'] }),
+    });
+    expect(res.status).toBe(200);
+    const files = await asUser.query(api.nodeFiles.listByNode, { nodeId });
+    expect(files).toHaveLength(2);
+  });
+
+  test('403 when node is outside token scope', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, rawToken } = await seedTokenForUser(t);
+    const other = await asUser.mutation(api.projects.create, { name: 'O' });
+    const foreign = await asUser.mutation(api.nodes.create, {
+      projectId: other,
+      type: 'page',
+      name: 'X',
+      positionX: 0,
+      positionY: 0,
+    });
+
+    const res = await t.fetch('/api/mcp/files/link', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: foreign, paths: ['a.ts'] }),
+    });
+    expect(res.status).toBe(403);
+  });
+});
