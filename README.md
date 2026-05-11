@@ -1,12 +1,34 @@
 # Architecture Visualization
 
-A living architecture canvas that mirrors the structure of your project and stays in sync with AI-driven development. Each node represents a page or feature with a kanban (todo / doing / done), description, linked files, and activity log.
+A personal living architecture canvas that mirrors the structure of your project and stays in sync with AI-driven development. Each node represents a page or feature and carries a description, linked files, a kanban (todo / doing / done), and an activity log. AI coding agents (Claude Code, Codex, Cursor) update nodes over MCP as they work, so the canvas reflects reality without manual upkeep.
 
-> **Status:** Phase 0 (setup). See `docs/superpowers/specs/2026-05-10-architecture-visualization-design.md` for the full design.
+> **Status:** Phase 3 complete. All MVP features are working end-to-end. Production deploy (Vercel + Convex prod) is deferred.
+
+## What's working
+
+- Drag-create page nodes on a tldraw canvas; edit per-node metadata (name, description, files, kanban, etc.) in a side modal.
+- AI agents create / update / delete nodes via a stdio MCP server that calls Convex HTTP actions.
+- The browser canvas updates live through Convex reactive queries, no manual refresh.
+- Feature nodes render as smaller cyan-accented shapes anchored under their parent page.
+- Every AI action is recorded in an activity log, viewable from the node modal.
+
+## Tags timeline
+
+`phase-0` → `phase-1a` → `phase-1b` → `phase-1c` → `phase-1d` → `ui-v1` → `phase-2a` → `phase-2b` → `phase-3`
 
 ## Stack
 
-TypeScript · Next.js (App Router) · Tailwind CSS 4 + shadcn/ui · tldraw _(Phase 1)_ · Convex · Clerk · Node MCP server _(Phase 2)_ · pnpm workspaces.
+TypeScript · Next.js 16 (App Router) · React 19 · Tailwind CSS 4 + shadcn/ui (zinc + cyan theme) · tldraw 5 · Convex · Clerk · `@modelcontextprotocol/sdk` · pnpm workspaces.
+
+## Repository layout
+
+```
+apps/web          Next.js app (UI + API routes)
+apps/mcp-server   Stdio MCP server (Node.js)
+packages/shared   Zod schemas, shared types
+convex/           Schema, queries, mutations, HTTP actions; MCP internal handlers in convex/mcp/
+docs/             superpowers/specs/ (design spec) and superpowers/plans/ (phase plans)
+```
 
 ## Prerequisites
 
@@ -23,54 +45,53 @@ TypeScript · Next.js (App Router) · Tailwind CSS 4 + shadcn/ui · tldraw _(Pha
    pnpm install
    ```
 
-2. Provision Convex (first time only):
+2. Configure environment. Create `apps/web/.env.local` with:
+
+   ```
+   NEXT_PUBLIC_CONVEX_URL=<your Convex deployment URL>
+   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=...
+   CLERK_SECRET_KEY=...
+   ```
+
+   See `apps/web/.env.example` for the full variable list.
+
+3. Set the Convex deployment env var (one-time):
 
    ```bash
-   pnpm dlx convex@latest dev
+   pnpm exec convex env set CLERK_JWT_ISSUER_DOMAIN "https://<your-instance>.clerk.accounts.dev"
    ```
-
-   Follow prompts: log in, choose **Start a new project**, name it `architecture-visualization`. This creates a `.env.local` at the repo root containing `CONVEX_DEPLOYMENT` and `CONVEX_URL`.
-
-   Then create `apps/web/.env.local` with:
-
-   ```
-   NEXT_PUBLIC_CONVEX_URL=<value of CONVEX_URL from root .env.local>
-   ```
-
-3. Provision Clerk (first time only):
-   - Create an application in https://dashboard.clerk.com.
-   - Copy the publishable and secret keys into `apps/web/.env.local`. See `apps/web/.env.example` for variable names.
-   - Create a JWT template named `convex` (use the Convex preset). Copy the issuer URL.
-   - Set the Convex deployment env var:
-
-     ```bash
-     pnpm dlx convex env set CLERK_JWT_ISSUER_DOMAIN "https://<your-instance>.clerk.accounts.dev"
-     ```
 
 4. Run dev servers in two terminals:
 
    ```bash
-   pnpm dlx convex dev   # backend (run from repo root)
-   pnpm dev              # web app on http://localhost:3000
+   pnpm exec convex dev   # deploys Convex functions and watches for changes
+   pnpm dev               # Next.js web app on http://localhost:3000
    ```
 
-## Repository layout
-
-```
-apps/web          Next.js app (UI + API routes)
-apps/mcp-server   Stdio MCP server (Phase 2)
-packages/shared   Zod schemas, shared types
-convex/           Convex backend (schema, queries, mutations, HTTP actions)
-docs/             Design specs and implementation plans
-```
+5. Open http://localhost:3000.
 
 ## Scripts
 
-| Command               | What it does                             |
-| --------------------- | ---------------------------------------- |
-| `pnpm dev`            | Run the Next.js web app                  |
-| `pnpm dlx convex dev` | Run the Convex dev backend (from root)   |
-| `pnpm lint`           | Run ESLint across the repo (flat config) |
-| `pnpm typecheck`      | Run TypeScript across all workspaces     |
-| `pnpm format`         | Apply Prettier formatting                |
-| `pnpm format:check`   | Verify Prettier formatting               |
+| Command          | What it does                             |
+| ---------------- | ---------------------------------------- |
+| `pnpm dev`       | Run the Next.js web app                  |
+| `pnpm test`      | Run unit / integration tests             |
+| `pnpm lint`      | Run ESLint across the repo (flat config) |
+| `pnpm typecheck` | Run TypeScript across all workspaces     |
+| `pnpm format`    | Apply Prettier formatting                |
+
+## MCP server
+
+Build the stdio MCP server:
+
+```bash
+pnpm --filter @arch-viz/mcp-server build
+```
+
+Then configure your MCP client (Claude Code, Cursor, etc.) per [`apps/mcp-server/README.md`](apps/mcp-server/README.md). Note that the server talks to Convex HTTP actions on `.convex.site` (not `.convex.cloud`).
+
+## What's not done
+
+- Production deploy on Vercel + Convex prod.
+- Drill-down navigation for nested features.
+- Multi-user invite flow.
