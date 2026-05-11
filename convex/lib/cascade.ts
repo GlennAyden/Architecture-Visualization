@@ -34,5 +34,13 @@ export async function deleteNodeCascade(ctx: MutationCtx, nodeId: Id<'nodes'>) {
     await ctx.db.delete(task._id);
   }
 
+  const activity = await ctx.db
+    .query('activityLog')
+    .withIndex('by_node', (q) => q.eq('nodeId', nodeId))
+    .collect();
+  for (const entry of activity) {
+    await ctx.db.delete(entry._id);
+  }
+
   await ctx.db.delete(nodeId);
 }

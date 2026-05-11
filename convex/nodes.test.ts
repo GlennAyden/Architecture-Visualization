@@ -185,3 +185,38 @@ describe('projects.remove cascade', () => {
     });
   });
 });
+
+describe('node cascade deletes activityLog', () => {
+  test('activity entries are deleted when their node is deleted', async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fakeIdentity('user_a', 'a@example.com'));
+    const projectId = await asUser.mutation(api.projects.create, { name: 'P' });
+    const nodeId = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'Home',
+      positionX: 0,
+      positionY: 0,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert('activityLog', {
+        nodeId,
+        actor: 'user',
+        message: 'seed',
+      });
+    });
+
+    let count = await t.run(async (ctx) =>
+      (await ctx.db.query('activityLog').collect()).length,
+    );
+    expect(count).toBe(1);
+
+    await asUser.mutation(api.nodes.remove, { id: nodeId });
+
+    count = await t.run(async (ctx) =>
+      (await ctx.db.query('activityLog').collect()).length,
+    );
+    expect(count).toBe(0);
+  });
+});
