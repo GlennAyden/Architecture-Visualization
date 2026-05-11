@@ -175,3 +175,91 @@ describe('POST /api/mcp/nodes/get', () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe('POST /api/mcp/nodes/create', () => {
+  test('400 for invalid input (missing name)', async () => {
+    const t = convexTest(schema, modules);
+    const { rawToken } = await seedTokenForUser(t);
+    const res = await t.fetch('/api/mcp/nodes/create', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'page' }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  test('200 creates a minimal page node and returns its id', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, rawToken } = await seedTokenForUser(t);
+    const res = await t.fetch('/api/mcp/nodes/create', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'page', name: 'About' }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(typeof body.nodeId).toBe('string');
+    expect(body.name).toBe('About');
+
+    const nodes = await asUser.query(api.nodes.listByProject, {
+      projectId: (await asUser.query(api.projects.list))[0]!._id,
+    });
+    expect(nodes.find((n) => n.name === 'About')).toBeDefined();
+  });
+
+  test('200 creates a feature with parentId, description, and files in one call', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, rawToken } = await seedTokenForUser(t);
+    const parentId = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'Auth',
+      positionX: 0,
+      positionY: 0,
+    });
+
+    const res = await t.fetch('/api/mcp/nodes/create', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        type: 'feature',
+        name: 'OAuth callback',
+        parentId,
+        description: 'Handles /auth/callback',
+        files: ['src/auth/callback.ts', 'src/auth/utils.ts'],
+        positionX: 50,
+        positionY: 50,
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.nodeId).toBeDefined();
+
+    const files = await asUser.query(api.nodeFiles.listByNode, { nodeId: body.nodeId });
+    expect(files.map((f) => f.path).sort()).toEqual(['src/auth/callback.ts', 'src/auth/utils.ts']);
+  });
+
+  test('403 when parentId belongs to a different project', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, rawToken } = await seedTokenForUser(t);
+    const other = await asUser.mutation(api.projects.create, { name: 'Other' });
+    const foreignParent = await asUser.mutation(api.nodes.create, {
+      projectId: other,
+      type: 'page',
+      name: 'X',
+      positionX: 0,
+      positionY: 0,
+    });
+
+    const res = await t.fetch('/api/mcp/nodes/create', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        type: 'feature',
+        name: 'orphan',
+        parentId: foreignParent,
+      }),
+    });
+    expect(res.status).toBe(403);
+  });
+});

@@ -1,5 +1,5 @@
 import { v } from 'convex/values';
-import { internalQuery } from '../_generated/server';
+import { internalMutation, internalQuery } from '../_generated/server';
 import { ForbiddenError, requireNodeOwnership, requireOwnership } from './lib';
 
 export const getProjectSummary = internalQuery({
@@ -72,5 +72,60 @@ export const getDetail = internalQuery({
           position: t.position,
         })),
     };
+  },
+});
+
+export const createForProject = internalMutation({
+  args: {
+    userId: v.id('profiles'),
+    scopeProjectId: v.id('projects'),
+    type: v.union(v.literal('page'), v.literal('feature')),
+    name: v.string(),
+    parentId: v.optional(v.id('nodes')),
+    description: v.optional(v.string()),
+    files: v.optional(v.array(v.string())),
+    positionX: v.optional(v.number()),
+    positionY: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await requireOwnership(ctx, args.userId, args.scopeProjectId);
+
+    const trimmed = args.name.trim();
+    if (trimmed.length === 0) throw new Error('Node name is required');
+    if (trimmed.length > 80) throw new Error('Node name must be 80 characters or fewer');
+
+    if (args.parentId) {
+      const parent = await ctx.db.get(args.parentId);
+      if (!parent || parent.projectId !== args.scopeProjectId) {
+        throw new ForbiddenError('Parent node not in token scope');
+      }
+    }
+
+    // Default position: scatter around origin so AI-created nodes don't stack.
+    const positionX = args.positionX ?? Math.round((Math.random() - 0.5) * 400);
+    const positionY = args.positionY ?? Math.round((Math.random() - 0.5) * 400);
+
+    const nodeId = await ctx.db.insert('nodes', {
+      projectId: args.scopeProjectId,
+      parentId: args.parentId,
+      type: args.type,
+      name: trimmed,
+      description: args.description?.trim() || undefined,
+      positionX,
+      positionY,
+    });
+
+    if (args.files && args.files.length > 0) {
+      const seen = new Set<string>();
+      for (const raw of args.files) {
+        const p = raw.trim();
+        if (p.length === 0 || p.length > 500) continue;
+        if (seen.has(p)) continue;
+        seen.add(p);
+        await ctx.db.insert('nodeFiles', { nodeId, path: p });
+      }
+    }
+
+    return { nodeId, name: trimmed };
   },
 });
