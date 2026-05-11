@@ -45,4 +45,27 @@ http.route({
   }),
 });
 
+http.route({
+  path: '/api/mcp/nodes/list',
+  method: 'POST',
+  handler: httpAction(async (ctx, req) => {
+    const auth = await requireApiToken(ctx, req);
+    if (!auth) {
+      return errorResponse(401, 'unauthorized', 'Missing or invalid API token.');
+    }
+    try {
+      const nodes = await ctx.runQuery(internal.mcp.nodes.listForProject, {
+        userId: auth.userId,
+        projectId: auth.projectId,
+      });
+      return jsonResponse({ nodes });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('Forbidden')) return errorResponse(403, 'forbidden', msg);
+      if (msg.includes('Not found')) return errorResponse(404, 'not_found', msg);
+      return errorResponse(500, 'internal', msg);
+    }
+  }),
+});
+
 export default http;

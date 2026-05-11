@@ -55,3 +55,59 @@ describe('POST /api/mcp/health', () => {
     expect(body.tokenName).toEqual('laptop');
   });
 });
+
+describe('POST /api/mcp/nodes/list', () => {
+  test('401 when no token', async () => {
+    const t = convexTest(schema, modules);
+    const res = await t.fetch('/api/mcp/nodes/list', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  test('200 with empty array when project has no nodes', async () => {
+    const t = convexTest(schema, modules);
+    const { rawToken } = await seedTokenForUser(t);
+    const res = await t.fetch('/api/mcp/nodes/list', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.nodes).toEqual([]);
+  });
+
+  test('200 returns nodes for the token-scoped project only', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, rawToken } = await seedTokenForUser(t);
+    await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'Home',
+      positionX: 0,
+      positionY: 0,
+    });
+
+    // Second project for the same user — its nodes must NOT leak.
+    const otherProject = await asUser.mutation(api.projects.create, { name: 'Other' });
+    await asUser.mutation(api.nodes.create, {
+      projectId: otherProject,
+      type: 'page',
+      name: 'Leaked',
+      positionX: 0,
+      positionY: 0,
+    });
+
+    const res = await t.fetch('/api/mcp/nodes/list', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.nodes).toHaveLength(1);
+    expect(body.nodes[0].name).toEqual('Home');
+  });
+});

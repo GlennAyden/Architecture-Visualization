@@ -13,3 +13,23 @@ export const getProjectSummary = internalQuery({
     }
   },
 });
+
+export const listForProject = internalQuery({
+  args: { userId: v.id('profiles'), projectId: v.id('projects') },
+  handler: async (ctx, { userId, projectId }) => {
+    await requireOwnership(ctx, userId, projectId);
+    const nodes = await ctx.db
+      .query('nodes')
+      .withIndex('by_project', (q) => q.eq('projectId', projectId))
+      .collect();
+    return nodes.map((n) => ({
+      id: n._id,
+      type: n.type,
+      name: n.name,
+      parentId: n.parentId ?? null,
+      description: n.description ?? null,
+      positionX: n.positionX,
+      positionY: n.positionY,
+    }));
+  },
+});
