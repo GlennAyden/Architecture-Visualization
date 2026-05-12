@@ -1,6 +1,7 @@
 import { HTMLContainer, Rectangle2d, ShapeUtil, T, type RecordProps } from 'tldraw';
 import { PAGE_NODE_DEFAULT_HEIGHT, PAGE_NODE_DEFAULT_WIDTH } from '@arch-viz/shared';
 import { useModalStore } from '@/store/modal-store';
+import { useDrillStore } from '@/store/drill-store';
 import type { Id } from '../../../../convex/_generated/dataModel';
 
 declare module 'tldraw' {
@@ -58,6 +59,13 @@ export class PageNodeShapeUtil extends ShapeUtil<Shape> {
     const prefix = 'shape:';
     if (!shapeId.startsWith(prefix)) return;
     const nodeId = shapeId.slice(prefix.length) as Id<'nodes'>;
+    // Sprint 5C: if this node has children, drill in instead of opening the
+    // modal. Leaf nodes preserve the original modal-open behavior.
+    const drill = useDrillStore.getState();
+    if (drill.hasChildren(nodeId)) {
+      drill.drillIn(nodeId);
+      return;
+    }
     useModalStore.getState().open(nodeId);
   }
 

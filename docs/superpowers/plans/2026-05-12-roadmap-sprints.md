@@ -1,8 +1,8 @@
 # Architecture Visualization — Roadmap (Sprints 1–5)
 
-> **Status snapshot:** Sprints 1 + 2 + 3 + 4 shipped (Sprint 3 npm publish
-> still held back — code merged, v0.3.0 in package.json, not on npm).
-> Only Sprint 5 (polish) remains planned but not implemented.
+> **Status snapshot:** All 5 sprints shipped 2026-05-12 (item J of Sprint 5
+> deferred per roadmap). Sprint 3 npm publish still held back — `arch-viz-mcp`
+> v0.3.0 in package.json, not on npm.
 > Author: Claude Code session, 2026-05-12.
 
 This is the operating roadmap. Each sprint section is self-contained enough to
@@ -191,6 +191,47 @@ tool yet).
       additive; existing owners keep working).
     - `arch-viz-mcp` package untouched in Sprint 4 (no new CLI / MCP
       tools). Web app only.
+11. **Sprint 5 (shipped 2026-05-12 — item J deferred):**
+    - Item C — drill-down sub-canvas. New `apps/web/store/drill-store.ts`
+      (Zustand mirror of modal-store) holding `drillNodeId` + a
+      `childrenByParentId` map. Double-clicking a page node that HAS
+      children drills in; leaves and feature nodes still open the modal
+      (conditional dispatch in both shape utils, reads from the store).
+      `useCanvasSync` filters nodes / edges to `{drill root} ∪ descendants`
+      when drill is active. Breadcrumb bar appears below the canvas
+      header: Home → ancestor → … → current, plus `× Exit`. Global
+      Escape exits drill. Drill state resets on `projectId` change.
+      Auto zoom-to-fit on every drill-state flip (200ms anim).
+    - Item F — Cmd-K / Ctrl-K command palette. New
+      `apps/web/components/canvas/command-palette.tsx`. Global window
+      keybinding ignores inputs / textareas / contenteditables when
+      closed. Substring match on node names, exact-prefix ranks first;
+      empty query shows 10 most-recent. Keyboard nav + auto-scroll on
+      highlight. Selection centers the canvas via `editor.centerOnPoint`
+      + opens the node modal.
+    - Item H — Mini-map + auto-fit-on-first-load. Tldraw 5's
+      `DefaultMinimap` plumbed into `<Tldraw components={{Minimap}} />`
+      (its `null` default replaced). New effect tracks
+      `autoFittedFor: projectId` ref; first nodes-loaded render after
+      a `projectId` change runs `editor.zoomToFit()` once.
+    - Item S — Data export. Backend `convex/exports.ts:exportProject`
+      public query returns a versioned (`schemaVersion: 1`) full
+      snapshot — project meta + nodes (with files / kanban / activity
+      joined) + edges. Lenient on access: owner OR member can export
+      (members get the same view they see in the canvas). New
+      `ExportProjectButton` in the canvas header gates the query with
+      `'skip'` until clicked, then builds a Blob and triggers a
+      `download` anchor for `<slug>-YYYYMMDD.json`. Auto-cleans the
+      anchor + revokes the object URL. Null-access surface as inline
+      `text-destructive` for 5s.
+    - Item J — DEFERRED. AI-suggests-new-nodes-post-commit needs deeper
+      Claude Code integration (system-reminder injection or a slash
+      command to surface suggestions) than a single hook can deliver.
+      Captured as future-iteration scope.
+    - 3 new vitest cases for exports (206/206 total; export round-trip,
+      member-can-export, stranger-null).
+    - Deploy: Convex prod live. No new indexes (exports is a query
+      over existing tables). No schema changes.
 
 ---
 
@@ -592,7 +633,14 @@ projectMembers: defineTable({
 
 ---
 
-## Sprint 5 — **Polish** (drill-down, search, mini-map, export, AI suggest)
+## Sprint 5 — **SHIPPED ✅** (Polish: drill-down + search + mini-map + export; item J deferred)
+
+> See commit on `main` (feat(sprint-5): polish — drill-down + Ctrl-K
+> search + mini-map + export). Item J (AI suggests post-commit) deferred
+> per roadmap note — needs Claude Code system-reminder integration that
+> a single hook can't deliver. Other four items shipped end-to-end.
+
+### Original spec (kept for context)
 
 **Goal:** quality-of-life additions that don't fit cleanly into a single
 theme. Pick + ship in whatever order.

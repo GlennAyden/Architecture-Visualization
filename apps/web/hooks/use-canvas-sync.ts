@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useMutation } from 'convex/react';
 import type { Editor, TLShapeId } from 'tldraw';
 import {
@@ -12,6 +12,7 @@ import {
 
 import { api } from '../../../convex/_generated/api';
 import type { Doc, Id } from '../../../convex/_generated/dataModel';
+import { useDrillStore } from '@/store/drill-store';
 
 const DEBOUNCE_MS = 250;
 const MANAGED_TYPES = new Set(['page-node', 'feature-node']);
@@ -127,6 +128,38 @@ function shapeTypeFor(node: Doc<'nodes'>): 'page-node' | 'feature-node' {
   return node.type === 'feature' ? 'feature-node' : 'page-node';
 }
 
+/**
+ * Filters the nodes list down to a drill scope: the drill root plus every
+ * transitive descendant via `parentId`. Used by Sprint 5C drill-down so the
+ * canvas reconcile renders only the drilled-in subtree.
+ */
+function filterToDescendants(
+  nodes: Doc<'nodes'>[],
+  drillNodeId: Id<'nodes'>,
+): Doc<'nodes'>[] {
+  const childrenByParent = new Map<string, Doc<'nodes'>[]>();
+  for (const n of nodes) {
+    if (!n.parentId) continue;
+    const list = childrenByParent.get(n.parentId as string);
+    if (list) list.push(n);
+    else childrenByParent.set(n.parentId as string, [n]);
+  }
+  const visible: Doc<'nodes'>[] = [];
+  const seen = new Set<string>();
+  const stack: string[] = [drillNodeId as string];
+  while (stack.length > 0) {
+    const id = stack.pop() as string;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const node = nodes.find((n) => (n._id as string) === id);
+    if (!node) continue;
+    visible.push(node);
+    const kids = childrenByParent.get(id);
+    if (kids) for (const k of kids) stack.push(k._id as string);
+  }
+  return visible;
+}
+
 function shapePropsFor(node: Doc<'nodes'>, parentName: string | null) {
   if (node.type === 'feature') {
     return {
@@ -163,17 +196,43 @@ export function useCanvasSync({ editor, nodes, edges }: Args) {
   const removeMutation = useMutation(api.nodes.remove);
   const removeEdgeMutation = useMutation(api.nodeEdges.remove);
 
+  const drillNodeId = useDrillStore((s) => s.drillNodeId);
+
+  // Sprint 5C: when drilled in, narrow the visible node set to the drill root
+  // plus its descendants. Edges are filtered analogously below — only edges
+  // whose source AND target are both in the visible set survive.
+  const visibleNodes = useMemo(() => {
+    if (!nodes) return nodes;
+    if (drillNodeId === null) return nodes;
+    return filterToDescendants(nodes, drillNodeId);
+  }, [nodes, drillNodeId]);
+
+  const visibleEdges = useMemo(() => {
+    if (!edges) return edges;
+    if (drillNodeId === null || !visibleNodes) return edges;
+    const visibleIds = new Set(visibleNodes.map((n) => n._id as string));
+    return edges.filter(
+      (e) =>
+        visibleIds.has(e.sourceNodeId as string) && visibleIds.has(e.targetNodeId as string),
+    );
+  }, [edges, visibleNodes, drillNodeId]);
+
   const applyingRemoteRef = useRef(false);
   const debounceTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   // Latest edges snapshot, mirrored into a ref so the editor.store listener
   // (which is installed once per editor) can read the current edge map
   // without forcing a re-subscribe on every edge change.
-  const edgesRef = useRef<Doc<'nodeEdges'>[] | undefined>(edges);
-  edgesRef.current = edges;
+  const edgesRef = useRef<Doc<'nodeEdges'>[] | undefined>(visibleEdges);
+  edgesRef.current = visibleEdges;
 
-  // Convex -> editor: reconcile shapes whenever `nodes` changes.
+  // Convex -> editor: reconcile shapes whenever `nodes` (or the drill scope)
+  // changes. When `drillNodeId` flips, the visible-nodes set swaps and the
+  // reconcile naturally tears down out-of-scope shapes and re-creates the
+  // in-scope ones. After reconcile we fit-view so the user sees the new
+  // scope full-screen (zoomed-out flat view OR zoomed-in subtree).
   useEffect(() => {
-    if (!editor || !nodes) return;
+    if (!editor || !visibleNodes) return;
+    const nodes = visibleNodes;
 
     applyingRemoteRef.current = true;
     try {
@@ -244,14 +303,27 @@ export function useCanvasSync({ editor, nodes, edges }: Args) {
         applyingRemoteRef.current = false;
       });
     }
-  }, [editor, nodes]);
+  }, [editor, visibleNodes]);
+
+  // Sprint 5C: refit the view when drill scope changes so the new visible
+  // set fills the canvas. Runs after the reconcile above settles via
+  // requestAnimationFrame.
+  useEffect(() => {
+    if (!editor) return;
+    const raf = requestAnimationFrame(() => {
+      editor.zoomToFit({ animation: { duration: 200 } });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [editor, drillNodeId]);
 
   // Convex -> editor: reconcile arrow shapes for hierarchy edges. Runs AFTER
   // the nodes effect (declaration order) so source/target shapes exist before
   // bindings reference them. We render arrows with tldraw bindings so they
   // track node moves without our intervention.
   useEffect(() => {
-    if (!editor || !nodes || !edges) return;
+    if (!editor || !visibleNodes || !visibleEdges) return;
+    const nodes = visibleNodes;
+    const edges = visibleEdges;
     const nodeIdSet = new Set(nodes.map((n) => n._id as string));
 
     applyingRemoteRef.current = true;
@@ -304,7 +376,7 @@ export function useCanvasSync({ editor, nodes, edges }: Args) {
         applyingRemoteRef.current = false;
       });
     }
-  }, [editor, nodes, edges]);
+  }, [editor, visibleNodes, visibleEdges]);
 
   // Editor -> Convex: listen for user moves and deletions.
   useEffect(() => {
