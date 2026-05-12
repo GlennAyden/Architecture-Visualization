@@ -20,3 +20,7 @@ coverage/
 
 # Per-user Claude Code overrides; project-level .claude/settings.json + hooks stay tracked
 .claude/settings.local.json
+
+# Sprint 5 item J — post-commit hook writes unlinked-file suggestions here.
+# Per-checkout, never committed: a fresh clone has nothing pending.
+.arch-viz/

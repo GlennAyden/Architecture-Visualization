@@ -1,7 +1,7 @@
 {
   "name": "arch-viz-mcp",
-  "version": "0.3.0",
-  "description": "MCP server bridging stdio to the Architecture Visualization Convex backend. CLI subcommands (scan-imports / scan-orphans / scan-drift) keep the canvas strictly in sync with code; Sprint 3 adds dependency / navigation / data-flow edge inference plus link_nodes / unlink_nodes MCP tools.",
+  "version": "0.4.0",
+  "description": "MCP server bridging stdio to the Architecture Visualization Convex backend. CLI subcommands (scan-imports / scan-orphans / scan-drift) keep the canvas strictly in sync with code. v0.3.0 added dependency / navigation / data-flow edge inference plus link_nodes / unlink_nodes; v0.4.0 adds lookup_files for post-commit unlinked-file suggestions.",
   "keywords": [
     "mcp",
     "model-context-protocol",

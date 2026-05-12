@@ -10,6 +10,7 @@ import {
   listNodesInput,
   logActivityByFileInput,
   logActivityInput,
+  lookupFilesInput,
   reconcileEdgesInput,
   scanSnapshotGetInput,
   scanSnapshotPushInput,
@@ -288,6 +289,29 @@ http.route({
         scopeProjectId: auth.projectId,
         originFilePath: input.originFilePath,
         importedFilePaths: input.importedFilePaths,
+      }),
+  }),
+});
+
+/* -------------------------------------------------------------------------- */
+/* /api/mcp/files/lookup                                                      */
+/*                                                                            */
+/* Sprint 5 item J — bulk diff of incoming paths against the project's       */
+/* nodeFiles set. Post-commit hook calls this to figure out which files in   */
+/* a git diff aren't yet tracked, so the next chat turn can offer to create  */
+/* matching nodes.                                                            */
+/* -------------------------------------------------------------------------- */
+
+http.route({
+  path: '/api/mcp/files/lookup',
+  method: 'POST',
+  handler: withMcpRoute({
+    input: lookupFilesInput,
+    run: async (ctx, auth, input) =>
+      ctx.runMutation(internal.mcp.files.lookupPaths, {
+        userId: auth.userId,
+        scopeProjectId: auth.projectId,
+        paths: input.paths,
       }),
   }),
 });

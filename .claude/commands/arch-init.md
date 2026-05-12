@@ -17,11 +17,13 @@ Call `list_nodes` on the `arch-viz` MCP server.
 
 ---
 
-## Step 2 — Walk the repo (filesystem heuristic only)
+## Step 2 — Walk the repo (filesystem heuristic, framework-blind)
 
 Use the **Glob** and **Read** tools. Do **NOT** use Bash to walk the tree.
 
 This step is intentionally generic and must work for any stack. Do not special-case Next.js, React, Convex, Django, Rails, or any other framework. Only the rules below apply.
+
+Framework-specific enrichment happens AFTER this in Step 2.5 — it only adds `metadata.route` / `metadata.apiPaths` fields to existing candidates, never reshapes the candidate set.
 
 ### Skip these directories always (at any depth)
 
@@ -78,6 +80,61 @@ A directory is a node candidate if **EITHER**:
 
 ---
 
+## Step 2.5 — Framework enrichment (optional, additive)
+
+Run only AFTER Step 2 has produced the candidate set. This step never adds, removes, or renames candidates — it only attaches `metadata.route` and `metadata.apiPaths` so Sprint 3's navigation + data-flow walkers can auto-discover edges immediately.
+
+### Detect Next.js
+
+Next.js is present iff EITHER:
+
+- A `next.config.{js,mjs,ts,cjs}` file exists at any project depth ≤ 2, OR
+- An `app/` directory exists that contains at least one `page.{tsx,jsx,ts,js}`.
+
+If Next.js is detected, for every candidate whose `relativePath` matches the route convention, compute `metadata.route`:
+
+- **App Router (preferred when both exist):** any candidate whose directory contains a `page.{tsx,jsx,ts,js}` file gets a route derived from its path under the nearest `app/` ancestor.
+  - Strip the `app/` prefix and any leading directory above it.
+  - Replace `[param]` segments verbatim (Next.js dynamic segments).
+  - Drop route groups: any path segment matching `(...)` is stripped.
+  - `app/page.tsx` → `/`, `app/dashboard/page.tsx` → `/dashboard`, `app/(marketing)/about/page.tsx` → `/about`, `app/users/[id]/page.tsx` → `/users/[id]`.
+- **Pages Router:** any candidate whose `relativePath` is under `pages/` and contains a top-level `*.{tsx,jsx,ts,js}` file (not `_app.*` / `_document.*`) gets `route` derived analogously.
+  - `pages/index.tsx` → `/`, `pages/dashboard.tsx` → `/dashboard`, `pages/users/[id].tsx` → `/users/[id]`.
+
+Only set `metadata.route` when EXACTLY one route can be inferred. Ambiguous cases (multiple page files under one candidate) — skip with a one-line warning to the user during Step 3 preview.
+
+### Detect Convex
+
+Convex is present iff a `convex/` directory exists at the repo root with at least one `*.ts` file that is NOT `convex/_generated/*`.
+
+If Convex is detected, for every candidate whose `relativePath` starts with `convex/` (and is not `convex/_generated/...`), compute `metadata.apiPaths` as the list of dotted function names this module exports:
+
+- For each source file in the candidate's directory, read it.
+- Match top-level `export const <name> = (query|mutation|action|internalQuery|internalMutation|internalAction)({` patterns.
+- The dotted form is `<moduleName>.<funcName>` where `moduleName` is the file basename without extension (`convex/foo.ts` → `foo`, `convex/auth/email.ts` → `auth/email` — keep the sub-path so the namespace matches what `useMutation(api.auth.email.login)` would write).
+- Deduplicate. Cap at 50 apiPaths per candidate.
+
+### What this step ADDS to each candidate
+
+A single optional field per candidate:
+
+```ts
+type EnrichedCandidate = BaseCandidate & {
+  metadata?: {
+    route?: string;        // Next.js inference
+    apiPaths?: string[];   // Convex inference
+  };
+};
+```
+
+### Skip rules
+
+- If neither Next.js nor Convex is detected, this step is a no-op.
+- If a candidate already has both `metadata.route` and `metadata.apiPaths` from an earlier run (impossible on a clean slate; defensive only), keep existing values — don't overwrite.
+- Do NOT invent metadata for stacks you can't detect from filenames alone. No Django routes (urls.py walking), no FastAPI introspection, no SvelteKit pages. The two above are the only special cases shipped here.
+
+---
+
 ## Step 3 — Plan and confirm (MANDATORY)
 
 Before calling any write tool, print a preview to the user:
@@ -87,14 +144,21 @@ Scan complete.
   Pages to create:    <P>
   Features to create: <F>
   Files to link:      <total, after the 50/node cap>
+  Detected stacks:    <e.g. "Next.js (App Router) + Convex" | "none">
+  Routes inferred:    <count of nodes that got metadata.route>
+  apiPaths inferred:  <count of nodes that got metadata.apiPaths>
 
-Page list (depth, path):
-  - (1) src/app
-  - (1) src/lib
+Page list (depth, path, [route|apiPaths]):
+  - (1) src/app                       route=/
+  - (1) convex                        apiPaths=[auth.login, auth.logout, ...]
   - ...
 
-Feature list (depth, path, parent):
-  - (3) src/app/dashboard/widgets  -> src/app
+Feature list (depth, path, parent, [route|apiPaths]):
+  - (3) src/app/dashboard/widgets  -> src/app   route=/dashboard/widgets
+  - ...
+
+Warnings (ambiguous enrichment, skipped):
+  - <relativePath>: multiple page.* files matched, route inference skipped
   - ...
 
 Proceed with creation? (yes/no)
@@ -120,6 +184,7 @@ For each page, in arbitrary stable order (sorted by `relativePath`):
    - `position`: scatter on a grid. Place the i-th page at `x = (i % 6) * 300`, `y = Math.floor(i / 6) * 300`.
 2. Record the returned `nodeId` keyed by `relativePath`.
 3. Call `link_files` for this node with its `sourceFiles` list (already capped at 50, paths already ≤500 chars).
+4. If Step 2.5 attached `metadata.route` or `metadata.apiPaths` to this candidate, call `update_node` with `nodeId` plus a `metadata` field containing only the populated keys. Skip the call when both are absent — don't write empty metadata.
 
 ### 4b. Create features second
 
@@ -132,6 +197,7 @@ Sort features by **depth ascending**, then by `relativePath`. For each feature:
    - `parentId`: resolved id
    - `position`: cluster around the parent. For the k-th child of a given parent, use `x = parent.x + 60 + (k % 4) * 70`, `y = parent.y + 120 + Math.floor(k / 4) * 70`.
 3. Call `link_files` for this node with its `sourceFiles`.
+4. If Step 2.5 attached `metadata.route` or `metadata.apiPaths`, call `update_node` with the populated metadata. Skip when both are absent.
 
 ### Failure handling
 
@@ -177,5 +243,7 @@ If there were zero failures, say so explicitly. Do not claim success if anything
 - Skip the dependency/build/IDE/tooling directories listed in Step 2.
 - Cap linked files at 50 per node. Cap path length at 500 chars.
 - Max recursion depth: 5.
-- No framework-specific assumptions. The heuristic is purely "source-file count" + "anchor filename".
+- Framework enrichment in Step 2.5 is additive only — it never adds, removes, or renames candidates from Step 2. The base "source-file count + anchor filename" heuristic stays authoritative for the candidate set.
+- Only the two stacks named in Step 2.5 (Next.js, Convex) get framework enrichment. Do NOT extrapolate to Django, Rails, FastAPI, SvelteKit, etc.
+- Cap inferred `metadata.apiPaths` at 50 entries per node.
 - One failed item does not abort the run; surface it in the final summary.

@@ -102,6 +102,15 @@ export const autoLinkImportsInput = z
   })
   .strict();
 
+// Sprint 5 item J — bulk lookup of file paths against the project's
+// nodeFiles set. Called by the post-commit hook to surface unlinked files
+// as candidate nodes. Cap 500 so a giant rename commit doesn't fan out.
+export const lookupFilesInput = z
+  .object({
+    paths: z.array(pathPattern).min(1).max(500),
+  })
+  .strict();
+
 // Sprint 2 — orphan/drift scan snapshot push. Caller is the CLI; the server
 // stores the most recent payload per (projectId, kind). Payload shape is
 // open-ended on purpose (validated client-side); we cap size at 1MB at the

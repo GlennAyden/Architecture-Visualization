@@ -852,6 +852,97 @@ describe('POST /api/mcp/files/auto_link', () => {
   });
 });
 
+describe('POST /api/mcp/files/lookup', () => {
+  // Why: the post-commit hook batches every changed file in a single
+  // lookup call. If linked/unlinked classification is wrong, the AI's
+  // suggestion list would either spam with already-tracked files or
+  // miss genuinely new ones. The hook fires after every commit so
+  // wrong answers compound fast.
+  test('classifies paths as linked vs unlinked correctly', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, rawToken } = await seedTokenForUser(t);
+    const nodeId = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'tracked',
+      positionX: 0,
+      positionY: 0,
+    });
+    await asUser.mutation(api.nodeFiles.add, { nodeId, path: 'src/known.ts' });
+
+    const res = await t.fetch('/api/mcp/files/lookup', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        paths: ['src/known.ts', 'src/unknown.ts', 'README.md'],
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.linked).toEqual(['src/known.ts']);
+    expect(body.unlinked.sort()).toEqual(['README.md', 'src/unknown.ts']);
+  });
+
+  // Why: archived rows represent files the user explicitly stopped
+  // tracking. A re-introduced file under the same path should resurface
+  // as a suggestion, not be silently treated as already-tracked.
+  test('treats archived rows as unlinked so dropped files can be re-suggested', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, rawToken } = await seedTokenForUser(t);
+    const nodeId = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'archived-holder',
+      positionX: 0,
+      positionY: 0,
+    });
+    await asUser.mutation(api.nodeFiles.add, { nodeId, path: 'src/dropped.ts' });
+    const files = await asUser.query(api.nodeFiles.listByNode, { nodeId });
+    await asUser.mutation(api.nodeFiles.setArchived, {
+      id: files[0]._id,
+      archived: true,
+    });
+
+    const res = await t.fetch('/api/mcp/files/lookup', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ paths: ['src/dropped.ts'] }),
+    });
+    const body = await res.json();
+    expect(body.linked).toEqual([]);
+    expect(body.unlinked).toEqual(['src/dropped.ts']);
+  });
+
+  // Why: project scope must hold. A token for project A must not see
+  // matches from project B, otherwise the hook would falsely classify
+  // a file as tracked because some unrelated project tracks it.
+  test('does not match paths from a different project', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, rawToken } = await seedTokenForUser(t);
+    const other = await asUser.mutation(api.projects.create, { name: 'Other' });
+    const otherNode = await asUser.mutation(api.nodes.create, {
+      projectId: other,
+      type: 'page',
+      name: 'leaked',
+      positionX: 0,
+      positionY: 0,
+    });
+    await asUser.mutation(api.nodeFiles.add, {
+      nodeId: otherNode,
+      path: 'shared.ts',
+    });
+
+    const res = await t.fetch('/api/mcp/files/lookup', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ paths: ['shared.ts'] }),
+    });
+    const body = await res.json();
+    expect(body.linked).toEqual([]);
+    expect(body.unlinked).toEqual(['shared.ts']);
+  });
+});
+
 describe('POST /api/mcp/edges/link + unlink + reconcile', () => {
   async function seedTwoNodes(t: ReturnType<typeof convexTest>) {
     const { asUser, projectId, rawToken } = await seedTokenForUser(t);

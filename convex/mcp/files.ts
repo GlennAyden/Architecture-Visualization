@@ -146,3 +146,61 @@ export const autoLinkByOrigin = internalMutation({
     };
   },
 });
+
+/**
+ * Bulk diff of incoming paths against the project's nodeFiles set. Used by
+ * the Sprint 5 item J post-commit hook to surface "files changed in this
+ * commit that aren't tracked by any canvas node yet" so the AI can offer
+ * to create matching nodes in the next chat turn.
+ *
+ * Returns `linked` (subset of inputs that DO have at least one nodeFiles
+ * row in the project scope) and `unlinked` (the complement). Skips
+ * archived rows — an archived file is one the user explicitly said
+ * "stop tracking", so it should re-appear as a suggestion candidate.
+ */
+export const lookupPaths = internalMutation({
+  args: {
+    userId: v.id('profiles'),
+    scopeProjectId: v.id('projects'),
+    paths: v.array(v.string()),
+  },
+  handler: async (ctx, { userId, scopeProjectId, paths }) => {
+    await requireOwnership(ctx, userId, scopeProjectId);
+
+    // Normalize + dedupe inputs once.
+    const normalized = new Set<string>();
+    for (const raw of paths) {
+      const p = normalizePath(raw);
+      if (p.length === 0 || p.length > 500) continue;
+      normalized.add(p);
+    }
+    if (normalized.size === 0) {
+      return { linked: [] as string[], unlinked: [] as string[] };
+    }
+
+    // Look up each path against nodeFiles, filtered to nodes inside the
+    // token's project scope. No (projectId, path) compound index exists
+    // so we filter post-fetch — acceptable at personal-tool scale.
+    const linked: string[] = [];
+    const unlinked: string[] = [];
+    for (const path of normalized) {
+      const matches = await ctx.db
+        .query('nodeFiles')
+        .filter((q) => q.eq(q.field('path'), path))
+        .collect();
+      let hit = false;
+      for (const m of matches) {
+        if (m.archived) continue;
+        const node = await ctx.db.get(m.nodeId);
+        if (!node) continue;
+        if (node.projectId === scopeProjectId) {
+          hit = true;
+          break;
+        }
+      }
+      if (hit) linked.push(path);
+      else unlinked.push(path);
+    }
+    return { linked, unlinked };
+  },
+});

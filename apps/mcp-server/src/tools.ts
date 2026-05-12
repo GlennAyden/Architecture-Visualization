@@ -22,6 +22,7 @@ export function registerTools(server: McpServer, client: ConvexMcpClient) {
   registerLogActivity(server, client);
   registerLinkNodes(server, client);
   registerUnlinkNodes(server, client);
+  registerLookupFiles(server, client);
 }
 
 /* ----------------------------- helpers ----------------------------------- */
@@ -245,5 +246,23 @@ function registerUnlinkNodes(server: McpServer, client: ConvexMcpClient) {
       },
     },
     async (args) => run(() => client.post('/api/mcp/edges/unlink', args)),
+  );
+}
+
+/* -------------------------- tool: lookup_files --------------------------- */
+
+function registerLookupFiles(server: McpServer, client: ConvexMcpClient) {
+  server.registerTool(
+    'lookup_files',
+    {
+      description:
+        'Bulk-classify a list of repo-relative file paths against the project. Returns `linked` (paths already tracked by some node) and `unlinked` (candidates for a new node). Use before proposing /arch-suggest-nodes follow-ups so you do not re-create existing tracking.',
+      inputSchema: {
+        paths: z
+          .array(z.string())
+          .describe('Repo-relative POSIX paths (e.g. "src/foo/bar.ts"). Cap 500 per call.'),
+      },
+    },
+    async (args) => run(() => client.post('/api/mcp/files/lookup', args)),
   );
 }

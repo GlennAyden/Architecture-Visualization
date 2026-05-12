@@ -36,6 +36,7 @@ Run from the repo root. Each subcommand reuses the same `ARCHITECTURE_*` env var
 | `link_files`           | Attach one or more file paths to a node (dedupes against existing).     |
 | `link_nodes`           | Manually classify an edge (dependency / navigation / data_flow) between two nodes — for cross-language relations the import scanner cannot see. |
 | `unlink_nodes`         | Remove a manually-classified edge. Hierarchy edges are not removable here (they follow `parentId`). |
+| `lookup_files`         | Bulk-classify paths as linked or unlinked against the project. Used by the post-commit hook to surface unlinked files in `.arch-viz/suggestions.json`. |
 | `add_kanban_task`      | Add a task to a node's kanban (status: `todo` / `doing` / `done`).      |
 | `update_kanban_status` | Move a task across columns; auto-positions to bottom of destination.    |
 | `log_activity`         | Append a free-form activity log entry attributing the change to `actor`.|
