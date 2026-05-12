@@ -1,6 +1,6 @@
 import { v } from 'convex/values';
 import { query } from './_generated/server';
-import { getProjectIfOwned } from './lib/auth';
+import { getProjectIfAccessible } from './lib/auth';
 
 const scanKindValidator = v.union(v.literal('orphans'), v.literal('drift'));
 
@@ -17,7 +17,7 @@ export const getLatestByKind = query({
     kind: scanKindValidator,
   },
   handler: async (ctx, { projectId, kind }) => {
-    const project = await getProjectIfOwned(ctx, projectId);
+    const project = await getProjectIfAccessible(ctx, projectId);
     if (!project) return null;
 
     const rows = await ctx.db

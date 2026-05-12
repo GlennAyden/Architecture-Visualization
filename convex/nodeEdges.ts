@@ -1,6 +1,6 @@
 import { v } from 'convex/values';
 import { internalMutation, mutation, query } from './_generated/server';
-import { getProjectIfOwned, requireProjectAccess } from './lib/auth';
+import { getProjectIfAccessible, requireProjectAccess } from './lib/auth';
 import { ensureHierarchyEdge } from './lib/edges';
 
 /**
@@ -11,7 +11,7 @@ import { ensureHierarchyEdge } from './lib/edges';
 export const listByProject = query({
   args: { projectId: v.id('projects') },
   handler: async (ctx, { projectId }) => {
-    const project = await getProjectIfOwned(ctx, projectId);
+    const project = await getProjectIfAccessible(ctx, projectId);
     if (!project) return [];
     return await ctx.db
       .query('nodeEdges')

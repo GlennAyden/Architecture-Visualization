@@ -1,9 +1,8 @@
 # Architecture Visualization — Roadmap (Sprints 1–5)
 
-> **Status snapshot:** Sprint 1 + Sprint 2 + Sprint 3 shipped (npm publish
-> for Sprint 3 held back at user request — code merged, v0.3.0 in
-> package.json but not yet on npm; deploy to prod completed).
-> Sprints 4–5 are planned but not implemented.
+> **Status snapshot:** Sprints 1 + 2 + 3 + 4 shipped (Sprint 3 npm publish
+> still held back — code merged, v0.3.0 in package.json, not on npm).
+> Only Sprint 5 (polish) remains planned but not implemented.
 > Author: Claude Code session, 2026-05-12.
 
 This is the operating roadmap. Each sprint section is self-contained enough to
@@ -139,6 +138,59 @@ tool yet).
    - Weekly reconcile cron NOT shipped — Convex cron runs server-side
      without filesystem access, so it cannot run the scanner. The
      hook (Sprint 2) plus manual `scan-imports` runs cover the gap.
+10. **Sprint 4 (shipped 2026-05-12):**
+    - Schema: `shareTokens` (per-project tokenHash + name + optional
+      revokedAt / expiresAt) and `projectMembers` (per-project membership
+      with invitedAt + optional acceptedAt). Both cascade-delete with
+      `projects.remove`, which also picked up the long-missing cascade
+      for `scanSnapshots` (Sprint 2 left it orphaned).
+    - Auth refactor: `requireOwnership(ctx, projectId)` separated from
+      `requireProjectAccess(ctx, projectId)`. The former gates owner-only
+      operations (project delete, apiToken create, share / member
+      management); the latter accepts owner OR accepted member. Lenient
+      read helpers renamed `getProjectIfOwned` → `getProjectIfAccessible`
+      (member-inclusive) across all 8 caller files.
+    - `convex/shareTokens.ts`: create / revoke / listByProject + raw
+      token reveal-once flow. Owner-only minting + revoke; revoked +
+      expired tokens stop resolving.
+    - `convex/projectMembers.ts`: invite (by email) / accept / decline /
+      revoke / listByProject / listInvitesForCurrentUser. Cap of 3
+      members per project (pending + accepted combined). Invite fails
+      cleanly when the target email has no Convex profile yet.
+    - `convex/shareView.ts`: public lenient queries `get(rawToken)` and
+      `getNodeDetail(rawToken, nodeId)` — no Clerk identity required.
+      Sanitized payload (only nodes / edges / per-node files / kanban /
+      activity); never surfaces apiTokens, members, or owner email.
+    - `projects.list` now returns rows with `role: 'owner' | 'member'`
+      and includes accepted-member projects in the user's list.
+    - UI (owner-side): `/settings/share` and `/settings/members` pages
+      mirroring `/settings/tokens` layout. Native radio expiration
+      picker (Never / 7d / 30d / Custom). Cap notice (`X / 3 members`).
+      Invite banner on `/projects` for pending invites with Accept /
+      Decline buttons. "Member" pill + hidden owner-only menu on member
+      rows in the project list. New cross-links from `/settings/tokens`
+      to the two new pages.
+    - UI (public): `/share/[token]` route (Clerk `proxy.ts` matcher
+      exempt). Read-only tldraw canvas via new `useShareCanvasSync` hook
+      (one-way reconcile, no `editor.store.listen`, no echo guard).
+      Read-only `ShareNodeModal` reusing existing Dialog + Tabs
+      primitives. Tldraw read-only mode set via
+      `editor.updateInstanceState({ isReadonly: true })`.
+    - Tests: +17 new vitest cases (186 → 203). 6 share-token cases
+      (round-trip, revoke, expire, owner-only, unknown-token-null,
+      sanitized-payload). 11 projectMembers cases (invite/accept,
+      pending-no-access, accepted-can-edit, owner-only-delete,
+      no-tokens-for-members, unknown-email, duplicate-invite,
+      cap-enforced, only-invitee-accepts, cascade, revoke-ends-access).
+      Tests encode WHY per Rule 9.
+    - Deploy: Convex prod live with 5 new indexes
+      (`shareTokens.{by_project, by_hash}`,
+      `projectMembers.{by_project, by_user, by_project_user}`). No
+      breaking changes — only additive tables + optional field
+      tightening on the auth split (member access path is strictly
+      additive; existing owners keep working).
+    - `arch-viz-mcp` package untouched in Sprint 4 (no new CLI / MCP
+      tools). Web app only.
 
 ---
 
@@ -455,7 +507,16 @@ backend.
 
 ---
 
-## Sprint 4 — **Friend sharing** (read-only links + private invite)
+## Sprint 4 — **SHIPPED ✅** (Friend sharing: read-only links + private invite)
+
+> See commit on `main` (feat(sprint-4): friend sharing — read-only
+> share links + private invite). Convex prod deployed with shareTokens
+> + projectMembers tables and 5 new indexes. Open Question #3 resolved:
+> API tokens stay user-scoped — members never see other members'
+> tokens. Member edit scope: full peer on nodes/edges/files/kanban;
+> settings (tokens, members, project delete) remain owner-only.
+
+### Original spec (kept for context)
 
 **Goal:** the user can invite 2-3 trusted friends to view (and optionally
 edit) a project. Public sharing is NOT in scope.

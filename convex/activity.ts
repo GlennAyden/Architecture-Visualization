@@ -1,6 +1,6 @@
 import { v } from 'convex/values';
 import { internalMutation, query } from './_generated/server';
-import { getNodeIfOwned, getProjectIfOwned } from './lib/auth';
+import { getNodeIfAccessible, getProjectIfAccessible } from './lib/auth';
 
 const DEFAULT_LIMIT = 50;
 const PROJECT_DEFAULT_LIMIT = 100;
@@ -19,7 +19,7 @@ export const listByNode = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, { nodeId, limit }) => {
-    const node = await getNodeIfOwned(ctx, nodeId);
+    const node = await getNodeIfAccessible(ctx, nodeId);
     if (!node) return [];
     const cap = Math.min(Math.max(limit ?? DEFAULT_LIMIT, 1), 200);
     const entries = await ctx.db
@@ -47,7 +47,7 @@ export const listByProject = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, { projectId, limit }) => {
-    const project = await getProjectIfOwned(ctx, projectId);
+    const project = await getProjectIfAccessible(ctx, projectId);
     if (!project) return [];
 
     const nodes = await ctx.db

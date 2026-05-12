@@ -104,4 +104,34 @@ export default defineSchema({
     kind: v.union(v.literal('orphans'), v.literal('drift')),
     data: v.any(),
   }).index('by_project_kind', ['projectId', 'kind']),
+
+  // Sprint 4 — read-only public share tokens. A `/share/<rawToken>` URL
+  // resolves a row here, then renders the project's canvas without auth.
+  // `tokenHash` is SHA-256 of the raw token (same scheme as apiTokens) so
+  // a leaked DB doesn't surface raw shareable URLs. `revokedAt` lets the
+  // owner kill access immediately; `expiresAt` is optional auto-revoke.
+  shareTokens: defineTable({
+    projectId: v.id('projects'),
+    name: v.string(),
+    tokenHash: v.string(),
+    revokedAt: v.optional(v.number()),
+    expiresAt: v.optional(v.number()),
+  })
+    .index('by_project', ['projectId'])
+    .index('by_hash', ['tokenHash']),
+
+  // Sprint 4 — full-collaborator invites. The project owner sends, the
+  // invitee accepts. `acceptedAt` going non-null means the member can
+  // mutate nodes / edges / files / kanban for the project. Owner can
+  // revoke at any time by deleting the row. Member management itself
+  // (invite / revoke) stays owner-only; members do not gain those rights.
+  projectMembers: defineTable({
+    projectId: v.id('projects'),
+    userId: v.id('profiles'),
+    invitedAt: v.number(),
+    acceptedAt: v.optional(v.number()),
+  })
+    .index('by_project', ['projectId'])
+    .index('by_user', ['userId'])
+    .index('by_project_user', ['projectId', 'userId']),
 });

@@ -19,6 +19,7 @@ import {
 import { CreateProjectDialog } from '@/components/projects/create-project-dialog';
 import { RenameProjectDialog } from '@/components/projects/rename-project-dialog';
 import { DeleteProjectDialog } from '@/components/projects/delete-project-dialog';
+import { InviteBanner } from '@/components/projects/invite-banner';
 
 export default function ProjectsPage() {
   const projects = useQuery(api.projects.list);
@@ -58,6 +59,8 @@ export default function ProjectsPage() {
           <CreateProjectDialog />
         </div>
 
+        <InviteBanner />
+
         {projects === undefined && (
           <div className="rounded-lg border border-border/60 bg-card p-8 text-sm text-muted-foreground">
             Loading projects…
@@ -88,29 +91,40 @@ export default function ProjectsPage() {
                   className="flex flex-1 items-center justify-between gap-3"
                 >
                   <div className="space-y-0.5">
-                    <div className="text-sm font-medium">{p.name}</div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-sm font-medium">{p.name}</div>
+                      {p.role === 'member' && (
+                        <span className="inline-flex items-center rounded-full bg-zinc-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
+                          Member
+                        </span>
+                      )}
+                    </div>
                     <div className="font-mono text-[11px] text-muted-foreground">{p.slug}</div>
                   </div>
                   <ArrowUpRight className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
                 </Link>
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    render={
-                      <Button variant="ghost" size="icon" aria-label="Project actions">
-                        <MoreVertical className="h-4 w-4" />
-                      </Button>
-                    }
-                  />
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => setRenameTarget(p)}>Rename</DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => setDeleteTarget(p)}
-                      className="text-destructive"
-                    >
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                {p.role === 'owner' && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button variant="ghost" size="icon" aria-label="Project actions">
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      }
+                    />
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => setRenameTarget(p)}>
+                        Rename
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => setDeleteTarget(p)}
+                        className="text-destructive"
+                      >
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
               </li>
             ))}
           </ul>

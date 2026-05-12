@@ -1,6 +1,6 @@
 import { v } from 'convex/values';
 import { internalMutation, internalQuery, mutation, query } from './_generated/server';
-import { UnauthorizedError, getProfile, requireProjectAccess } from './lib/auth';
+import { UnauthorizedError, getProfile, requireOwnership } from './lib/auth';
 import { generateRawToken, hashToken } from './lib/tokens';
 import { tokenNameSchema } from '@arch-viz/shared';
 
@@ -39,7 +39,10 @@ export const create = mutation({
   },
   handler: async (ctx, { projectId, name }) => {
     const parsedName = tokenNameSchema.parse(name);
-    const project = await requireProjectAccess(ctx, projectId);
+    // Tokens are user-scoped credentials with broad MCP power — only the
+    // project owner can mint or hold them. Members must use their own
+    // tokens issued against projects they own elsewhere.
+    const project = await requireOwnership(ctx, projectId);
 
     const rawToken = generateRawToken();
     const tokenHash = await hashToken(rawToken);

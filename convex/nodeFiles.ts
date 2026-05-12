@@ -1,11 +1,11 @@
 import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
-import { getNodeIfOwned, requireProjectAccess } from './lib/auth';
+import { getNodeIfAccessible, requireProjectAccess } from './lib/auth';
 
 export const listByNode = query({
   args: { nodeId: v.id('nodes') },
   handler: async (ctx, { nodeId }) => {
-    const node = await getNodeIfOwned(ctx, nodeId);
+    const node = await getNodeIfAccessible(ctx, nodeId);
     if (!node) return [];
     return ctx.db
       .query('nodeFiles')

@@ -61,9 +61,14 @@ export async function getProfile(ctx: AnyCtx): Promise<Doc<'profiles'> | null> {
 }
 
 /**
- * Loads a project by id and verifies the current user owns it. Throws otherwise.
- * Use from MUTATION paths — writes should fail loudly on unauthorized access.
+ * Loads a project by id and verifies the current user can ACT on it: owner
+ * or an accepted member. Pending invites do not grant access. Throws on
+ * miss / unauthorized — use from MUTATION paths so writes fail loudly.
  * Works in both query and mutation contexts because it only reads.
+ *
+ * Owner-only operations (token management, member invite/revoke, project
+ * delete) MUST use `requireOwnership` instead — `requireProjectAccess` is
+ * deliberately the lenient peer-permission gate.
  */
 export async function requireProjectAccess(
   ctx: AnyCtx,
@@ -73,37 +78,78 @@ export async function requireProjectAccess(
   if (!profile) throw new UnauthorizedError('Unauthorized: no profile yet');
   const project = await ctx.db.get(projectId);
   if (!project) throw new NotFoundError('Project not found');
-  if (project.userId !== profile._id) throw new UnauthorizedError('You do not own this project');
+  if (project.userId === profile._id) return project;
+
+  const membership = await ctx.db
+    .query('projectMembers')
+    .withIndex('by_project_user', (q) =>
+      q.eq('projectId', projectId).eq('userId', profile._id),
+    )
+    .unique();
+  if (membership && membership.acceptedAt) return project;
+
+  throw new UnauthorizedError('You do not have access to this project');
+}
+
+/**
+ * Strict owner-only variant: throws unless the current user is the literal
+ * owner of the project. Use for operations that the owner must remain in
+ * sole control of: managing apiTokens, inviting / revoking members,
+ * creating / revoking share tokens, deleting the project itself.
+ */
+export async function requireOwnership(
+  ctx: AnyCtx,
+  projectId: Id<'projects'>,
+): Promise<Doc<'projects'>> {
+  const profile = await getProfile(ctx);
+  if (!profile) throw new UnauthorizedError('Unauthorized: no profile yet');
+  const project = await ctx.db.get(projectId);
+  if (!project) throw new NotFoundError('Project not found');
+  if (project.userId !== profile._id) {
+    throw new UnauthorizedError('Unauthorized: owner-only operation');
+  }
   return project;
 }
 
 /**
- * Lenient read-side variant: returns the project if the current user owns it,
- * or null otherwise. Use from QUERY paths so the UI can re-render gracefully
- * when navigating to a stale URL (cascade-deleted project, signed-out user
- * with leftover client state) instead of throwing into the React tree.
+ * Lenient read-side variant: returns the project if the current user can
+ * access it (owner OR accepted member), or null otherwise. Use from QUERY
+ * paths so the UI can re-render gracefully when navigating to a stale URL
+ * (cascade-deleted project, signed-out user with leftover client state)
+ * instead of throwing into the React tree.
+ *
+ * Renamed from `getProjectIfOwned` in Sprint 4 — the function now lets
+ * accepted members through, matching the new collaborator model.
  */
-export async function getProjectIfOwned(
+export async function getProjectIfAccessible(
   ctx: AnyCtx,
   projectId: Id<'projects'>,
 ): Promise<Doc<'projects'> | null> {
   const profile = await getProfile(ctx);
   if (!profile) return null;
   const project = await ctx.db.get(projectId);
-  if (!project || project.userId !== profile._id) return null;
-  return project;
+  if (!project) return null;
+  if (project.userId === profile._id) return project;
+  const membership = await ctx.db
+    .query('projectMembers')
+    .withIndex('by_project_user', (q) =>
+      q.eq('projectId', projectId).eq('userId', profile._id),
+    )
+    .unique();
+  if (membership && membership.acceptedAt) return project;
+  return null;
 }
 
 /**
  * Lenient read-side variant for nodes: returns the node if the current user
- * owns its parent project, or null otherwise.
+ * has access to its parent project (owner or accepted member), else null.
  */
-export async function getNodeIfOwned(
+export async function getNodeIfAccessible(
   ctx: AnyCtx,
   nodeId: Id<'nodes'>,
 ): Promise<Doc<'nodes'> | null> {
   const node = await ctx.db.get(nodeId);
   if (!node) return null;
-  const project = await getProjectIfOwned(ctx, node.projectId);
+  const project = await getProjectIfAccessible(ctx, node.projectId);
   return project ? node : null;
 }

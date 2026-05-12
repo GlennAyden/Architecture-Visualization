@@ -54,6 +54,21 @@ export default function TokensPage() {
           />
         </div>
 
+        <div className="mb-6 flex items-center gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            nativeButton={false}
+            render={<Link href="/settings/share">Share links</Link>}
+          />
+          <Button
+            variant="secondary"
+            size="sm"
+            nativeButton={false}
+            render={<Link href="/settings/members">Members</Link>}
+          />
+        </div>
+
         {tokens === undefined && (
           <div className="rounded-lg border border-border/60 bg-card p-8 text-sm text-muted-foreground">
             Loading tokens…

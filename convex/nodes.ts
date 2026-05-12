@@ -1,13 +1,13 @@
 import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
-import { getNodeIfOwned, getProjectIfOwned, requireProjectAccess } from './lib/auth';
+import { getNodeIfAccessible, getProjectIfAccessible, requireProjectAccess } from './lib/auth';
 import { deleteNodeCascade } from './lib/cascade';
 import { ensureHierarchyEdge } from './lib/edges';
 
 export const listByProject = query({
   args: { projectId: v.id('projects') },
   handler: async (ctx, { projectId }) => {
-    const project = await getProjectIfOwned(ctx, projectId);
+    const project = await getProjectIfAccessible(ctx, projectId);
     if (!project) return [];
     return ctx.db
       .query('nodes')
@@ -19,7 +19,7 @@ export const listByProject = query({
 export const get = query({
   args: { id: v.id('nodes') },
   handler: async (ctx, { id }) => {
-    return await getNodeIfOwned(ctx, id);
+    return await getNodeIfAccessible(ctx, id);
   },
 });
 

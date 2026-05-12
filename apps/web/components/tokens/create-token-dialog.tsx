@@ -64,7 +64,11 @@ export function CreateTokenDialog({ onCreated }: Props) {
     setOpen(false);
   };
 
-  const disabled = !projects || projects.length === 0;
+  // Tokens are user-scoped: only the project owner can mint them. Filter
+  // out member-only entries so the dropdown never shows a project the
+  // current user can't issue tokens against.
+  const ownedProjects = (projects ?? []).filter((p) => p.role === 'owner');
+  const disabled = ownedProjects.length === 0;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -90,7 +94,7 @@ export function CreateTokenDialog({ onCreated }: Props) {
                     <SelectValue placeholder="Pick a project" />
                   </SelectTrigger>
                   <SelectContent>
-                    {(projects ?? []).map((p) => (
+                    {ownedProjects.map((p) => (
                       <SelectItem key={p._id} value={p._id}>
                         {p.name}
                       </SelectItem>
