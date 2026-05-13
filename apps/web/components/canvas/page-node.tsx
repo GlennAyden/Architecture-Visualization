@@ -13,6 +13,15 @@ import type { Id } from '../../../../convex/_generated/dataModel';
 export interface PageNodeData extends Record<string, unknown> {
   name: string;
   readOnly?: boolean;
+  // Container mode (true → render as labelled box that wraps children;
+  // false / undefined → render as a leaf card). Computed at sync time
+  // from the visible children set.
+  hasChildren?: boolean;
+  // Explicit container dimensions when hasChildren=true. The renderer
+  // matches React Flow's node.width/height so children laid out by
+  // `computeAutoLayout` line up inside the container.
+  containerWidth?: number;
+  containerHeight?: number;
 }
 
 export type PageNodeType = Node<PageNodeData, 'page-node'>;
@@ -34,6 +43,53 @@ export function PageNode({ id, data }: NodeProps<PageNodeType>) {
     useModalStore.getState().open(nodeId);
   };
 
+  if (data.hasChildren) {
+    // Container mode: a labelled box that wraps its child feature nodes.
+    // Border stays solid so the cluster boundary reads at a glance; body
+    // is transparent so children render with their own card styles inside.
+    return (
+      <div
+        style={{
+          width: data.containerWidth,
+          height: data.containerHeight,
+          borderRadius: '10px',
+          border: '1.5px solid hsl(214 32% 85%)',
+          background: 'hsl(210 40% 98% / 0.4)',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+          fontFamily: 'var(--font-geist-sans, system-ui)',
+          color: '#0f172a',
+          userSelect: 'none',
+        }}
+      >
+        <Handle type="target" position={Position.Top} style={handleStyle} id="t" />
+        <Handle type="source" position={Position.Bottom} style={handleStyle} id="b" />
+        <Handle type="target" position={Position.Left} style={handleStyle} id="l" />
+        <Handle type="source" position={Position.Right} style={handleStyle} id="r" />
+        <div
+          onDoubleClick={onDoubleClick}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            height: '40px',
+            padding: '0 14px',
+            borderBottom: '1px solid hsl(214 32% 88%)',
+            fontSize: '13px',
+            fontWeight: 600,
+            color: '#0f172a',
+            cursor: data.readOnly ? 'default' : 'pointer',
+            background: 'white',
+            borderTopLeftRadius: '10px',
+            borderTopRightRadius: '10px',
+          }}
+        >
+          {data.name}
+        </div>
+      </div>
+    );
+  }
+
+  // Leaf mode: original card style — used when the page has no children
+  // visible in the current scope.
   return (
     <div
       onDoubleClick={onDoubleClick}

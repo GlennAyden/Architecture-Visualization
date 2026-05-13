@@ -22,6 +22,7 @@ import { BrandMark } from '@/components/brand-mark';
 import { PageNode } from '@/components/canvas/page-node';
 import { FeatureNode } from '@/components/canvas/feature-node';
 import { AddNodeButton } from '@/components/canvas/add-node-button';
+import { AutoLayoutButton } from '@/components/canvas/auto-layout-button';
 import { CommandPalette } from '@/components/canvas/command-palette';
 import { ExportProjectButton } from '@/components/canvas/export-project-button';
 import { NodeModal } from '@/components/node-modal/node-modal';
@@ -201,6 +202,7 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
               </Link>
             }
           />
+          <AutoLayoutButton nodes={nodes} />
           <ExportProjectButton projectId={projectId} />
           <AddNodeButton projectId={projectId} nodes={nodes} />
         </div>

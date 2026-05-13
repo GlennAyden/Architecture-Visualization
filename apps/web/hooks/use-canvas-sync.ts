@@ -13,12 +13,21 @@ import {
   type OnNodesChange,
   type Connection,
 } from '@xyflow/react';
+import {
+  FEATURE_NODE_DEFAULT_HEIGHT,
+  FEATURE_NODE_DEFAULT_WIDTH,
+} from '@arch-viz/shared';
 
 import { api } from '../../../convex/_generated/api';
 import type { Doc, Id } from '../../../convex/_generated/dataModel';
 import { useDrillStore } from '@/store/drill-store';
 import type { PageNodeType } from '@/components/canvas/page-node';
 import type { FeatureNodeType } from '@/components/canvas/feature-node';
+import {
+  CLUSTER_CHILD_SPACING,
+  CLUSTER_PADDING,
+  CLUSTER_TITLE_BAR_HEIGHT,
+} from '@/lib/auto-layout';
 
 export type ArchNode = PageNodeType | FeatureNodeType;
 
@@ -30,11 +39,7 @@ type EdgeVariantStyle = {
   markerEnd: 'arrow' | 'arrowclosed';
 };
 
-// Per-type edge styling. Keep keys aligned with the schema's `nodeEdges.type`
-// union. Picks colors so each variant reads as a distinct relationship at a
-// glance: grey for structural/dep edges, blue for navigation, orange for
-// data-flow (matches the tldraw-era palette so existing screenshots still
-// read the same).
+// Per-type edge styling. Keep keys aligned with `nodeEdges.type` union.
 const EDGE_STYLE_BY_TYPE: Record<EdgeType, EdgeVariantStyle> = {
   hierarchy: { stroke: '#9ca3af', strokeWidth: 2, markerEnd: 'arrow' },
   dependency: {
@@ -51,23 +56,6 @@ const EDGE_STYLE_BY_TYPE: Record<EdgeType, EdgeVariantStyle> = {
     markerEnd: 'arrow',
   },
 };
-
-function convexNodeToRf(node: Doc<'nodes'>, parentName: string | null): ArchNode {
-  if (node.type === 'feature') {
-    return {
-      id: node._id as string,
-      type: 'feature-node',
-      position: { x: node.positionX, y: node.positionY },
-      data: { name: node.name, parentName },
-    } satisfies FeatureNodeType;
-  }
-  return {
-    id: node._id as string,
-    type: 'page-node',
-    position: { x: node.positionX, y: node.positionY },
-    data: { name: node.name },
-  } satisfies PageNodeType;
-}
 
 function convexEdgeToRf(edge: Doc<'nodeEdges'>): Edge {
   const style = EDGE_STYLE_BY_TYPE[edge.type];
@@ -92,10 +80,133 @@ function convexEdgeToRf(edge: Doc<'nodeEdges'>): Edge {
 }
 
 /**
+ * Builds the React Flow node list with cluster (parent-child container)
+ * semantics. Two passes:
+ *
+ *   Pass 1 — for every page with visible children: compute the bounding
+ *     box of its children (in absolute coords from Convex), then derive
+ *     a container size (bbox + padding + title bar). This sizes the
+ *     parent so its body wraps the children regardless of where the
+ *     children landed (auto-layout result or user-dragged).
+ *
+ *   Pass 2 — emit the RF nodes. A child node sets `parentId` + an
+ *     extent='parent' constraint so it visually lives inside the parent
+ *     box. Its `position` becomes (childAbs - parentAbs) — React Flow
+ *     expects parent-relative coordinates whenever `parentId` is set,
+ *     not absolute. Top-level nodes keep absolute positions.
+ *
+ * Why the abs↔rel dance: Convex stores positions as plain numbers; we
+ * don't want to fork the schema for a UI concern. Keeping the storage
+ * absolute lets export, share view, and the activity log all read the
+ * same field. The relative conversion is the renderer's job.
+ */
+function buildRfNodes(visibleNodes: Doc<'nodes'>[]): ArchNode[] {
+  if (visibleNodes.length === 0) return [];
+
+  const byId = new Map(visibleNodes.map((n) => [n._id as string, n]));
+  const childrenByParent = new Map<string, Doc<'nodes'>[]>();
+  for (const n of visibleNodes) {
+    if (!n.parentId) continue;
+    const pid = n.parentId as string;
+    if (!byId.has(pid)) continue;
+    const list = childrenByParent.get(pid) ?? [];
+    list.push(n);
+    childrenByParent.set(pid, list);
+  }
+
+  // Pass 1: compute container dimensions for every parent with children.
+  // We take the max extent reached by any child + a generous margin so
+  // dragged children don't visually clip the container edge.
+  const containerSize = new Map<string, { w: number; h: number }>();
+  for (const [parentId, children] of childrenByParent.entries()) {
+    const parent = byId.get(parentId);
+    if (!parent) continue;
+    let maxRightRel = 0;
+    let maxBottomRel = 0;
+    for (const child of children) {
+      const relRight = child.positionX - parent.positionX + FEATURE_NODE_DEFAULT_WIDTH;
+      const relBottom =
+        child.positionY - parent.positionY + FEATURE_NODE_DEFAULT_HEIGHT;
+      maxRightRel = Math.max(maxRightRel, relRight);
+      maxBottomRel = Math.max(maxBottomRel, relBottom);
+    }
+    const w = maxRightRel + CLUSTER_PADDING;
+    // The title bar sits above the children — add it on top of the body
+    // height we computed. CLUSTER_CHILD_SPACING shaves any rounding slack
+    // off the bottom so the box hugs the last row.
+    const h = maxBottomRel + CLUSTER_PADDING - CLUSTER_CHILD_SPACING;
+    containerSize.set(parentId, {
+      w: Math.max(w, 200),
+      h: Math.max(h, CLUSTER_TITLE_BAR_HEIGHT + CLUSTER_PADDING),
+    });
+  }
+
+  // Pass 2: emit RF nodes.
+  return visibleNodes.map((n): ArchNode => {
+    const id = n._id as string;
+    const parentInVisibleSet = n.parentId && byId.has(n.parentId as string);
+    const parent = parentInVisibleSet ? byId.get(n.parentId as string) : undefined;
+    const parentName = parent?.name ?? null;
+
+    if (n.type === 'feature') {
+      // A feature with no in-scope parent (e.g. drilled into the feature
+      // itself) renders standalone at absolute coords.
+      if (!parent) {
+        return {
+          id,
+          type: 'feature-node',
+          position: { x: n.positionX, y: n.positionY },
+          data: { name: n.name, parentName: null },
+        } satisfies FeatureNodeType;
+      }
+      return {
+        id,
+        type: 'feature-node',
+        parentId: parent._id as string,
+        extent: 'parent',
+        position: {
+          x: n.positionX - parent.positionX,
+          y: n.positionY - parent.positionY,
+        },
+        data: { name: n.name, parentName },
+      } satisfies FeatureNodeType;
+    }
+
+    // Page node — container mode if it has any visible children.
+    const size = containerSize.get(id);
+    if (size) {
+      return {
+        id,
+        type: 'page-node',
+        position: { x: n.positionX, y: n.positionY },
+        // Explicit width / height lets React Flow correctly route edges
+        // to the container's bounding box rather than guessing from
+        // children. Children inside a parent are rendered "above" the
+        // parent in stacking order; no extra z-index work needed.
+        width: size.w,
+        height: size.h,
+        data: {
+          name: n.name,
+          hasChildren: true,
+          containerWidth: size.w,
+          containerHeight: size.h,
+        },
+      } satisfies PageNodeType;
+    }
+
+    return {
+      id,
+      type: 'page-node',
+      position: { x: n.positionX, y: n.positionY },
+      data: { name: n.name, hasChildren: false },
+    } satisfies PageNodeType;
+  });
+}
+
+/**
  * Filters the nodes list down to a drill scope: the drill root plus every
- * transitive descendant via `parentId`. Identical semantics to the previous
- * tldraw-era implementation — only the input/output types changed (we walk
- * `Doc<'nodes'>` here, then map to React Flow nodes after filtering).
+ * transitive descendant via `parentId`. Identical semantics to the
+ * tldraw-era implementation.
  */
 function filterToDescendants(
   nodes: Doc<'nodes'>[],
@@ -141,31 +252,10 @@ interface SyncResult {
 
 // `nodes.listByProject` and `nodeEdges.listByProject` are lenient — they
 // return `[]` while Clerk's JWT is mid-refresh. Without a grace period,
-// `setRfNodes([])` would wipe the visible canvas. Defer the wipe so a
-// recovered auth tick can restore content before the canvas blanks.
+// the empty-set replacement below would wipe the canvas. Defer the wipe
+// so an auth-recovered tick can restore content first.
 const SUSPICIOUS_EMPTY_GRACE_MS = 1500;
 
-/**
- * React Flow sync hook. Convex docs are the source of truth; React Flow
- * holds the live editable state (positions during drag, etc.) and is
- * resynced from Convex whenever the query emits.
- *
- * Differs from the tldraw-era implementation in three places worth
- * remembering:
- *
- *  1. State ownership: React Flow's `useNodesState` / `useEdgesState`
- *     keep the live state; we push Convex updates in via `setRfNodes`.
- *     This replaces tldraw's `editor.store.listen` + `applyingRemoteRef`
- *     echo-guard dance (~150 lines deleted).
- *
- *  2. Drag dispatch: `onNodeDragStop` fires once at drag end, so we no
- *     longer need the 250ms debounce ref the old reconcile used.
- *
- *  3. Hierarchy edge un-delete: same idea (parentId mirrors the edge,
- *     deleting the arrow would just resurrect on next reconcile), but
- *     implemented by *skipping* the 'remove' change in `onEdgesChange`
- *     before forwarding to React Flow's state — RF keeps showing it.
- */
 export function useCanvasSync({ nodes, edges }: Args): SyncResult {
   const updateMutation = useMutation(api.nodes.update);
   const removeEdgeMutation = useMutation(api.nodeEdges.remove);
@@ -191,26 +281,22 @@ export function useCanvasSync({ nodes, edges }: Args): SyncResult {
   const [rfNodes, setRfNodes, onNodesChangeInternal] = useNodesState<ArchNode>([]);
   const [rfEdges, setRfEdges, onEdgesChangeInternal] = useEdgesState<Edge>([]);
 
-  // Mirror of visibleEdges in a ref so the edges-change handler (which
-  // captures its closure once per render) can resolve an edge's `type`
-  // when the user tries to delete it — used for the hierarchy un-delete
-  // guard below.
   const edgesRef = useRef<Doc<'nodeEdges'>[] | undefined>(visibleEdges);
   edgesRef.current = visibleEdges;
+  // Mirror of visibleNodes so the drag-stop handler can convert a child's
+  // relative position back to absolute by looking up its parent's
+  // current Convex position. Reading from `rfNodes` would couple the
+  // callback to its own re-render cycle; the ref keeps it stable.
+  const nodesRef = useRef<Doc<'nodes'>[] | undefined>(visibleNodes);
+  nodesRef.current = visibleNodes;
 
-  // Track in-progress drag so a Convex re-emit mid-drag can't snap the
-  // node back to its server position. We resume Convex syncs when the
-  // drag ends (and the mutation has been dispatched).
   const draggingRef = useRef(false);
 
-  // Wipe-deferral state. See SUSPICIOUS_EMPTY_GRACE_MS above.
   const prevNodeCountRef = useRef<number | null>(null);
   const prevEdgeCountRef = useRef<number | null>(null);
   const nodesWipeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const edgesWipeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Convex → RF nodes sync. Re-derives whenever the upstream Convex
-  // snapshot or the drill scope changes.
   useEffect(() => {
     if (!visibleNodes) return;
     if (draggingRef.current) return;
@@ -220,9 +306,6 @@ export function useCanvasSync({ nodes, edges }: Args): SyncResult {
       nodesWipeTimerRef.current = null;
     }
 
-    // Suspicious empty (had nodes, now zero) — defer; if the next emit
-    // is also empty the timer fires and clears state, otherwise it's
-    // cancelled before it gets the chance.
     if (
       visibleNodes.length === 0 &&
       prevNodeCountRef.current !== null &&
@@ -237,15 +320,9 @@ export function useCanvasSync({ nodes, edges }: Args): SyncResult {
     }
 
     prevNodeCountRef.current = visibleNodes.length;
-    const byId = new Map(visibleNodes.map((n) => [n._id as string, n]));
-    const next: ArchNode[] = visibleNodes.map((n) => {
-      const parent = n.parentId ? byId.get(n.parentId as string) : undefined;
-      return convexNodeToRf(n, parent?.name ?? null);
-    });
-    setRfNodes(next);
+    setRfNodes(buildRfNodes(visibleNodes));
   }, [visibleNodes, setRfNodes]);
 
-  // Convex → RF edges sync.
   useEffect(() => {
     if (!visibleEdges) return;
 
@@ -271,7 +348,6 @@ export function useCanvasSync({ nodes, edges }: Args): SyncResult {
     setRfEdges(visibleEdges.map(convexEdgeToRf));
   }, [visibleEdges, setRfEdges]);
 
-  // Clean up pending wipe timers on unmount.
   useEffect(() => {
     return () => {
       if (nodesWipeTimerRef.current) clearTimeout(nodesWipeTimerRef.current);
@@ -279,12 +355,6 @@ export function useCanvasSync({ nodes, edges }: Args): SyncResult {
     };
   }, []);
 
-  // Filter `onNodesChange` — drop `remove` events so the Delete key in
-  // tldraw-style "click + Delete → wipe" never trickles through. Node
-  // deletion lives in the modal/toolbar where it's intentional. The
-  // dragging detection flips on the first 'position' change with
-  // `dragging: true` and back off when the last drag change reports
-  // `dragging: false` (RF guarantees this terminal change).
   const onNodesChange = useCallback<OnNodesChange<ArchNode>>(
     (changes) => {
       let nextDragging = draggingRef.current;
@@ -303,10 +373,6 @@ export function useCanvasSync({ nodes, edges }: Args): SyncResult {
     [onNodesChangeInternal],
   );
 
-  // Filter `onEdgesChange` — hierarchy edge removal is no-op'd at the
-  // change level (we don't forward it to RF state); other types dispatch
-  // a Convex mutation, and we let the change through so the visual
-  // disappears immediately. Convex's re-emit will confirm it's gone.
   const onEdgesChange = useCallback<OnEdgesChange>(
     (changes) => {
       const filtered: EdgeChange<Edge>[] = [];
@@ -318,7 +384,6 @@ export function useCanvasSync({ nodes, edges }: Args): SyncResult {
         const backing = edgesRef.current?.find((e) => (e._id as string) === change.id);
         if (!backing) continue;
         if (backing.type === 'hierarchy') {
-          // Swallow the change so RF state keeps showing the arrow.
           continue;
         }
         removeEdgeMutation({ id: backing._id });
@@ -332,10 +397,22 @@ export function useCanvasSync({ nodes, edges }: Args): SyncResult {
   const onNodeDragStop = useCallback(
     (_event: React.MouseEvent, node: ArchNode) => {
       const nodeId = node.id as Id<'nodes'>;
+      // For child nodes (rendered with a parentId), `node.position` is
+      // relative to the parent. Convex stores absolutes — convert back
+      // using the parent's current server position.
+      let absX = node.position.x;
+      let absY = node.position.y;
+      if (node.parentId) {
+        const parent = nodesRef.current?.find((n) => (n._id as string) === node.parentId);
+        if (parent) {
+          absX += parent.positionX;
+          absY += parent.positionY;
+        }
+      }
       updateMutation({
         id: nodeId,
-        positionX: Math.round(node.position.x),
-        positionY: Math.round(node.position.y),
+        positionX: Math.round(absX),
+        positionY: Math.round(absY),
       });
     },
     [updateMutation],

@@ -174,28 +174,60 @@ You **must not** call `create_node`, `link_files`, `update_node`, `delete_node`,
 
 Execute in this strict order so that feature `parentId` resolution works:
 
+The web renderer treats every page-with-children as a labelled container box. Positions stored here must be **absolute** coordinates that land inside the parent's box. Compute features in cluster-friendly slots so the canvas reads cleanly on first paint (and matches what the **Auto Layout** button in the canvas header would later produce).
+
+### Layout constants (must mirror `apps/web/lib/auto-layout.ts`)
+
+```text
+FEATURE_W = 180   FEATURE_H = 72
+PAGE_W    = 220   PAGE_H    = 96     (leaf-only pages with no children)
+PADDING   = 24    TITLE_BAR = 40    SPACING = 16
+TOP_HSPACING = 80   TOP_VSPACING = 80   TOP_MAX_ROW_WIDTH = 2200   TOP_MARGIN = 40
+```
+
+For a page with N feature children:
+
+- `cols  = max(1, ceil(sqrt(N)))`, `rows = ceil(N / cols)` (use `rows = 1` when N = 0)
+- `parentWidth  = max(220, PADDING*2 + cols*FEATURE_W + (cols-1)*SPACING)`
+- `parentHeight = max(96,  TITLE_BAR + PADDING*2 + rows*FEATURE_H + (rows-1)*SPACING)`
+
 ### 4a. Create pages first
 
-For each page, in arbitrary stable order (sorted by `relativePath`):
+For each page (sorted by `relativePath`), wrap-row layout: maintain a cursor `(curX, curY, rowMaxH)` starting at `(40, 40, 0)`. For each page, compute its `parentWidth/Height` from the formula above using its feature-child count.
+
+- If `curX + parentWidth > 2200` AND `curX > 40`: wrap — `curX = 40; curY += rowMaxH + 80; rowMaxH = 0`.
+- Place the page at `positionX = curX, positionY = curY`.
+- Advance `curX += parentWidth + 80` and `rowMaxH = max(rowMaxH, parentHeight)`.
+
+Steps per page:
 
 1. Call `create_node` with:
    - `name`: directory basename
    - `type`: `"page"`
-   - `position`: scatter on a grid. Place the i-th page at `x = (i % 6) * 300`, `y = Math.floor(i / 6) * 300`.
+   - `positionX`, `positionY`: from the cursor above.
 2. Record the returned `nodeId` keyed by `relativePath`.
 3. Call `link_files` for this node with its `sourceFiles` list (already capped at 50, paths already ≤500 chars).
-4. If Step 2.5 attached `metadata.route` or `metadata.apiPaths` to this candidate, call `update_node` with `nodeId` plus a `metadata` field containing only the populated keys. Skip the call when both are absent — don't write empty metadata.
+4. If Step 2.5 attached `metadata.route` or `metadata.apiPaths`, call `update_node` with `nodeId` plus a `metadata` field containing only the populated keys. Skip the call when both are absent.
 
 ### 4b. Create features second
 
-Sort features by **depth ascending**, then by `relativePath`. For each feature:
+Group features by resolved `parentId`. Within each group, sort by `relativePath` so slot assignment is deterministic. For the k-th feature of a parent with N total features:
+
+- `cols = max(1, ceil(sqrt(N)))`
+- `row  = floor(k / cols)`, `col = k % cols`
+- `relX = PADDING + col * (FEATURE_W + SPACING)`
+- `relY = TITLE_BAR + PADDING + row * (FEATURE_H + SPACING)`
+- `positionX = parent.positionX + relX`
+- `positionY = parent.positionY + relY`
+
+Steps per feature:
 
 1. Resolve `parentId` by looking up its nearest-ancestor-page `relativePath` in the map from 4a. If the lookup fails (shouldn't happen given the promotion rule in Step 2), log the error and skip this feature.
 2. Call `create_node` with:
    - `name`: directory basename
    - `type`: `"feature"`
    - `parentId`: resolved id
-   - `position`: cluster around the parent. For the k-th child of a given parent, use `x = parent.x + 60 + (k % 4) * 70`, `y = parent.y + 120 + Math.floor(k / 4) * 70`.
+   - `positionX`, `positionY`: from the slot math above.
 3. Call `link_files` for this node with its `sourceFiles`.
 4. If Step 2.5 attached `metadata.route` or `metadata.apiPaths`, call `update_node` with the populated metadata. Skip when both are absent.
 
