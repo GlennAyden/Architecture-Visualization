@@ -11,6 +11,12 @@ import type { Id } from '../../../../convex/_generated/dataModel';
 export interface FeatureNodeData extends Record<string, unknown> {
   name: string;
   parentName: string | null;
+  // True when this feature renders INSIDE its parent's cluster container.
+  // The container already labels the parent, so the "↳ parent" subtitle
+  // would just duplicate that visual cue — we hide it in that case and
+  // give the name the whole card. Standalone features (no visible parent
+  // in scope) still show the subtitle.
+  insideCluster?: boolean;
   readOnly?: boolean;
 }
 
@@ -30,6 +36,8 @@ export function FeatureNode({ id, data }: NodeProps<FeatureNodeType>) {
     useModalStore.getState().open(nodeId);
   };
 
+  const showSubtitle = !data.insideCluster && data.parentName;
+
   return (
     <div
       onDoubleClick={onDoubleClick}
@@ -38,10 +46,12 @@ export function FeatureNode({ id, data }: NodeProps<FeatureNodeType>) {
         height: FEATURE_NODE_DEFAULT_HEIGHT,
         display: 'flex',
         flexDirection: 'column',
-        justifyContent: 'center',
+        // Center the name vertically when there's no subtitle (cluster
+        // mode); otherwise top-align so the subtitle has room below.
+        justifyContent: showSubtitle ? 'center' : 'center',
         gap: '2px',
-        padding: '10px 12px',
-        borderRadius: '8px',
+        padding: '8px 12px',
+        borderRadius: '6px',
         border: '1px solid oklch(0.62 0.16 220 / 0.4)',
         background: 'oklch(0.62 0.16 220 / 0.06)',
         boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
@@ -55,8 +65,19 @@ export function FeatureNode({ id, data }: NodeProps<FeatureNodeType>) {
       <Handle type="source" position={Position.Bottom} style={handleStyle} id="b" />
       <Handle type="target" position={Position.Left} style={handleStyle} id="l" />
       <Handle type="source" position={Position.Right} style={handleStyle} id="r" />
-      <span style={{ fontSize: '13px', fontWeight: 500, lineHeight: 1.2 }}>{data.name}</span>
-      {data.parentName && (
+      <span
+        style={{
+          fontSize: '13px',
+          fontWeight: 500,
+          lineHeight: 1.25,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {data.name}
+      </span>
+      {showSubtitle && (
         <span
           style={{
             fontSize: '10px',

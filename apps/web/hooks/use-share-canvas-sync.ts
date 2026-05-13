@@ -2,8 +2,17 @@
 
 import { useEffect, useMemo } from 'react';
 import { useEdgesState, useNodesState, MarkerType, type Edge } from '@xyflow/react';
+import {
+  FEATURE_NODE_DEFAULT_HEIGHT,
+  FEATURE_NODE_DEFAULT_WIDTH,
+} from '@arch-viz/shared';
 
 import type { ArchNode } from '@/hooks/use-canvas-sync';
+import {
+  CLUSTER_CHILD_SPACING,
+  CLUSTER_PADDING,
+  CLUSTER_TITLE_BAR_HEIGHT,
+} from '@/lib/auto-layout';
 
 // Local payload shapes — mirror what `api.shareView.get` returns. Cannot
 // reuse `Doc<'nodes'>` directly: the share endpoint sanitizes fields and
@@ -51,30 +60,13 @@ const EDGE_STYLE_BY_TYPE: Record<EdgeType, EdgeVariantStyle> = {
   },
 };
 
-function shareNodeToRf(node: ShareNode, parentName: string | null): ArchNode {
-  if (node.type === 'feature') {
-    return {
-      id: node._id,
-      type: 'feature-node',
-      position: { x: node.positionX, y: node.positionY },
-      data: { name: node.name, parentName, readOnly: true },
-    };
-  }
-  return {
-    id: node._id,
-    type: 'page-node',
-    position: { x: node.positionX, y: node.positionY },
-    data: { name: node.name, readOnly: true },
-  };
-}
-
 function shareEdgeToRf(edge: ShareEdge): Edge {
   const style = EDGE_STYLE_BY_TYPE[edge.type];
   return {
     id: edge._id,
     source: edge.sourceNodeId,
     target: edge.targetNodeId,
-    type: 'default',
+    type: 'smoothstep',
     data: { edgeType: edge.type },
     style: {
       stroke: style.stroke,
@@ -88,6 +80,98 @@ function shareEdgeToRf(edge: ShareEdge): Edge {
       height: 18,
     },
   };
+}
+
+/**
+ * Build cluster-aware React Flow nodes from the share payload. Mirrors
+ * `buildRfNodes` in `use-canvas-sync` (cluster containers + relative
+ * child positions + dynamic parent size) so the read-only viewer sees
+ * the same visual the owner does, minus the editing affordances.
+ */
+function buildRfNodesFromShare(shareNodes: ShareNode[]): ArchNode[] {
+  if (shareNodes.length === 0) return [];
+
+  const byId = new Map(shareNodes.map((n) => [n._id, n]));
+  const childrenByParent = new Map<string, ShareNode[]>();
+  for (const n of shareNodes) {
+    if (!n.parentId) continue;
+    if (!byId.has(n.parentId)) continue;
+    const list = childrenByParent.get(n.parentId) ?? [];
+    list.push(n);
+    childrenByParent.set(n.parentId, list);
+  }
+
+  const containerSize = new Map<string, { w: number; h: number }>();
+  for (const [parentId, children] of childrenByParent.entries()) {
+    const parent = byId.get(parentId);
+    if (!parent) continue;
+    let maxRightRel = 0;
+    let maxBottomRel = 0;
+    for (const child of children) {
+      const relRight = child.positionX - parent.positionX + FEATURE_NODE_DEFAULT_WIDTH;
+      const relBottom = child.positionY - parent.positionY + FEATURE_NODE_DEFAULT_HEIGHT;
+      maxRightRel = Math.max(maxRightRel, relRight);
+      maxBottomRel = Math.max(maxBottomRel, relBottom);
+    }
+    containerSize.set(parentId, {
+      w: Math.max(maxRightRel + CLUSTER_PADDING, 200),
+      h: Math.max(
+        maxBottomRel + CLUSTER_PADDING - CLUSTER_CHILD_SPACING,
+        CLUSTER_TITLE_BAR_HEIGHT + CLUSTER_PADDING,
+      ),
+    });
+  }
+
+  return shareNodes.map((n): ArchNode => {
+    const parent = n.parentId ? byId.get(n.parentId) : undefined;
+    const parentName = parent?.name ?? null;
+
+    if (n.type === 'feature') {
+      if (!parent) {
+        return {
+          id: n._id,
+          type: 'feature-node',
+          position: { x: n.positionX, y: n.positionY },
+          data: { name: n.name, parentName: null, readOnly: true, insideCluster: false },
+        };
+      }
+      return {
+        id: n._id,
+        type: 'feature-node',
+        parentId: parent._id,
+        extent: 'parent',
+        position: {
+          x: n.positionX - parent.positionX,
+          y: n.positionY - parent.positionY,
+        },
+        data: { name: n.name, parentName, readOnly: true, insideCluster: true },
+      };
+    }
+
+    const size = containerSize.get(n._id);
+    if (size) {
+      return {
+        id: n._id,
+        type: 'page-node',
+        position: { x: n.positionX, y: n.positionY },
+        width: size.w,
+        height: size.h,
+        data: {
+          name: n.name,
+          readOnly: true,
+          hasChildren: true,
+          containerWidth: size.w,
+          containerHeight: size.h,
+        },
+      };
+    }
+    return {
+      id: n._id,
+      type: 'page-node',
+      position: { x: n.positionX, y: n.positionY },
+      data: { name: n.name, readOnly: true, hasChildren: false },
+    };
+  });
 }
 
 interface Args {
@@ -106,11 +190,12 @@ interface SyncResult {
 
 /**
  * Read-only counterpart to `useCanvasSync`. Builds React Flow's `nodes`
- * and `edges` from the share-view payload and feeds them into RF's
- * internal state (via `useNodesState` / `useEdgesState`). No mutations
- * are dispatched — the caller is responsible for setting `nodesDraggable`,
- * `nodesConnectable`, and `elementsSelectable` to false at the
- * `<ReactFlow>` level so viewers can pan/zoom but cannot edit.
+ * and `edges` from the share-view payload, applying the same cluster
+ * container layout and edge-noise filtering as the editable view.
+ *
+ * `nodesDraggable={false}` / `nodesConnectable={false}` /
+ * `elementsSelectable={false}` are the caller's responsibility at the
+ * `<ReactFlow>` level — this hook only shapes the data.
  */
 export function useShareCanvasSync({ nodes, edges }: Args): SyncResult {
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState<ArchNode>([]);
@@ -118,17 +203,23 @@ export function useShareCanvasSync({ nodes, edges }: Args): SyncResult {
 
   const derivedNodes = useMemo<ArchNode[]>(() => {
     if (!nodes) return [];
-    const byId = new Map(nodes.map((n) => [n._id, n]));
-    return nodes.map((n) => {
-      const parent = n.parentId ? byId.get(n.parentId) : undefined;
-      return shareNodeToRf(n, parent?.name ?? null);
-    });
+    return buildRfNodesFromShare(nodes);
   }, [nodes]);
 
   const derivedEdges = useMemo<Edge[]>(() => {
-    if (!edges) return [];
-    return edges.map(shareEdgeToRf);
-  }, [edges]);
+    if (!nodes || !edges) return [];
+    const nodesById = new Map(nodes.map((n) => [n._id, n]));
+    // Drop hierarchy edges that are already shown by container nesting —
+    // matches the filter in `useCanvasSync` so the viewer sees the same
+    // calm starbursts-removed canvas.
+    const kept = edges.filter((e) => {
+      if (e.type !== 'hierarchy') return true;
+      const target = nodesById.get(e.targetNodeId);
+      if (!target?.parentId) return true;
+      return target.parentId !== e.sourceNodeId;
+    });
+    return kept.map(shareEdgeToRf);
+  }, [edges, nodes]);
 
   useEffect(() => {
     setRfNodes(derivedNodes);

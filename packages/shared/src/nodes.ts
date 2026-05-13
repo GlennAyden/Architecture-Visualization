@@ -14,5 +14,10 @@ export type NodeType = z.infer<typeof nodeTypeSchema>;
 export const PAGE_NODE_DEFAULT_WIDTH = 220;
 export const PAGE_NODE_DEFAULT_HEIGHT = 96;
 
-export const FEATURE_NODE_DEFAULT_WIDTH = 180;
-export const FEATURE_NODE_DEFAULT_HEIGHT = 72;
+// Features lost their "↳ parent" subtitle when rendered inside a cluster
+// container (the container's title already shows the parent), so a single
+// line of name is all the card has to fit — hence the slimmer dimensions.
+// Standalone features (drill-down view, ad-hoc adds) still render fine at
+// this size; the name field is capped at 80 chars by the Zod schema.
+export const FEATURE_NODE_DEFAULT_WIDTH = 160;
+export const FEATURE_NODE_DEFAULT_HEIGHT = 56;

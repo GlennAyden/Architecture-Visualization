@@ -176,12 +176,12 @@ Execute in this strict order so that feature `parentId` resolution works:
 
 The web renderer treats every page-with-children as a labelled container box. Positions stored here must be **absolute** coordinates that land inside the parent's box. Compute features in cluster-friendly slots so the canvas reads cleanly on first paint (and matches what the **Auto Layout** button in the canvas header would later produce).
 
-### Layout constants (must mirror `apps/web/lib/auto-layout.ts`)
+### Layout constants (must mirror `apps/web/lib/auto-layout.ts` and `packages/shared/src/nodes.ts`)
 
 ```text
-FEATURE_W = 180   FEATURE_H = 72
+FEATURE_W = 160   FEATURE_H = 56
 PAGE_W    = 220   PAGE_H    = 96     (leaf-only pages with no children)
-PADDING   = 24    TITLE_BAR = 40    SPACING = 16
+PADDING   = 16    TITLE_BAR = 32    SPACING = 10
 TOP_HSPACING = 80   TOP_VSPACING = 80   TOP_MAX_ROW_WIDTH = 2200   TOP_MARGIN = 40
 ```
 

@@ -7,9 +7,12 @@ import {
 
 // Visual constants used both here (for sizing parent containers) and by
 // the PageNode container-mode renderer. Keep in sync if either changes.
-export const CLUSTER_PADDING = 24;
-export const CLUSTER_TITLE_BAR_HEIGHT = 40;
-export const CLUSTER_CHILD_SPACING = 16;
+// Tightened from the v1 values (24 / 40 / 16) once the cluster-internal
+// hierarchy arrows were dropped — less inter-child noise means we don't
+// need as much breathing room.
+export const CLUSTER_PADDING = 16;
+export const CLUSTER_TITLE_BAR_HEIGHT = 32;
+export const CLUSTER_CHILD_SPACING = 10;
 
 // Top-level wrap behaviour. Pages flow left-to-right, wrapping once the
 // next page would push past `TOP_LEVEL_MAX_ROW_WIDTH`. Pure layout —

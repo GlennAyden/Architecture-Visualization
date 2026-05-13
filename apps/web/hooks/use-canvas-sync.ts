@@ -63,7 +63,10 @@ function convexEdgeToRf(edge: Doc<'nodeEdges'>): Edge {
     id: edge._id as string,
     source: edge.sourceNodeId as string,
     target: edge.targetNodeId as string,
-    type: 'default',
+    // `smoothstep` routes around nodes with rounded right-angles — much
+    // calmer to read than the default bezier that wiggles through
+    // children. React Flow's default corner radius (5px) is fine.
+    type: 'smoothstep',
     data: { edgeType: edge.type },
     style: {
       stroke: style.stroke,
@@ -150,15 +153,19 @@ function buildRfNodes(visibleNodes: Doc<'nodes'>[]): ArchNode[] {
 
     if (n.type === 'feature') {
       // A feature with no in-scope parent (e.g. drilled into the feature
-      // itself) renders standalone at absolute coords.
+      // itself) renders standalone at absolute coords AND keeps its
+      // "↳ parent" subtitle so the user still has context.
       if (!parent) {
         return {
           id,
           type: 'feature-node',
           position: { x: n.positionX, y: n.positionY },
-          data: { name: n.name, parentName: null },
+          data: { name: n.name, parentName: null, insideCluster: false },
         } satisfies FeatureNodeType;
       }
+      // Inside a visible parent cluster the subtitle is redundant — the
+      // container already shows the parent. `insideCluster: true` tells
+      // the renderer to hide it.
       return {
         id,
         type: 'feature-node',
@@ -168,7 +175,7 @@ function buildRfNodes(visibleNodes: Doc<'nodes'>[]): ArchNode[] {
           x: n.positionX - parent.positionX,
           y: n.positionY - parent.positionY,
         },
-        data: { name: n.name, parentName },
+        data: { name: n.name, parentName, insideCluster: true },
       } satisfies FeatureNodeType;
     }
 
@@ -270,12 +277,33 @@ export function useCanvasSync({ nodes, edges }: Args): SyncResult {
 
   const visibleEdges = useMemo(() => {
     if (!edges) return undefined;
-    if (drillNodeId === null || !visibleNodes) return edges;
-    const visibleIds = new Set(visibleNodes.map((n) => n._id as string));
-    return edges.filter(
-      (e) =>
-        visibleIds.has(e.sourceNodeId as string) && visibleIds.has(e.targetNodeId as string),
-    );
+    // Filter pipeline:
+    //   1. Drill-scope: drop edges that point at nodes outside the visible set.
+    //   2. Cluster-redundancy: drop the hierarchy arrow when its target's
+    //      parentId equals the source — the cluster-view container already
+    //      shows that relationship visually, so the arrow is just noise.
+    //      Cross-cluster hierarchy (e.g. a feature promoted to page) keeps
+    //      its arrow.
+    const scoped =
+      drillNodeId === null || !visibleNodes
+        ? edges
+        : (() => {
+            const visibleIds = new Set(visibleNodes.map((n) => n._id as string));
+            return edges.filter(
+              (e) =>
+                visibleIds.has(e.sourceNodeId as string) &&
+                visibleIds.has(e.targetNodeId as string),
+            );
+          })();
+
+    if (!visibleNodes) return scoped;
+    const nodesById = new Map(visibleNodes.map((n) => [n._id as string, n]));
+    return scoped.filter((e) => {
+      if (e.type !== 'hierarchy') return true;
+      const target = nodesById.get(e.targetNodeId as string);
+      if (!target?.parentId) return true;
+      return (target.parentId as string) !== (e.sourceNodeId as string);
+    });
   }, [edges, visibleNodes, drillNodeId]);
 
   const [rfNodes, setRfNodes, onNodesChangeInternal] = useNodesState<ArchNode>([]);
