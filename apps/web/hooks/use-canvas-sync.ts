@@ -225,6 +225,18 @@ export function useCanvasSync({ editor, nodes, edges }: Args) {
   const edgesRef = useRef<Doc<'nodeEdges'>[] | undefined>(visibleEdges);
   edgesRef.current = visibleEdges;
 
+  // Defensive wipe-deferral. `nodes.listByProject` and `nodeEdges.listByProject`
+  // are intentionally lenient — they return `[]` when the caller can't read the
+  // project (e.g. while Clerk's JWT is mid-refresh). Without this guard the
+  // reconcile below interprets the transient `[]` as "user deleted everything"
+  // and wipes the canvas. Trade-off: a genuine "delete all" waits this long
+  // before the canvas clears, which is acceptable for a destructive action.
+  const SUSPICIOUS_EMPTY_GRACE_MS = 1500;
+  const prevNodeCountRef = useRef<number | null>(null);
+  const prevEdgeCountRef = useRef<number | null>(null);
+  const nodesWipeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const edgesWipeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Convex -> editor: reconcile shapes whenever `nodes` (or the drill scope)
   // changes. When `drillNodeId` flips, the visible-nodes set swaps and the
   // reconcile naturally tears down out-of-scope shapes and re-creates the
@@ -233,6 +245,39 @@ export function useCanvasSync({ editor, nodes, edges }: Args) {
   useEffect(() => {
     if (!editor || !visibleNodes) return;
     const nodes = visibleNodes;
+
+    if (nodesWipeTimerRef.current) {
+      clearTimeout(nodesWipeTimerRef.current);
+      nodesWipeTimerRef.current = null;
+    }
+
+    // Suspicious transition (had nodes, now zero) — defer the wipe. If the
+    // next snapshot is also empty, the timer fires and performs the wipe;
+    // if non-empty arrives first, the cleared timer never fires.
+    if (
+      nodes.length === 0 &&
+      prevNodeCountRef.current !== null &&
+      prevNodeCountRef.current > 0
+    ) {
+      nodesWipeTimerRef.current = setTimeout(() => {
+        nodesWipeTimerRef.current = null;
+        applyingRemoteRef.current = true;
+        try {
+          const stale = editor
+            .getCurrentPageShapes()
+            .filter((s) => MANAGED_TYPES.has(s.type));
+          if (stale.length > 0) editor.deleteShapes(stale.map((s) => s.id));
+          prevNodeCountRef.current = 0;
+        } finally {
+          queueMicrotask(() => {
+            applyingRemoteRef.current = false;
+          });
+        }
+      }, SUSPICIOUS_EMPTY_GRACE_MS);
+      return;
+    }
+
+    prevNodeCountRef.current = nodes.length;
 
     applyingRemoteRef.current = true;
     try {
@@ -303,6 +348,13 @@ export function useCanvasSync({ editor, nodes, edges }: Args) {
         applyingRemoteRef.current = false;
       });
     }
+
+    return () => {
+      if (nodesWipeTimerRef.current) {
+        clearTimeout(nodesWipeTimerRef.current);
+        nodesWipeTimerRef.current = null;
+      }
+    };
   }, [editor, visibleNodes]);
 
   // Sprint 5C: refit the view when drill scope changes so the new visible
@@ -325,6 +377,38 @@ export function useCanvasSync({ editor, nodes, edges }: Args) {
     const nodes = visibleNodes;
     const edges = visibleEdges;
     const nodeIdSet = new Set(nodes.map((n) => n._id as string));
+
+    if (edgesWipeTimerRef.current) {
+      clearTimeout(edgesWipeTimerRef.current);
+      edgesWipeTimerRef.current = null;
+    }
+
+    // Mirror of the nodes-effect deferral. Arrows would otherwise be wiped
+    // alongside the nodes during a transient empty snapshot.
+    if (
+      edges.length === 0 &&
+      prevEdgeCountRef.current !== null &&
+      prevEdgeCountRef.current > 0
+    ) {
+      edgesWipeTimerRef.current = setTimeout(() => {
+        edgesWipeTimerRef.current = null;
+        applyingRemoteRef.current = true;
+        try {
+          const stale = editor
+            .getCurrentPageShapes()
+            .filter((s) => s.type === 'arrow' && s.id.startsWith(EDGE_ARROW_PREFIX));
+          if (stale.length > 0) editor.deleteShapes(stale.map((s) => s.id));
+          prevEdgeCountRef.current = 0;
+        } finally {
+          queueMicrotask(() => {
+            applyingRemoteRef.current = false;
+          });
+        }
+      }, SUSPICIOUS_EMPTY_GRACE_MS);
+      return;
+    }
+
+    prevEdgeCountRef.current = edges.length;
 
     applyingRemoteRef.current = true;
     try {
@@ -376,6 +460,13 @@ export function useCanvasSync({ editor, nodes, edges }: Args) {
         applyingRemoteRef.current = false;
       });
     }
+
+    return () => {
+      if (edgesWipeTimerRef.current) {
+        clearTimeout(edgesWipeTimerRef.current);
+        edgesWipeTimerRef.current = null;
+      }
+    };
   }, [editor, visibleNodes, visibleEdges]);
 
   // Editor -> Convex: listen for user moves and deletions.
