@@ -1,41 +1,33 @@
 'use client';
 
-import { useState } from 'react';
 import { useQuery } from 'convex/react';
 import { useParams } from 'next/navigation';
-import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { Eye, Loader2 } from 'lucide-react';
-import type { Editor, TLComponents } from 'tldraw';
+import {
+  Background,
+  MiniMap,
+  ReactFlow,
+  ReactFlowProvider,
+  type NodeTypes,
+} from '@xyflow/react';
 
 import { api } from '../../../../../convex/_generated/api';
 import { BrandMark } from '@/components/brand-mark';
-import { PageNodeShapeUtil } from '@/components/canvas/page-node-shape';
-import { FeatureNodeShapeUtil } from '@/components/canvas/feature-node-shape';
+import { PageNode } from '@/components/canvas/page-node';
+import { FeatureNode } from '@/components/canvas/feature-node';
 import { useShareCanvasSync } from '@/hooks/use-share-canvas-sync';
 import { ShareNodeModal } from '@/components/share-node-modal/share-node-modal';
+import type { ArchNode } from '@/hooks/use-canvas-sync';
 
-// tldraw uses browser-only APIs; load client-side only.
-const Tldraw = dynamic(() => import('tldraw').then((m) => m.Tldraw), { ssr: false });
-
-const shapeUtils = [PageNodeShapeUtil, FeatureNodeShapeUtil];
-
-// Suppress tldraw's page / actions menus; the share viewer is read-only
-// and has nothing to put there.
-const components: TLComponents = {
-  PageMenu: null,
-  MainMenu: null,
-  ActionsMenu: null,
+const nodeTypes: NodeTypes = {
+  'page-node': PageNode,
+  'feature-node': FeatureNode,
 };
 
-export default function SharePage() {
-  const params = useParams<{ token: string }>();
-  const rawToken = params.token;
+function ShareCanvas({ rawToken }: { rawToken: string }) {
   const data = useQuery(api.shareView.get, { rawToken });
-
-  const [editor, setEditor] = useState<Editor | null>(null);
-  useShareCanvasSync({
-    editor,
+  const { rfNodes, rfEdges, onNodesChange, onEdgesChange } = useShareCanvasSync({
     nodes: data?.nodes,
     edges: data?.edges,
   });
@@ -92,9 +84,35 @@ export default function SharePage() {
         <span aria-hidden className="w-0" />
       </header>
       <div className="flex-1">
-        <Tldraw shapeUtils={shapeUtils} components={components} onMount={setEditor} />
+        <ReactFlow<ArchNode>
+          nodes={rfNodes}
+          edges={rfEdges}
+          nodeTypes={nodeTypes}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          nodesDraggable={false}
+          nodesConnectable={false}
+          elementsSelectable={false}
+          edgesFocusable={false}
+          fitView
+          fitViewOptions={{ padding: 0.2 }}
+          minZoom={0.1}
+          maxZoom={2}
+        >
+          <Background gap={20} />
+          <MiniMap pannable zoomable />
+        </ReactFlow>
       </div>
       <ShareNodeModal rawToken={rawToken} />
     </main>
+  );
+}
+
+export default function SharePage() {
+  const params = useParams<{ token: string }>();
+  return (
+    <ReactFlowProvider>
+      <ShareCanvas rawToken={params.token} />
+    </ReactFlowProvider>
   );
 }

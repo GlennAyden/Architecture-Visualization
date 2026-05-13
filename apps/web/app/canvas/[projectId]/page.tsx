@@ -1,62 +1,62 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useQuery } from 'convex/react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { ChevronLeft, FileQuestion, History, Home, X } from 'lucide-react';
-import { DefaultMinimap, type Editor, type TLComponents } from 'tldraw';
+import {
+  Background,
+  Controls,
+  MiniMap,
+  ReactFlow,
+  ReactFlowProvider,
+  useReactFlow,
+  type NodeTypes,
+} from '@xyflow/react';
 
 import { api } from '../../../../../convex/_generated/api';
 import type { Doc, Id } from '../../../../../convex/_generated/dataModel';
 import { Button } from '@/components/ui/button';
 import { BrandMark } from '@/components/brand-mark';
-import { PageNodeShapeUtil } from '@/components/canvas/page-node-shape';
-import { FeatureNodeShapeUtil } from '@/components/canvas/feature-node-shape';
+import { PageNode } from '@/components/canvas/page-node';
+import { FeatureNode } from '@/components/canvas/feature-node';
 import { AddNodeButton } from '@/components/canvas/add-node-button';
 import { CommandPalette } from '@/components/canvas/command-palette';
 import { ExportProjectButton } from '@/components/canvas/export-project-button';
 import { NodeModal } from '@/components/node-modal/node-modal';
-import { useCanvasSync } from '@/hooks/use-canvas-sync';
+import { useCanvasSync, type ArchNode } from '@/hooks/use-canvas-sync';
 import { useModalStore } from '@/store/modal-store';
 import { useDrillStore } from '@/store/drill-store';
 
-// tldraw uses browser-only APIs; load it client-side only.
-const Tldraw = dynamic(() => import('tldraw').then((m) => m.Tldraw), { ssr: false });
-
-const shapeUtils = [PageNodeShapeUtil, FeatureNodeShapeUtil];
-
-// Hide tldraw's default page menu / actions menu since we render our own header.
-// Sprint 5H: opt in to tldraw's built-in minimap (it ships hidden by default).
-const components: TLComponents = {
-  PageMenu: null,
-  MainMenu: null,
-  ActionsMenu: null,
-  Minimap: DefaultMinimap,
+const nodeTypes: NodeTypes = {
+  'page-node': PageNode,
+  'feature-node': FeatureNode,
 };
 
-export default function CanvasPage() {
+// Inner component sits inside <ReactFlowProvider> so `useReactFlow` can
+// reach the editor context (fitView, setCenter, screenToFlowPosition).
+function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
   const router = useRouter();
-  const params = useParams<{ projectId: string }>();
   const searchParams = useSearchParams();
-  const projectId = params.projectId as Id<'projects'>;
   const project = useQuery(api.projects.get, { id: projectId });
   const nodes = useQuery(api.nodes.listByProject, { projectId });
   const edges = useQuery(api.nodeEdges.listByProject, { projectId });
   const openModal = useModalStore((s) => s.open);
 
-  const [editor, setEditor] = useState<Editor | null>(null);
-  useCanvasSync({ editor, nodes, edges });
-
-  // Sprint 5C drill-down: keep the children map (parentId -> child ids) in the
-  // drill store so shape utils can read `hasChildren(nodeId)` to decide
-  // drill-vs-modal on double-click. Recomputed only when `nodes` changes.
   const drillNodeId = useDrillStore((s) => s.drillNodeId);
   const setChildren = useDrillStore((s) => s.setChildren);
   const drillUp = useDrillStore((s) => s.drillUp);
   const resetDrill = useDrillStore((s) => s.reset);
 
+  const { rfNodes, rfEdges, onNodesChange, onEdgesChange, onNodeDragStop, onConnect } =
+    useCanvasSync({ nodes, edges });
+
+  const rf = useReactFlow();
+
+  // Sprint 5C drill-down: keep the children map (parentId → child ids) in the
+  // drill store so shape utils can read `hasChildren(nodeId)` to decide
+  // drill-vs-modal on double-click. Recomputed only when `nodes` changes.
   useEffect(() => {
     if (!nodes) return;
     const map = new Map<string, string[]>();
@@ -76,27 +76,37 @@ export default function CanvasPage() {
     resetDrill();
   }, [projectId, resetDrill]);
 
-  // Sprint 5H: auto-fit the camera once per (projectId, editor) pair after the
-  // initial nodes load. The ref is keyed by projectId so navigating to a
-  // different project re-runs the fit; toggling the editor remount also resets
-  // it because the new Editor instance won't have the marker yet.
+  // Auto-fit the camera once per (projectId, mount) pair after the initial
+  // nodes load. Ref is keyed by projectId so navigating between projects
+  // re-fits, while a Convex re-emit on the same project does not.
   const autoFittedFor = useRef<string | null>(null);
   useEffect(() => {
-    if (!editor) return;
-    if (!nodes || nodes.length === 0) return;
+    if (rfNodes.length === 0) return;
     if (autoFittedFor.current === projectId) return;
-    // Defer one frame so useCanvasSync has a chance to insert shapes before
-    // we measure bounds; otherwise zoomToFit sees an empty page.
+    // Defer one frame so React Flow has measured node sizes before fitView.
     const id = requestAnimationFrame(() => {
       try {
-        editor.zoomToFit();
+        rf.fitView({ padding: 0.2, duration: 0 });
         autoFittedFor.current = projectId;
       } catch {
-        // ignore — fit can throw if the editor was disposed mid-frame.
+        // fitView can throw if the canvas is mid-unmount; safe to ignore.
       }
     });
     return () => cancelAnimationFrame(id);
-  }, [editor, nodes, projectId]);
+  }, [rfNodes, projectId, rf]);
+
+  // Refit when drill scope changes so the new visible set fills the view.
+  useEffect(() => {
+    if (rfNodes.length === 0) return;
+    const id = requestAnimationFrame(() => {
+      try {
+        rf.fitView({ padding: 0.2, duration: 200 });
+      } catch {
+        // ignore
+      }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [drillNodeId, rf, rfNodes.length]);
 
   // Esc exits drill — but only when drilled in, so we don't hijack Esc for
   // the modal (which has its own handler) when on the flat view.
@@ -124,7 +134,6 @@ export default function CanvasPage() {
   }, [drillNodeId, nodes]);
 
   // Redirect when the project is gone (e.g. cascade-deleted in another tab).
-  // Must run as an effect, not during render, to avoid setState-in-render warnings.
   useEffect(() => {
     if (project === null) router.replace('/projects');
   }, [project, router]);
@@ -193,7 +202,7 @@ export default function CanvasPage() {
             }
           />
           <ExportProjectButton projectId={projectId} />
-          <AddNodeButton projectId={projectId} editor={editor} nodes={nodes} />
+          <AddNodeButton projectId={projectId} nodes={nodes} />
         </div>
       </header>
       {drillNodeId !== null && breadcrumb.length > 0 && (
@@ -236,10 +245,36 @@ export default function CanvasPage() {
         </div>
       )}
       <div className="flex-1">
-        <Tldraw shapeUtils={shapeUtils} components={components} onMount={setEditor} />
+        <ReactFlow<ArchNode>
+          nodes={rfNodes}
+          edges={rfEdges}
+          nodeTypes={nodeTypes}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onNodeDragStop={onNodeDragStop}
+          onConnect={onConnect}
+          fitView
+          fitViewOptions={{ padding: 0.2 }}
+          minZoom={0.1}
+          maxZoom={2}
+        >
+          <Background gap={20} />
+          <Controls showInteractive={false} />
+          <MiniMap pannable zoomable />
+        </ReactFlow>
       </div>
-      <CommandPalette editor={editor} projectId={projectId} />
+      <CommandPalette projectId={projectId} />
       <NodeModal />
     </main>
+  );
+}
+
+export default function CanvasPage() {
+  const params = useParams<{ projectId: string }>();
+  const projectId = params.projectId as Id<'projects'>;
+  return (
+    <ReactFlowProvider>
+      <CanvasInner projectId={projectId} />
+    </ReactFlowProvider>
   );
 }

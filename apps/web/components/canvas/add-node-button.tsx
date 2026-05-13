@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useMutation } from 'convex/react';
-import type { Editor } from 'tldraw';
+import { useReactFlow } from '@xyflow/react';
 import { ChevronDown, Plus } from 'lucide-react';
 
 import { api } from '../../../../convex/_generated/api';
@@ -18,19 +18,24 @@ import { AddFeatureDialog } from '@/components/canvas/add-feature-dialog';
 
 interface Props {
   projectId: Id<'projects'>;
-  editor: Editor | null;
   nodes: Doc<'nodes'>[] | undefined;
 }
 
-export function AddNodeButton({ projectId, editor, nodes }: Props) {
+export function AddNodeButton({ projectId, nodes }: Props) {
   const create = useMutation(api.nodes.create);
   const [featureDialogOpen, setFeatureDialogOpen] = useState(false);
+  const rf = useReactFlow();
 
   const pageNodes = useMemo(() => (nodes ?? []).filter((n) => n.type === 'page'), [nodes]);
   const hasPages = pageNodes.length > 0;
 
   const handleAddPage = async () => {
-    const center = editor ? editor.screenToPage(editor.getViewportScreenCenter()) : { x: 0, y: 0 };
+    // Place the new page at the current viewport center so the user
+    // doesn't have to chase a node spawned off-screen.
+    const center = rf.screenToFlowPosition({
+      x: window.innerWidth / 2,
+      y: window.innerHeight / 2,
+    });
     await create({
       projectId,
       type: 'page',

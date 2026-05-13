@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from 'convex/react';
-import type { Editor } from 'tldraw';
+import { useReactFlow } from '@xyflow/react';
 import { FileText, Square } from 'lucide-react';
 
 import { api } from '../../../../convex/_generated/api';
@@ -13,7 +13,6 @@ import { cn } from '@/lib/utils';
 import { useModalStore } from '@/store/modal-store';
 
 interface Props {
-  editor: Editor | null;
   projectId: Id<'projects'>;
 }
 
@@ -53,12 +52,13 @@ function rankMatches(nodes: Doc<'nodes'>[], query: string): Doc<'nodes'>[] {
   return out.slice(0, MAX_RESULTS).map((r) => r.node);
 }
 
-export function CommandPalette({ editor, projectId }: Props) {
+export function CommandPalette({ projectId }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [highlight, setHighlight] = useState(0);
   const listRef = useRef<HTMLDivElement | null>(null);
   const openModal = useModalStore((s) => s.open);
+  const rf = useReactFlow();
 
   // Only fetch nodes when the palette is open; on first open we rely on the
   // canvas page already having warmed Convex' query cache, so this is cheap.
@@ -97,12 +97,12 @@ export function CommandPalette({ editor, projectId }: Props) {
   }, [open]);
 
   const selectNode = (node: Doc<'nodes'>) => {
-    if (editor) {
-      try {
-        editor.centerOnPoint({ x: node.positionX, y: node.positionY });
-      } catch {
-        // centerOnPoint can throw if the camera is mid-animation; safe to ignore.
-      }
+    try {
+      // Center the camera on the node's position; React Flow handles the
+      // animation. setCenter takes world coords, which is what we store.
+      rf.setCenter(node.positionX, node.positionY, { zoom: 1, duration: 250 });
+    } catch {
+      // setCenter can throw if the canvas is mid-unmount; safe to ignore.
     }
     openModal(node._id);
     setOpen(false);

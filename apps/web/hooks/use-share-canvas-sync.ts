@@ -1,15 +1,11 @@
 'use client';
 
-import { useEffect } from 'react';
-import type { Editor, TLShapeId } from 'tldraw';
-import {
-  FEATURE_NODE_DEFAULT_HEIGHT,
-  FEATURE_NODE_DEFAULT_WIDTH,
-  PAGE_NODE_DEFAULT_HEIGHT,
-  PAGE_NODE_DEFAULT_WIDTH,
-} from '@arch-viz/shared';
+import { useEffect, useMemo } from 'react';
+import { useEdgesState, useNodesState, MarkerType, type Edge } from '@xyflow/react';
 
-// Local payload shapes — mirrors what `api.shareView.get` returns. Cannot
+import type { ArchNode } from '@/hooks/use-canvas-sync';
+
+// Local payload shapes — mirror what `api.shareView.get` returns. Cannot
 // reuse `Doc<'nodes'>` directly: the share endpoint sanitizes fields and
 // returns string ids, not branded `Id<'nodes'>` values.
 export interface ShareNode {
@@ -28,242 +24,119 @@ export interface ShareEdge {
   type: 'hierarchy' | 'dependency' | 'navigation' | 'data_flow';
 }
 
-const MANAGED_TYPES = new Set(['page-node', 'feature-node']);
-const EDGE_ARROW_PREFIX = 'shape:edge:';
-
-// Per-type styling for edge arrows. Duplicated from `use-canvas-sync.ts`
-// (Rule 3: surgical duplication beats a premature shared util). Keep keys
-// aligned with the schema's `nodeEdges.type` union.
 type EdgeType = ShareEdge['type'];
-type EdgeArrowStyle = {
-  dash: 'solid' | 'dashed' | 'dotted' | 'draw';
-  color: 'grey' | 'light-blue' | 'orange';
-  size: 's' | 'm' | 'l' | 'xl';
-  arrowheadStart: 'arrow' | 'triangle' | 'none' | 'dot' | 'pipe';
-  arrowheadEnd: 'arrow' | 'triangle' | 'none' | 'dot' | 'pipe';
+type EdgeVariantStyle = {
+  stroke: string;
+  strokeWidth: number;
+  strokeDasharray?: string;
+  markerEnd: 'arrow' | 'arrowclosed';
 };
-const EDGE_STYLE_BY_TYPE: Record<EdgeType, EdgeArrowStyle> = {
-  hierarchy: {
-    dash: 'solid',
-    color: 'grey',
-    size: 'm',
-    arrowheadStart: 'none',
-    arrowheadEnd: 'arrow',
-  },
+
+// Duplicated from `use-canvas-sync.ts` (Rule 3: surgical duplication beats
+// a premature shared util). Keep keys aligned with `nodeEdges.type` union.
+const EDGE_STYLE_BY_TYPE: Record<EdgeType, EdgeVariantStyle> = {
+  hierarchy: { stroke: '#9ca3af', strokeWidth: 2, markerEnd: 'arrow' },
   dependency: {
-    dash: 'dashed',
-    color: 'grey',
-    size: 's',
-    arrowheadStart: 'none',
-    arrowheadEnd: 'arrow',
+    stroke: '#9ca3af',
+    strokeWidth: 1.5,
+    strokeDasharray: '6 4',
+    markerEnd: 'arrow',
   },
-  navigation: {
-    dash: 'solid',
-    color: 'light-blue',
-    size: 'm',
-    arrowheadStart: 'none',
-    arrowheadEnd: 'triangle',
-  },
+  navigation: { stroke: '#60a5fa', strokeWidth: 2, markerEnd: 'arrowclosed' },
   data_flow: {
-    dash: 'dotted',
-    color: 'orange',
-    size: 'm',
-    arrowheadStart: 'none',
-    arrowheadEnd: 'arrow',
+    stroke: '#fb923c',
+    strokeWidth: 2,
+    strokeDasharray: '2 4',
+    markerEnd: 'arrow',
   },
 };
 
-function nodeIdToShapeId(nodeId: string): TLShapeId {
-  return `shape:${nodeId}` as TLShapeId;
-}
-
-function edgeIdToArrowShapeId(edgeId: string): TLShapeId {
-  return `${EDGE_ARROW_PREFIX}${edgeId}` as TLShapeId;
-}
-
-function createEdgeArrow(editor: Editor, edge: ShareEdge): void {
-  const arrowId = edgeIdToArrowShapeId(edge._id);
-  const style = EDGE_STYLE_BY_TYPE[edge.type];
-  editor.createShape({
-    id: arrowId,
-    type: 'arrow',
-    x: 0,
-    y: 0,
-    props: style,
-  });
-  editor.createBinding({
-    type: 'arrow',
-    fromId: arrowId,
-    toId: nodeIdToShapeId(edge.sourceNodeId),
-    props: {
-      terminal: 'start',
-      normalizedAnchor: { x: 0.5, y: 0.5 },
-      isExact: false,
-      isPrecise: false,
-      snap: 'none',
-    },
-  });
-  editor.createBinding({
-    type: 'arrow',
-    fromId: arrowId,
-    toId: nodeIdToShapeId(edge.targetNodeId),
-    props: {
-      terminal: 'end',
-      normalizedAnchor: { x: 0.5, y: 0.5 },
-      isExact: false,
-      isPrecise: false,
-      snap: 'none',
-    },
-  });
-}
-
-function shapeTypeFor(node: ShareNode): 'page-node' | 'feature-node' {
-  return node.type === 'feature' ? 'feature-node' : 'page-node';
-}
-
-function shapePropsFor(node: ShareNode, parentName: string | null) {
+function shareNodeToRf(node: ShareNode, parentName: string | null): ArchNode {
   if (node.type === 'feature') {
     return {
-      name: node.name,
-      parentName,
-      w: FEATURE_NODE_DEFAULT_WIDTH,
-      h: FEATURE_NODE_DEFAULT_HEIGHT,
+      id: node._id,
+      type: 'feature-node',
+      position: { x: node.positionX, y: node.positionY },
+      data: { name: node.name, parentName, readOnly: true },
     };
   }
   return {
-    name: node.name,
-    w: PAGE_NODE_DEFAULT_WIDTH,
-    h: PAGE_NODE_DEFAULT_HEIGHT,
+    id: node._id,
+    type: 'page-node',
+    position: { x: node.positionX, y: node.positionY },
+    data: { name: node.name, readOnly: true },
+  };
+}
+
+function shareEdgeToRf(edge: ShareEdge): Edge {
+  const style = EDGE_STYLE_BY_TYPE[edge.type];
+  return {
+    id: edge._id,
+    source: edge.sourceNodeId,
+    target: edge.targetNodeId,
+    type: 'default',
+    data: { edgeType: edge.type },
+    style: {
+      stroke: style.stroke,
+      strokeWidth: style.strokeWidth,
+      strokeDasharray: style.strokeDasharray,
+    },
+    markerEnd: {
+      type: style.markerEnd === 'arrowclosed' ? MarkerType.ArrowClosed : MarkerType.Arrow,
+      color: style.stroke,
+      width: 18,
+      height: 18,
+    },
   };
 }
 
 interface Args {
-  editor: Editor | null;
   nodes: ShareNode[] | undefined;
   edges: ShareEdge[] | undefined;
 }
 
+interface SyncResult {
+  rfNodes: ArchNode[];
+  rfEdges: Edge[];
+  // RF still wants change callbacks even in read-only mode (they pipe
+  // viewport/selection state updates back into RF's internal store).
+  onNodesChange: ReturnType<typeof useNodesState<ArchNode>>[2];
+  onEdgesChange: ReturnType<typeof useEdgesState<Edge>>[2];
+}
+
 /**
- * Read-only counterpart to `use-canvas-sync.ts`. Reconciles the share-view
- * payload into the tldraw editor (one-way: payload → editor) and flips the
- * editor into read-only mode so viewers can pan/zoom but cannot move,
- * delete, draw arrows, or otherwise mutate. There is intentionally NO
- * `editor.store.listen` block — the share view dispatches zero mutations.
+ * Read-only counterpart to `useCanvasSync`. Builds React Flow's `nodes`
+ * and `edges` from the share-view payload and feeds them into RF's
+ * internal state (via `useNodesState` / `useEdgesState`). No mutations
+ * are dispatched — the caller is responsible for setting `nodesDraggable`,
+ * `nodesConnectable`, and `elementsSelectable` to false at the
+ * `<ReactFlow>` level so viewers can pan/zoom but cannot edit.
  */
-export function useShareCanvasSync({ editor, nodes, edges }: Args) {
-  // Flip the editor into read-only mode as soon as we have one. tldraw 5
-  // gates input + tools off `instanceState.isReadonly`; this disables
-  // shape selection bound mutations, deletes, drags, and tool-driven
-  // arrow drawing while still allowing camera pan / zoom.
+export function useShareCanvasSync({ nodes, edges }: Args): SyncResult {
+  const [rfNodes, setRfNodes, onNodesChange] = useNodesState<ArchNode>([]);
+  const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<Edge>([]);
+
+  const derivedNodes = useMemo<ArchNode[]>(() => {
+    if (!nodes) return [];
+    const byId = new Map(nodes.map((n) => [n._id, n]));
+    return nodes.map((n) => {
+      const parent = n.parentId ? byId.get(n.parentId) : undefined;
+      return shareNodeToRf(n, parent?.name ?? null);
+    });
+  }, [nodes]);
+
+  const derivedEdges = useMemo<Edge[]>(() => {
+    if (!edges) return [];
+    return edges.map(shareEdgeToRf);
+  }, [edges]);
+
   useEffect(() => {
-    if (!editor) return;
-    editor.updateInstanceState({ isReadonly: true });
-  }, [editor]);
+    setRfNodes(derivedNodes);
+  }, [derivedNodes, setRfNodes]);
 
-  // Payload -> editor: reconcile node shapes whenever `nodes` changes.
   useEffect(() => {
-    if (!editor || !nodes) return;
+    setRfEdges(derivedEdges);
+  }, [derivedEdges, setRfEdges]);
 
-    const desiredById = new Map(nodes.map((n) => [nodeIdToShapeId(n._id), n]));
-    const nodesById = new Map(nodes.map((n) => [n._id, n]));
-    const existingShapes = editor
-      .getCurrentPageShapes()
-      .filter((s) => MANAGED_TYPES.has(s.type));
-    const existingIds = new Set(existingShapes.map((s) => s.id));
-
-    const toDelete = existingShapes.filter((s) => !desiredById.has(s.id));
-    if (toDelete.length > 0) editor.deleteShapes(toDelete.map((s) => s.id));
-
-    for (const node of nodes) {
-      const shapeId = nodeIdToShapeId(node._id);
-      const type = shapeTypeFor(node);
-      const parent = node.parentId ? nodesById.get(node.parentId) : undefined;
-      const parentName = parent?.name ?? null;
-      const props = shapePropsFor(node, parentName);
-
-      if (!existingIds.has(shapeId)) {
-        editor.createShape({
-          id: shapeId,
-          type,
-          x: node.positionX,
-          y: node.positionY,
-          props,
-        });
-      } else {
-        const current = editor.getShape(shapeId);
-        if (!current) continue;
-        if (current.type !== type) {
-          editor.deleteShapes([shapeId]);
-          editor.createShape({
-            id: shapeId,
-            type,
-            x: node.positionX,
-            y: node.positionY,
-            props,
-          });
-          continue;
-        }
-        const curProps = current.props as Record<string, unknown>;
-        const drifted =
-          current.x !== node.positionX ||
-          current.y !== node.positionY ||
-          curProps.name !== node.name ||
-          (type === 'feature-node' && curProps.parentName !== parentName);
-        if (drifted) {
-          editor.updateShape({
-            id: shapeId,
-            type,
-            x: node.positionX,
-            y: node.positionY,
-            props,
-          });
-        }
-      }
-    }
-  }, [editor, nodes]);
-
-  // Payload -> editor: reconcile arrows for edges. Runs after the nodes
-  // effect (declaration order) so source/target shapes already exist when
-  // bindings reference them.
-  useEffect(() => {
-    if (!editor || !nodes || !edges) return;
-    const nodeIdSet = new Set(nodes.map((n) => n._id));
-
-    const desiredArrowIds = new Set<string>();
-    for (const edge of edges) {
-      if (!nodeIdSet.has(edge.sourceNodeId)) continue;
-      if (!nodeIdSet.has(edge.targetNodeId)) continue;
-
-      const arrowId = edgeIdToArrowShapeId(edge._id);
-      desiredArrowIds.add(arrowId);
-
-      const existing = editor.getShape(arrowId);
-      if (!existing) {
-        createEdgeArrow(editor, edge);
-        continue;
-      }
-
-      const style = EDGE_STYLE_BY_TYPE[edge.type];
-      const curProps = existing.props as Record<string, unknown>;
-      const styleDrifted =
-        curProps.dash !== style.dash ||
-        curProps.color !== style.color ||
-        curProps.size !== style.size ||
-        curProps.arrowheadStart !== style.arrowheadStart ||
-        curProps.arrowheadEnd !== style.arrowheadEnd;
-      if (styleDrifted) {
-        editor.updateShape({
-          id: arrowId,
-          type: 'arrow',
-          props: style,
-        });
-      }
-    }
-
-    const existingArrows = editor
-      .getCurrentPageShapes()
-      .filter((s) => s.type === 'arrow' && s.id.startsWith(EDGE_ARROW_PREFIX));
-    const toRemove = existingArrows.filter((s) => !desiredArrowIds.has(s.id));
-    if (toRemove.length > 0) editor.deleteShapes(toRemove.map((s) => s.id));
-  }, [editor, nodes, edges]);
+  return { rfNodes, rfEdges, onNodesChange, onEdgesChange };
 }
