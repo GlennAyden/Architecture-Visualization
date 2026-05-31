@@ -13,10 +13,7 @@ import {
   type OnNodesChange,
   type Connection,
 } from '@xyflow/react';
-import {
-  FEATURE_NODE_DEFAULT_HEIGHT,
-  FEATURE_NODE_DEFAULT_WIDTH,
-} from '@arch-viz/shared';
+import { FEATURE_NODE_DEFAULT_HEIGHT, FEATURE_NODE_DEFAULT_WIDTH } from '@arch-viz/shared';
 
 import { api } from '../../../convex/_generated/api';
 import type { Doc, Id } from '../../../convex/_generated/dataModel';
@@ -32,6 +29,9 @@ import {
 export type ArchNode = PageNodeType | FeatureNodeType;
 
 type EdgeType = Doc<'nodeEdges'>['type'];
+type HighlightMode = {
+  edgeTypes: ReadonlyArray<EdgeType>;
+};
 type EdgeVariantStyle = {
   stroke: string;
   strokeWidth: number;
@@ -57,8 +57,12 @@ const EDGE_STYLE_BY_TYPE: Record<EdgeType, EdgeVariantStyle> = {
   },
 };
 
-function convexEdgeToRf(edge: Doc<'nodeEdges'>): Edge {
+function convexEdgeToRf(edge: Doc<'nodeEdges'>, highlightMode: HighlightMode | undefined): Edge {
   const style = EDGE_STYLE_BY_TYPE[edge.type];
+  const active = highlightMode ? highlightMode.edgeTypes.includes(edge.type) : false;
+  const dimmed = highlightMode ? !active : false;
+  const stroke = active ? '#facc15' : style.stroke;
+  const strokeWidth = active ? Math.max(style.strokeWidth, 2.5) : style.strokeWidth;
   return {
     id: edge._id as string,
     source: edge.sourceNodeId as string,
@@ -69,15 +73,16 @@ function convexEdgeToRf(edge: Doc<'nodeEdges'>): Edge {
     type: 'smoothstep',
     data: { edgeType: edge.type },
     style: {
-      stroke: style.stroke,
-      strokeWidth: style.strokeWidth,
+      stroke,
+      strokeWidth,
       strokeDasharray: style.strokeDasharray,
+      opacity: dimmed ? 0.22 : 1,
     },
     markerEnd: {
       type: style.markerEnd === 'arrowclosed' ? MarkerType.ArrowClosed : MarkerType.Arrow,
-      color: style.stroke,
-      width: 18,
-      height: 18,
+      color: stroke,
+      width: active ? 22 : 18,
+      height: active ? 22 : 18,
     },
   };
 }
@@ -103,8 +108,12 @@ function convexEdgeToRf(edge: Doc<'nodeEdges'>): Edge {
  * absolute lets export, share view, and the activity log all read the
  * same field. The relative conversion is the renderer's job.
  */
-function buildRfNodes(visibleNodes: Doc<'nodes'>[]): ArchNode[] {
+function buildRfNodes(
+  visibleNodes: Doc<'nodes'>[],
+  highlightedNodeIds: ReadonlySet<string> | undefined,
+): ArchNode[] {
   if (visibleNodes.length === 0) return [];
+  const hasHighlight = highlightedNodeIds !== undefined;
 
   const byId = new Map(visibleNodes.map((n) => [n._id as string, n]));
   const childrenByParent = new Map<string, Doc<'nodes'>[]>();
@@ -128,8 +137,7 @@ function buildRfNodes(visibleNodes: Doc<'nodes'>[]): ArchNode[] {
     let maxBottomRel = 0;
     for (const child of children) {
       const relRight = child.positionX - parent.positionX + FEATURE_NODE_DEFAULT_WIDTH;
-      const relBottom =
-        child.positionY - parent.positionY + FEATURE_NODE_DEFAULT_HEIGHT;
+      const relBottom = child.positionY - parent.positionY + FEATURE_NODE_DEFAULT_HEIGHT;
       maxRightRel = Math.max(maxRightRel, relRight);
       maxBottomRel = Math.max(maxBottomRel, relBottom);
     }
@@ -150,6 +158,8 @@ function buildRfNodes(visibleNodes: Doc<'nodes'>[]): ArchNode[] {
     const parentInVisibleSet = n.parentId && byId.has(n.parentId as string);
     const parent = parentInVisibleSet ? byId.get(n.parentId as string) : undefined;
     const parentName = parent?.name ?? null;
+    const highlighted = highlightedNodeIds?.has(id) ?? false;
+    const dimmed = hasHighlight && !highlighted;
 
     if (n.type === 'feature') {
       // A feature with no in-scope parent (e.g. drilled into the feature
@@ -160,7 +170,7 @@ function buildRfNodes(visibleNodes: Doc<'nodes'>[]): ArchNode[] {
           id,
           type: 'feature-node',
           position: { x: n.positionX, y: n.positionY },
-          data: { name: n.name, parentName: null, insideCluster: false },
+          data: { name: n.name, parentName: null, insideCluster: false, highlighted, dimmed },
         } satisfies FeatureNodeType;
       }
       // Inside a visible parent cluster the subtitle is redundant — the
@@ -175,7 +185,7 @@ function buildRfNodes(visibleNodes: Doc<'nodes'>[]): ArchNode[] {
           x: n.positionX - parent.positionX,
           y: n.positionY - parent.positionY,
         },
-        data: { name: n.name, parentName, insideCluster: true },
+        data: { name: n.name, parentName, insideCluster: true, highlighted, dimmed },
       } satisfies FeatureNodeType;
     }
 
@@ -197,6 +207,8 @@ function buildRfNodes(visibleNodes: Doc<'nodes'>[]): ArchNode[] {
           hasChildren: true,
           containerWidth: size.w,
           containerHeight: size.h,
+          highlighted,
+          dimmed,
         },
       } satisfies PageNodeType;
     }
@@ -205,7 +217,7 @@ function buildRfNodes(visibleNodes: Doc<'nodes'>[]): ArchNode[] {
       id,
       type: 'page-node',
       position: { x: n.positionX, y: n.positionY },
-      data: { name: n.name, hasChildren: false },
+      data: { name: n.name, hasChildren: false, highlighted, dimmed },
     } satisfies PageNodeType;
   });
 }
@@ -215,10 +227,7 @@ function buildRfNodes(visibleNodes: Doc<'nodes'>[]): ArchNode[] {
  * transitive descendant via `parentId`. Identical semantics to the
  * tldraw-era implementation.
  */
-function filterToDescendants(
-  nodes: Doc<'nodes'>[],
-  drillNodeId: Id<'nodes'>,
-): Doc<'nodes'>[] {
+function filterToDescendants(nodes: Doc<'nodes'>[], drillNodeId: Id<'nodes'>): Doc<'nodes'>[] {
   const childrenByParent = new Map<string, Doc<'nodes'>[]>();
   for (const n of nodes) {
     if (!n.parentId) continue;
@@ -245,6 +254,7 @@ function filterToDescendants(
 interface Args {
   nodes: Doc<'nodes'>[] | undefined;
   edges: Doc<'nodeEdges'>[] | undefined;
+  highlightedEdgeTypes?: ReadonlyArray<EdgeType>;
 }
 
 interface SyncResult {
@@ -263,11 +273,15 @@ interface SyncResult {
 // so an auth-recovered tick can restore content first.
 const SUSPICIOUS_EMPTY_GRACE_MS = 1500;
 
-export function useCanvasSync({ nodes, edges }: Args): SyncResult {
+export function useCanvasSync({ nodes, edges, highlightedEdgeTypes }: Args): SyncResult {
   const updateMutation = useMutation(api.nodes.update);
   const removeEdgeMutation = useMutation(api.nodeEdges.remove);
 
   const drillNodeId = useDrillStore((s) => s.drillNodeId);
+  const highlightMode = useMemo<HighlightMode | undefined>(() => {
+    if (!highlightedEdgeTypes || highlightedEdgeTypes.length === 0) return undefined;
+    return { edgeTypes: highlightedEdgeTypes };
+  }, [highlightedEdgeTypes]);
 
   const visibleNodes = useMemo(() => {
     if (!nodes) return undefined;
@@ -305,6 +319,17 @@ export function useCanvasSync({ nodes, edges }: Args): SyncResult {
       return (target.parentId as string) !== (e.sourceNodeId as string);
     });
   }, [edges, visibleNodes, drillNodeId]);
+
+  const highlightedNodeIds = useMemo<Set<string> | undefined>(() => {
+    if (!visibleEdges || !highlightMode) return undefined;
+    const ids = new Set<string>();
+    for (const edge of visibleEdges) {
+      if (!highlightMode.edgeTypes.includes(edge.type)) continue;
+      ids.add(edge.sourceNodeId as string);
+      ids.add(edge.targetNodeId as string);
+    }
+    return ids;
+  }, [highlightMode, visibleEdges]);
 
   const [rfNodes, setRfNodes, onNodesChangeInternal] = useNodesState<ArchNode>([]);
   const [rfEdges, setRfEdges, onEdgesChangeInternal] = useEdgesState<Edge>([]);
@@ -348,8 +373,8 @@ export function useCanvasSync({ nodes, edges }: Args): SyncResult {
     }
 
     prevNodeCountRef.current = visibleNodes.length;
-    setRfNodes(buildRfNodes(visibleNodes));
-  }, [visibleNodes, setRfNodes]);
+    setRfNodes(buildRfNodes(visibleNodes, highlightedNodeIds));
+  }, [visibleNodes, highlightedNodeIds, setRfNodes]);
 
   useEffect(() => {
     if (!visibleEdges) return;
@@ -373,8 +398,8 @@ export function useCanvasSync({ nodes, edges }: Args): SyncResult {
     }
 
     prevEdgeCountRef.current = visibleEdges.length;
-    setRfEdges(visibleEdges.map(convexEdgeToRf));
-  }, [visibleEdges, setRfEdges]);
+    setRfEdges(visibleEdges.map((edge) => convexEdgeToRf(edge, highlightMode)));
+  }, [visibleEdges, highlightMode, setRfEdges]);
 
   useEffect(() => {
     return () => {

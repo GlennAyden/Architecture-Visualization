@@ -46,10 +46,7 @@ export function ExportProjectButton({ projectId }: Props) {
   // Gated query: only runs while `exporting` is true. The cached result is
   // discarded between exports because the component unmounts the subscription
   // (`'skip'`) as soon as we toggle exporting off.
-  const snapshot = useQuery(
-    api.exports.exportProject,
-    exporting ? { projectId } : 'skip',
-  );
+  const snapshot = useQuery(api.exports.exportProject, exporting ? { projectId } : 'skip');
 
   useEffect(() => {
     if (!exporting || snapshot === undefined) return;
@@ -92,6 +89,7 @@ export function ExportProjectButton({ projectId }: Props) {
       <Button
         variant="ghost"
         size="sm"
+        className="border border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.07] hover:text-zinc-50"
         onClick={onClick}
         disabled={exporting}
         aria-label="Export project as JSON"

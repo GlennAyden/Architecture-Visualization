@@ -32,9 +32,11 @@ export function AddNodeButton({ projectId, nodes }: Props) {
   const handleAddPage = async () => {
     // Place the new page at the current viewport center so the user
     // doesn't have to chase a node spawned off-screen.
+    const canvas = document.querySelector<HTMLElement>('.react-flow');
+    const rect = canvas?.getBoundingClientRect();
     const center = rf.screenToFlowPosition({
-      x: window.innerWidth / 2,
-      y: window.innerHeight / 2,
+      x: rect ? rect.left + rect.width / 2 : window.innerWidth / 2,
+      y: rect ? rect.top + rect.height / 2 : window.innerHeight / 2,
     });
     await create({
       projectId,
@@ -54,16 +56,12 @@ export function AddNodeButton({ projectId, nodes }: Props) {
           className="rounded-r-none border-r border-primary-foreground/20"
         >
           <Plus className="mr-1 h-4 w-4" />
-          Add page
+          Add Node
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
-              <Button
-                size="sm"
-                className="rounded-l-none px-1.5"
-                aria-label="More add options"
-              >
+              <Button size="sm" className="rounded-l-none px-1.5" aria-label="More add options">
                 <ChevronDown className="h-4 w-4" />
               </Button>
             }

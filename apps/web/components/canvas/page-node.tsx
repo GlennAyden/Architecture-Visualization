@@ -22,6 +22,8 @@ export interface PageNodeData extends Record<string, unknown> {
   // `computeAutoLayout` line up inside the container.
   containerWidth?: number;
   containerHeight?: number;
+  highlighted?: boolean;
+  dimmed?: boolean;
 }
 
 export type PageNodeType = Node<PageNodeData, 'page-node'>;
@@ -53,11 +55,14 @@ export function PageNode({ id, data }: NodeProps<PageNodeType>) {
           width: data.containerWidth,
           height: data.containerHeight,
           borderRadius: '10px',
-          border: '1.5px solid hsl(214 32% 85%)',
-          background: 'hsl(210 40% 98% / 0.4)',
-          boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+          border: data.highlighted ? '1.5px solid #facc15' : '1.5px solid rgba(255,255,255,0.12)',
+          background: data.highlighted ? 'rgba(250, 204, 21, 0.06)' : 'rgba(24,24,27,0.24)',
+          boxShadow: data.highlighted
+            ? '0 0 0 1px rgba(250,204,21,0.18), 0 0 26px rgba(250,204,21,0.12)'
+            : '0 14px 28px rgba(0,0,0,0.18)',
           fontFamily: 'var(--font-geist-sans, system-ui)',
-          color: '#0f172a',
+          color: '#f4f4f5',
+          opacity: data.dimmed ? 0.35 : 1,
           userSelect: 'none',
         }}
       >
@@ -72,12 +77,12 @@ export function PageNode({ id, data }: NodeProps<PageNodeType>) {
             alignItems: 'center',
             height: '40px',
             padding: '0 14px',
-            borderBottom: '1px solid hsl(214 32% 88%)',
+            borderBottom: '1px solid rgba(255,255,255,0.1)',
             fontSize: '13px',
             fontWeight: 600,
-            color: '#0f172a',
+            color: data.highlighted ? '#fef3c7' : '#f4f4f5',
             cursor: data.readOnly ? 'default' : 'pointer',
-            background: 'white',
+            background: data.highlighted ? 'rgba(250, 204, 21, 0.12)' : 'rgba(39,39,42,0.95)',
             borderTopLeftRadius: '10px',
             borderTopRightRadius: '10px',
           }}
@@ -101,13 +106,18 @@ export function PageNode({ id, data }: NodeProps<PageNodeType>) {
         justifyContent: 'center',
         padding: '12px',
         borderRadius: '8px',
-        border: '1px solid hsl(214 32% 91%)',
-        background: 'white',
-        boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+        border: data.highlighted ? '1.5px solid #facc15' : '1px solid rgba(255,255,255,0.12)',
+        background: data.highlighted
+          ? 'linear-gradient(180deg, rgba(250, 204, 21, 0.16), rgba(39, 39, 42, 0.94))'
+          : 'rgba(24, 24, 27, 0.94)',
+        boxShadow: data.highlighted
+          ? '0 0 0 1px rgba(250,204,21,0.18), 0 0 24px rgba(250,204,21,0.18)'
+          : '0 10px 24px rgba(0,0,0,0.24)',
         fontFamily: 'var(--font-geist-sans, system-ui)',
         fontSize: '14px',
         fontWeight: 500,
-        color: '#0f172a',
+        color: data.highlighted ? '#fef3c7' : '#f4f4f5',
+        opacity: data.dimmed ? 0.35 : 1,
         userSelect: 'none',
         cursor: data.readOnly ? 'default' : 'pointer',
       }}

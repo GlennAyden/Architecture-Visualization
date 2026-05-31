@@ -1,14 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from 'convex/react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { ChevronLeft, FileQuestion, History, Home, X } from 'lucide-react';
+import { ChevronLeft, FileQuestion, History, Home, Search, Share2, X } from 'lucide-react';
 import {
   Background,
   Controls,
-  MiniMap,
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
@@ -25,6 +24,11 @@ import { AddNodeButton } from '@/components/canvas/add-node-button';
 import { AutoLayoutButton } from '@/components/canvas/auto-layout-button';
 import { CommandPalette } from '@/components/canvas/command-palette';
 import { ExportProjectButton } from '@/components/canvas/export-project-button';
+import {
+  FLOW_EDGE_TYPES,
+  FlowSidebar,
+  type ArchitectureFlowId,
+} from '@/components/canvas/flow-sidebar';
 import { NodeModal } from '@/components/node-modal/node-modal';
 import { useCanvasSync, type ArchNode } from '@/hooks/use-canvas-sync';
 import { useModalStore } from '@/store/modal-store';
@@ -44,6 +48,10 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
   const nodes = useQuery(api.nodes.listByProject, { projectId });
   const edges = useQuery(api.nodeEdges.listByProject, { projectId });
   const openModal = useModalStore((s) => s.open);
+  const selectedNodeId = useModalStore((s) => s.selectedNodeId);
+  const [selectedFlow, setSelectedFlow] = useState<ArchitectureFlowId | null>(
+    'agent-updates-canvas',
+  );
 
   const drillNodeId = useDrillStore((s) => s.drillNodeId);
   const setChildren = useDrillStore((s) => s.setChildren);
@@ -51,7 +59,11 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
   const resetDrill = useDrillStore((s) => s.reset);
 
   const { rfNodes, rfEdges, onNodesChange, onEdgesChange, onNodeDragStop, onConnect } =
-    useCanvasSync({ nodes, edges });
+    useCanvasSync({
+      nodes,
+      edges,
+      highlightedEdgeTypes: selectedFlow ? FLOW_EDGE_TYPES[selectedFlow] : undefined,
+    });
 
   const rf = useReactFlow();
 
@@ -134,6 +146,11 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
     return chain;
   }, [drillNodeId, nodes]);
 
+  const selectedNodeName = useMemo(() => {
+    if (!selectedNodeId || !nodes) return null;
+    return nodes.find((n) => n._id === selectedNodeId)?.name ?? null;
+  }, [nodes, selectedNodeId]);
+
   // Redirect when the project is gone (e.g. cascade-deleted in another tab).
   useEffect(() => {
     if (project === null) router.replace('/projects');
@@ -151,19 +168,24 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
   }, [nodeParam, nodes, openModal, router, projectId]);
 
   if (project === undefined) {
-    return <p className="p-8 text-muted-foreground">Loading…</p>;
+    return (
+      <main className="dark flex min-h-screen items-center justify-center bg-zinc-950 text-zinc-400">
+        Loading...
+      </main>
+    );
   }
   if (project === null) {
     return null;
   }
 
   return (
-    <main className="flex h-screen flex-col bg-background">
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-border/60 bg-background/80 px-4 backdrop-blur-md">
-        <div className="flex items-center gap-3">
+    <main className="dark flex h-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100">
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-white/10 bg-zinc-950/90 px-4 backdrop-blur-md">
+        <div className="flex min-w-0 items-center gap-3">
           <Button
             variant="ghost"
             size="sm"
+            className="border border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.07] hover:text-zinc-50"
             nativeButton={false}
             render={
               <Link href="/projects">
@@ -172,17 +194,43 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
               </Link>
             }
           />
-          <span className="h-5 w-px bg-border" aria-hidden />
-          <BrandMark />
-          <span className="text-muted-foreground/60" aria-hidden>
+          <span className="h-5 w-px bg-white/10" aria-hidden />
+          <BrandMark className="text-zinc-100" />
+          <span className="text-zinc-600" aria-hidden>
             /
           </span>
-          <h1 className="text-sm font-medium tracking-tight">{project.name}</h1>
+          <div className="min-w-0">
+            <h1 className="truncate text-sm font-medium tracking-tight text-zinc-100">
+              {project.name}
+            </h1>
+            <p className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">
+              Architecture Flows
+            </p>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="border border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.07] hover:text-zinc-50"
+            aria-label="Search nodes"
+            onClick={() => {
+              window.dispatchEvent(
+                new KeyboardEvent('keydown', {
+                  key: 'k',
+                  ctrlKey: true,
+                  metaKey: true,
+                  bubbles: true,
+                }),
+              );
+            }}
+          >
+            <Search className="h-4 w-4" />
+          </Button>
           <Button
             variant="ghost"
             size="sm"
+            className="border border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.07] hover:text-zinc-50"
             nativeButton={false}
             render={
               <Link href={`/canvas/${projectId}/orphans`}>
@@ -194,11 +242,24 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
           <Button
             variant="ghost"
             size="sm"
+            className="border border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.07] hover:text-zinc-50"
             nativeButton={false}
             render={
               <Link href={`/canvas/${projectId}/activity`}>
                 <History className="h-4 w-4" />
                 Activity
+              </Link>
+            }
+          />
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="border border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.07] hover:text-zinc-50"
+            aria-label="Share project"
+            nativeButton={false}
+            render={
+              <Link href="/settings/share">
+                <Share2 className="h-4 w-4" />
               </Link>
             }
           />
@@ -208,11 +269,12 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
         </div>
       </header>
       {drillNodeId !== null && breadcrumb.length > 0 && (
-        <div className="flex h-10 shrink-0 items-center justify-between border-b border-border/60 bg-muted/30 px-4">
+        <div className="flex h-10 shrink-0 items-center justify-between border-b border-white/10 bg-zinc-900/80 px-4">
           <div className="flex items-center gap-1 overflow-hidden text-sm">
             <Button
               variant="ghost"
               size="icon-sm"
+              className="text-zinc-300 hover:bg-white/10 hover:text-zinc-50"
               onClick={() => resetDrill()}
               aria-label="Exit drill-down"
             >
@@ -222,7 +284,7 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
               const isLast = i === breadcrumb.length - 1;
               return (
                 <div key={node._id} className="flex items-center gap-1">
-                  <span className="text-muted-foreground/60" aria-hidden>
+                  <span className="text-zinc-600" aria-hidden>
                     /
                   </span>
                   {isLast ? (
@@ -231,6 +293,7 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
                     <Button
                       variant="ghost"
                       size="sm"
+                      className="text-zinc-300 hover:bg-white/10 hover:text-zinc-50"
                       onClick={() => drillUp(node._id as Id<'nodes'>)}
                     >
                       <span className="truncate">{node.name}</span>
@@ -240,34 +303,90 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
               );
             })}
           </div>
-          <Button variant="ghost" size="sm" onClick={() => resetDrill()}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-zinc-300 hover:bg-white/10 hover:text-zinc-50"
+            onClick={() => resetDrill()}
+          >
             <X className="h-4 w-4" />
             Exit
           </Button>
         </div>
       )}
-      <div className="flex-1">
-        <ReactFlow<ArchNode>
-          nodes={rfNodes}
-          edges={rfEdges}
-          nodeTypes={nodeTypes}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onNodeDragStop={onNodeDragStop}
-          onConnect={onConnect}
-          fitView
-          fitViewOptions={{ padding: 0.2 }}
-          minZoom={0.1}
-          maxZoom={2}
-        >
-          <Background gap={20} />
-          <Controls showInteractive={false} />
-          <MiniMap pannable zoomable />
-        </ReactFlow>
+      <div className="flex min-h-0 flex-1 gap-3 p-3 max-lg:flex-col">
+        <section className="relative min-w-0 flex-1 overflow-hidden rounded-lg border border-white/10 bg-zinc-950 shadow-2xl shadow-black/30">
+          <div className="pointer-events-none absolute inset-0 z-0 grid grid-cols-6">
+            {['Surfaces', 'Features', 'Convex', 'MCP / Agents', 'Infra', 'External'].map((lane) => (
+              <div key={lane} className="border-r border-white/[0.07] last:border-r-0">
+                <div className="border-b border-white/[0.07] bg-white/[0.02] px-6 py-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                    {lane}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_50%_0%,rgba(34,211,238,0.12),transparent_42%)]" />
+
+          <ReactFlow<ArchNode>
+            className="relative z-10"
+            nodes={rfNodes}
+            edges={rfEdges}
+            nodeTypes={nodeTypes}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onNodeDragStop={onNodeDragStop}
+            onConnect={onConnect}
+            fitView
+            fitViewOptions={{ padding: 0.2 }}
+            minZoom={0.1}
+            maxZoom={2}
+          >
+            <Background gap={22} color="rgba(255,255,255,0.06)" />
+            <Controls
+              showInteractive={false}
+              className="!bottom-5 !left-5 !rounded-lg !border !border-white/10 !bg-zinc-950/90 !shadow-2xl [&_button]:!border-white/10 [&_button]:!bg-transparent [&_button]:!text-zinc-300 hover:[&_button]:!bg-white/10"
+            />
+          </ReactFlow>
+
+          <div className="pointer-events-none absolute bottom-5 left-24 z-20 flex flex-wrap items-center gap-5 rounded-lg border border-white/10 bg-zinc-950/90 px-4 py-3 text-xs text-zinc-400 shadow-2xl shadow-black/30">
+            <LegendItem color="border-zinc-500" label="hierarchy" dashed />
+            <LegendItem color="border-zinc-500" label="dependency" dashed />
+            <LegendItem color="border-cyan-400" label="navigation" />
+            <LegendItem color="border-amber-400" label="data flow" />
+            <LegendItem color="border-violet-400" label="agent update" />
+          </div>
+        </section>
+
+        <FlowSidebar
+          selectedFlow={selectedFlow}
+          onSelectedFlowChange={setSelectedFlow}
+          selectedNodeName={selectedNodeName}
+          nodeCount={nodes?.length ?? 0}
+          edgeCount={edges?.length ?? 0}
+        />
       </div>
       <CommandPalette projectId={projectId} />
       <NodeModal />
     </main>
+  );
+}
+
+function LegendItem({
+  color,
+  label,
+  dashed = false,
+}: {
+  color: string;
+  label: string;
+  dashed?: boolean;
+}) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span className={`h-px w-9 border-t-2 ${color} ${dashed ? 'border-dashed' : ''}`} />
+      <span>{label}</span>
+    </span>
   );
 }
 

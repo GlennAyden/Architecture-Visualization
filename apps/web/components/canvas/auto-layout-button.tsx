@@ -61,10 +61,7 @@ export function AutoLayoutButton({ nodes }: Props) {
       for (const laid of result) {
         const current = byId.get(laid.id);
         if (!current) continue;
-        if (
-          current.positionX === laid.positionX &&
-          current.positionY === laid.positionY
-        ) {
+        if (current.positionX === laid.positionX && current.positionY === laid.positionY) {
           continue;
         }
         tasks.push({
@@ -89,8 +86,8 @@ export function AutoLayoutButton({ nodes }: Props) {
         const promise =
           i === 0
             ? updateMutation(t)
-            : new Promise((resolve) => window.setTimeout(resolve, DISPATCH_INTERVAL_MS)).then(
-                () => updateMutation(t),
+            : new Promise((resolve) => window.setTimeout(resolve, DISPATCH_INTERVAL_MS)).then(() =>
+                updateMutation(t),
               );
         dispatched.push(promise);
       }
@@ -132,8 +129,8 @@ export function AutoLayoutButton({ nodes }: Props) {
     status?.kind === 'failure'
       ? 'text-destructive'
       : status?.kind === 'partial'
-        ? 'text-amber-600'
-        : 'text-muted-foreground';
+        ? 'text-amber-300'
+        : 'text-zinc-400';
 
   return (
     <div className="flex items-center gap-2">
@@ -145,6 +142,7 @@ export function AutoLayoutButton({ nodes }: Props) {
       <Button
         variant="ghost"
         size="sm"
+        className="border border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.07] hover:text-zinc-50"
         onClick={handleClick}
         disabled={disabled}
         aria-label="Auto-layout the canvas"

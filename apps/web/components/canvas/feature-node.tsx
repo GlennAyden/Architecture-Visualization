@@ -18,6 +18,8 @@ export interface FeatureNodeData extends Record<string, unknown> {
   // in scope) still show the subtitle.
   insideCluster?: boolean;
   readOnly?: boolean;
+  highlighted?: boolean;
+  dimmed?: boolean;
 }
 
 export type FeatureNodeType = Node<FeatureNodeData, 'feature-node'>;
@@ -52,11 +54,16 @@ export function FeatureNode({ id, data }: NodeProps<FeatureNodeType>) {
         gap: '2px',
         padding: '8px 12px',
         borderRadius: '6px',
-        border: '1px solid oklch(0.62 0.16 220 / 0.4)',
-        background: 'oklch(0.62 0.16 220 / 0.06)',
-        boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+        border: data.highlighted ? '1.5px solid #facc15' : '1px solid oklch(0.72 0.16 220 / 0.35)',
+        background: data.highlighted
+          ? 'linear-gradient(180deg, rgba(250, 204, 21, 0.16), rgba(39, 39, 42, 0.92))'
+          : 'rgba(24, 24, 27, 0.92)',
+        boxShadow: data.highlighted
+          ? '0 0 0 1px rgba(250,204,21,0.18), 0 0 24px rgba(250,204,21,0.18)'
+          : '0 10px 24px rgba(0,0,0,0.24)',
         fontFamily: 'var(--font-geist-sans, system-ui)',
-        color: '#0f172a',
+        color: '#f4f4f5',
+        opacity: data.dimmed ? 0.35 : 1,
         userSelect: 'none',
         cursor: data.readOnly ? 'default' : 'pointer',
       }}
@@ -81,7 +88,7 @@ export function FeatureNode({ id, data }: NodeProps<FeatureNodeType>) {
         <span
           style={{
             fontSize: '10px',
-            color: 'oklch(0.62 0.16 220)',
+            color: data.highlighted ? '#fde68a' : 'oklch(0.72 0.16 220)',
             opacity: 0.85,
             display: 'flex',
             alignItems: 'center',
