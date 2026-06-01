@@ -132,6 +132,23 @@ export const scanSnapshotGetInput = z
   })
   .strict();
 
+const codebaseSuggestionSchema = z
+  .object({
+    filePath: pathPattern,
+    layerId: z.string().trim().min(1),
+    suggestedNodeName: namePattern,
+    confidence: z.number().min(0).max(1),
+    reason: z.string().trim().min(1, 'reason is required').max(1000),
+    source: z.string().trim().min(1).max(80).default('hermes'),
+  })
+  .strict();
+
+export const pushCodebaseSuggestionsInput = z
+  .object({
+    suggestions: z.array(codebaseSuggestionSchema).min(1).max(500),
+  })
+  .strict();
+
 // Sprint 3 — non-hierarchy edge types. Hierarchy is auto-mirrored from
 // `parentId` and never manipulated through these endpoints.
 export const manualEdgeTypeSchema = z.enum(['dependency', 'navigation', 'data_flow']);

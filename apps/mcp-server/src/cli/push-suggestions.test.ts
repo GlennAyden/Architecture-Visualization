@@ -1,0 +1,125 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, describe, expect, test } from 'vitest';
+import {
+  parsePushSuggestionsArgs,
+  readSuggestionsPayload,
+  runPushSuggestions,
+} from './push-suggestions.js';
+
+const TMPS: string[] = [];
+afterAll(() => {
+  for (const t of TMPS) {
+    try {
+      rmSync(t, { recursive: true, force: true });
+    } catch {
+      // ignore
+    }
+  }
+});
+
+const validEnv = {
+  ARCHITECTURE_CONVEX_URL: 'https://dazzling-seahorse-444.convex.site',
+  ARCHITECTURE_API_KEY: 'archv_abc',
+  ARCHITECTURE_PROJECT_ID: 'projects:abc',
+};
+
+function tempRepo() {
+  const root = mkdtempSync(join(tmpdir(), 'arch-viz-suggestions-'));
+  TMPS.push(root);
+  return root;
+}
+
+describe('parsePushSuggestionsArgs', () => {
+  test('requires --from-json so the CLI cannot silently guess an input source', () => {
+    expect(parsePushSuggestionsArgs(['--from-json', 'suggestions.json'])).toEqual({
+      fromJson: 'suggestions.json',
+    });
+    expect(() => parsePushSuggestionsArgs([])).toThrow(/--from-json/);
+    expect(() => parsePushSuggestionsArgs(['--from-json'])).toThrow(/path/);
+  });
+});
+
+describe('readSuggestionsPayload', () => {
+  test('reads and validates the shared suggestions JSON contract', () => {
+    const root = tempRepo();
+    const file = join(root, 'suggestions.json');
+    writeFileSync(
+      file,
+      JSON.stringify({
+        suggestions: [
+          {
+            filePath: 'src/a.ts',
+            layerId: 'projectLayers:abc',
+            suggestedNodeName: 'A',
+            confidence: 0.9,
+            reason: 'Surface route.',
+          },
+        ],
+      }),
+    );
+
+    expect(readSuggestionsPayload(file)).toMatchObject({
+      suggestions: [{ filePath: 'src/a.ts', source: 'hermes' }],
+    });
+  });
+
+  test('fails loudly on malformed JSON', () => {
+    const root = tempRepo();
+    const file = join(root, 'bad.json');
+    mkdirSync(root, { recursive: true });
+    writeFileSync(file, '{not json');
+
+    expect(() => readSuggestionsPayload(file)).toThrow(/Invalid JSON/);
+  });
+});
+
+describe('runPushSuggestions', () => {
+  test('posts the validated JSON payload to the codebase suggestions route', async () => {
+    const root = tempRepo();
+    const file = join(root, 'suggestions.json');
+    writeFileSync(
+      file,
+      JSON.stringify({
+        suggestions: [
+          {
+            filePath: 'src/a.ts',
+            layerId: 'projectLayers:abc',
+            suggestedNodeName: 'A',
+            confidence: 0.9,
+            reason: 'Surface route.',
+          },
+        ],
+      }),
+    );
+    const calls: Array<{ path: string; body: unknown }> = [];
+    const fakeClient = {
+      post: async (path: string, body: unknown) => {
+        calls.push({ path, body });
+        return { accepted: 1, pending: 0, applied: 1, skipped: [] };
+      },
+    };
+
+    const code = await runPushSuggestions(['--from-json', file], validEnv, root, fakeClient);
+
+    expect(code).toBe(0);
+    expect(calls).toEqual([
+      {
+        path: '/api/mcp/codebase_suggestions/push',
+        body: {
+          suggestions: [
+            {
+              filePath: 'src/a.ts',
+              layerId: 'projectLayers:abc',
+              suggestedNodeName: 'A',
+              confidence: 0.9,
+              reason: 'Surface route.',
+              source: 'hermes',
+            },
+          ],
+        },
+      },
+    ]);
+  });
+});

@@ -113,6 +113,21 @@ export default defineSchema({
     data: v.any(),
   }).index('by_project_kind', ['projectId', 'kind']),
 
+  codebaseSuggestions: defineTable({
+    projectId: v.id('projects'),
+    filePath: v.string(),
+    layerId: v.id('projectLayers'),
+    suggestedNodeName: v.string(),
+    confidence: v.number(),
+    reason: v.string(),
+    source: v.string(),
+    status: v.union(v.literal('pending'), v.literal('applied'), v.literal('rejected')),
+    appliedNodeId: v.optional(v.id('nodes')),
+    updatedAt: v.number(),
+  })
+    .index('by_project_status', ['projectId', 'status'])
+    .index('by_project_file', ['projectId', 'filePath']),
+
   // Sprint 4 — read-only public share tokens. A `/share/<rawToken>` URL
   // resolves a row here, then renders the project's canvas without auth.
   // `tokenHash` is SHA-256 of the raw token (same scheme as apiTokens) so

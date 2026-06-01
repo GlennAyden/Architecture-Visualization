@@ -8,6 +8,7 @@ import {
   addKanbanTaskInput,
   updateKanbanStatusInput,
   logActivityInput,
+  pushCodebaseSuggestionsInput,
 } from './mcp';
 
 describe('createNodeInput', () => {
@@ -106,5 +107,57 @@ describe('logActivityInput + getNodeInput + deleteNodeInput', () => {
 
   test('deleteNodeInput requires nodeId', () => {
     expect(deleteNodeInput.parse({ nodeId: 'nodes:abc' }).nodeId).toBe('nodes:abc');
+  });
+});
+
+describe('pushCodebaseSuggestionsInput', () => {
+  test('accepts a Hermes file-to-layer suggestion contract', () => {
+    const parsed = pushCodebaseSuggestionsInput.parse({
+      suggestions: [
+        {
+          filePath: 'apps/web/app/page.tsx',
+          layerId: 'projectLayers:abc',
+          suggestedNodeName: 'Home page',
+          confidence: 0.9,
+          reason: 'App route belongs in the surface layer.',
+        },
+      ],
+    });
+
+    expect(parsed.suggestions[0]).toMatchObject({
+      filePath: 'apps/web/app/page.tsx',
+      source: 'hermes',
+      confidence: 0.9,
+    });
+  });
+
+  test('rejects invalid confidence and empty suggestion fields', () => {
+    expect(() =>
+      pushCodebaseSuggestionsInput.parse({
+        suggestions: [
+          {
+            filePath: 'src/a.ts',
+            layerId: 'projectLayers:abc',
+            suggestedNodeName: 'A',
+            confidence: 1.1,
+            reason: 'too high',
+          },
+        ],
+      }),
+    ).toThrow();
+
+    expect(() =>
+      pushCodebaseSuggestionsInput.parse({
+        suggestions: [
+          {
+            filePath: '   ',
+            layerId: 'projectLayers:abc',
+            suggestedNodeName: '   ',
+            confidence: 0.5,
+            reason: '',
+          },
+        ],
+      }),
+    ).toThrow();
   });
 });

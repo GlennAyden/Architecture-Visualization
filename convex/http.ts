@@ -12,6 +12,7 @@ import {
   logActivityByFileInput,
   logActivityInput,
   lookupFilesInput,
+  pushCodebaseSuggestionsInput,
   reconcileEdgesInput,
   scanSnapshotGetInput,
   scanSnapshotPushInput,
@@ -415,6 +416,34 @@ http.route({
       });
       return { snapshot };
     },
+  }),
+});
+
+/* -------------------------------------------------------------------------- */
+/* /api/mcp/codebase_suggestions/push                                         */
+/*                                                                            */
+/* Hermes-ready bridge: callers push file-to-layer suggestions. Convex stores */
+/* low-confidence rows for review and auto-applies high-confidence rows.      */
+/* -------------------------------------------------------------------------- */
+
+http.route({
+  path: '/api/mcp/codebase_suggestions/push',
+  method: 'POST',
+  handler: withMcpRoute({
+    input: pushCodebaseSuggestionsInput,
+    run: async (ctx, auth, input) =>
+      ctx.runMutation(internal.mcp.codebaseSuggestions.pushForProject, {
+        userId: auth.userId,
+        scopeProjectId: auth.projectId,
+        suggestions: input.suggestions.map((suggestion) => ({
+          filePath: suggestion.filePath,
+          layerId: suggestion.layerId as Id<'projectLayers'>,
+          suggestedNodeName: suggestion.suggestedNodeName,
+          confidence: suggestion.confidence,
+          reason: suggestion.reason,
+          source: suggestion.source,
+        })),
+      }),
   }),
 });
 

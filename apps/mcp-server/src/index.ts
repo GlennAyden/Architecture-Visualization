@@ -11,6 +11,7 @@
  *       - scan-imports → walk linked files, batch-call /api/mcp/files/auto_link
  *       - scan-orphans → diff disk vs canvas, push orphans snapshot
  *       - scan-drift   → check linked paths exist, push drift snapshot
+ *       - push-suggestions → push Hermes-ready file-to-layer suggestions
  *
  * The dispatch logic intentionally checks `process.argv[2]` against the
  * known subcommand list before doing anything else — that way an
@@ -26,12 +27,13 @@ import { registerTools } from './tools.js';
 // CLI handlers are dynamic-imported on demand so the stdio path never pays
 // the cost of loading ts-morph (a ~MB-scale module) at startup.
 
-type Subcommand = 'scan-imports' | 'scan-orphans' | 'scan-drift';
+type Subcommand = 'scan-imports' | 'scan-orphans' | 'scan-drift' | 'push-suggestions';
 
 const SUBCOMMANDS: ReadonlySet<Subcommand> = new Set([
   'scan-imports',
   'scan-orphans',
   'scan-drift',
+  'push-suggestions',
 ]);
 
 function printHelp(): void {
@@ -45,6 +47,7 @@ function printHelp(): void {
     '  arch-viz-mcp scan-imports       Walk linked files and auto-link their imports',
     '  arch-viz-mcp scan-orphans       Push an orphan-files snapshot for this project',
     '  arch-viz-mcp scan-drift         Push a drift (missing/renamed) snapshot',
+    '  arch-viz-mcp push-suggestions --from-json <path>',
     '  arch-viz-mcp --help             Show this message',
     '',
     'Environment variables (all modes):',
@@ -78,9 +81,7 @@ async function runStdioServer(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  console.error(
-    `[arch-viz-mcp] connected — project=${config.projectId} url=${config.convexUrl}`,
-  );
+  console.error(`[arch-viz-mcp] connected — project=${config.projectId} url=${config.convexUrl}`);
 }
 
 async function runSubcommand(name: Subcommand, rest: string[]): Promise<number> {
@@ -97,6 +98,10 @@ async function runSubcommand(name: Subcommand, rest: string[]): Promise<number> 
       case 'scan-drift': {
         const { runScanDrift } = await import('./cli/scan-drift.js');
         return await runScanDrift(rest);
+      }
+      case 'push-suggestions': {
+        const { runPushSuggestions } = await import('./cli/push-suggestions.js');
+        return await runPushSuggestions(rest);
       }
     }
   } catch (err) {

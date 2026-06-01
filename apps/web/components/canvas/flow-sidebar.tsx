@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { sortLayers } from '@/lib/architecture-layers';
+import { HermesInboxPanel } from './hermes-inbox-panel';
 
 export type ArchitectureFlowId =
   | 'agent-updates-canvas'
@@ -251,6 +252,8 @@ export function FlowSidebar({
         </div>
         {layerError && <p className="mt-2 text-xs text-destructive">{layerError}</p>}
       </section>
+
+      <HermesInboxPanel projectId={projectId} />
 
       <section className="rounded-lg border border-white/10 bg-zinc-950/80 p-3 shadow-2xl shadow-black/30">
         <div className="mb-3 flex items-center justify-between">

@@ -141,6 +141,15 @@ export const remove = mutation({
       await ctx.db.delete(snap._id);
     }
 
+    const suggestionStatuses = ['pending', 'applied', 'rejected'] as const;
+    for (const status of suggestionStatuses) {
+      const suggestions = await ctx.db
+        .query('codebaseSuggestions')
+        .withIndex('by_project_status', (q) => q.eq('projectId', id).eq('status', status))
+        .collect();
+      for (const suggestion of suggestions) await ctx.db.delete(suggestion._id);
+    }
+
     // Sprint 4 — share tokens and project memberships die with the project.
     const shares = await ctx.db
       .query('shareTokens')
