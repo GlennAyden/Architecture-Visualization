@@ -2,10 +2,7 @@
 
 import { useEffect, useMemo } from 'react';
 import { useEdgesState, useNodesState, MarkerType, type Edge } from '@xyflow/react';
-import {
-  FEATURE_NODE_DEFAULT_HEIGHT,
-  FEATURE_NODE_DEFAULT_WIDTH,
-} from '@arch-viz/shared';
+import { FEATURE_NODE_DEFAULT_HEIGHT, FEATURE_NODE_DEFAULT_WIDTH } from '@arch-viz/shared';
 
 import type { ArchNode } from '@/hooks/use-canvas-sync';
 import {
@@ -21,6 +18,7 @@ export interface ShareNode {
   _id: string;
   type: 'page' | 'feature';
   name: string;
+  layerId: string | null;
   parentId: string | null;
   positionX: number;
   positionY: number;

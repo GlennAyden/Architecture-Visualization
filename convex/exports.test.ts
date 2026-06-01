@@ -44,8 +44,9 @@ describe('exports.exportProject', () => {
 
     const snap = await asOwner.query(api.exports.exportProject, { projectId });
     expect(snap).not.toBeNull();
-    expect(snap!.schemaVersion).toBe(1);
+    expect(snap!.schemaVersion).toBe(2);
     expect(snap!.project.name).toBe('P');
+    expect(snap!.layers.map((layer) => layer.name)).toContain('Surfaces');
     expect(snap!.nodes).toHaveLength(2);
     const pageNode = snap!.nodes.find((n) => n.name === 'Login')!;
     expect(pageNode.files.map((f) => f.path)).toEqual(['login.tsx']);

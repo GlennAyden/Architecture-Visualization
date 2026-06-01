@@ -4,18 +4,13 @@ import { useQuery } from 'convex/react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { Eye, Loader2 } from 'lucide-react';
-import {
-  Background,
-  MiniMap,
-  ReactFlow,
-  ReactFlowProvider,
-  type NodeTypes,
-} from '@xyflow/react';
+import { Background, MiniMap, ReactFlow, ReactFlowProvider, type NodeTypes } from '@xyflow/react';
 
 import { api } from '../../../../../convex/_generated/api';
 import { BrandMark } from '@/components/brand-mark';
 import { PageNode } from '@/components/canvas/page-node';
 import { FeatureNode } from '@/components/canvas/feature-node';
+import { LayerLanes } from '@/components/canvas/layer-lanes';
 import { useShareCanvasSync } from '@/hooks/use-share-canvas-sync';
 import { ShareNodeModal } from '@/components/share-node-modal/share-node-modal';
 import type { ArchNode } from '@/hooks/use-canvas-sync';
@@ -48,9 +43,7 @@ function ShareCanvas({ rawToken }: { rawToken: string }) {
       <main className="flex min-h-screen items-center justify-center bg-background px-4">
         <div className="w-full max-w-md rounded-xl border border-border/60 bg-card p-6 text-center shadow-sm">
           <BrandMark />
-          <h1 className="mt-4 text-base font-semibold tracking-tight">
-            Share link not available
-          </h1>
+          <h1 className="mt-4 text-base font-semibold tracking-tight">Share link not available</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             This share link is not available — it may have been revoked or expired.
           </p>
@@ -66,25 +59,27 @@ function ShareCanvas({ rawToken }: { rawToken: string }) {
   }
 
   return (
-    <main className="flex h-screen flex-col bg-background">
-      <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center justify-between border-b border-border/60 bg-background/80 px-4 backdrop-blur-md">
+    <main className="dark flex h-screen flex-col bg-zinc-950 text-zinc-100">
+      <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center justify-between border-b border-white/10 bg-zinc-950/90 px-4 backdrop-blur-md">
         <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[11px] font-medium text-zinc-400">
             <Eye className="h-3 w-3" aria-hidden />
             <span>Viewer mode · readonly</span>
           </span>
         </div>
         <h1 className="text-sm font-medium tracking-tight">
           {data.projectName}
-          <span className="mx-1.5 text-muted-foreground/60" aria-hidden>
+          <span className="mx-1.5 text-zinc-600" aria-hidden>
             ·
           </span>
-          <span className="text-muted-foreground">{data.shareName}</span>
+          <span className="text-zinc-400">{data.shareName}</span>
         </h1>
         <span aria-hidden className="w-0" />
       </header>
-      <div className="flex-1">
+      <div className="relative flex-1 overflow-hidden">
+        <div className="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_50%_0%,rgba(34,211,238,0.12),transparent_42%)]" />
         <ReactFlow<ArchNode>
+          className="relative z-10"
           nodes={rfNodes}
           edges={rfEdges}
           nodeTypes={nodeTypes}
@@ -99,8 +94,9 @@ function ShareCanvas({ rawToken }: { rawToken: string }) {
           minZoom={0.1}
           maxZoom={2}
         >
-          <Background gap={20} />
-          <MiniMap pannable zoomable />
+          <LayerLanes layers={data.layers} />
+          <Background gap={20} color="rgba(255,255,255,0.06)" />
+          <MiniMap pannable zoomable className="!bg-zinc-950/90" />
         </ReactFlow>
       </div>
       <ShareNodeModal rawToken={rawToken} />

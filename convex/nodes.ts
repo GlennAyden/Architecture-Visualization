@@ -3,6 +3,7 @@ import { mutation, query } from './_generated/server';
 import { getNodeIfAccessible, getProjectIfAccessible, requireProjectAccess } from './lib/auth';
 import { deleteNodeCascade } from './lib/cascade';
 import { ensureHierarchyEdge } from './lib/edges';
+import { resolveNodeLayer } from './lib/layers';
 
 export const listByProject = query({
   args: { projectId: v.id('projects') },
@@ -26,6 +27,7 @@ export const get = query({
 export const create = mutation({
   args: {
     projectId: v.id('projects'),
+    layerId: v.optional(v.id('projectLayers')),
     type: v.union(v.literal('page'), v.literal('feature')),
     name: v.string(),
     parentId: v.optional(v.id('nodes')),
@@ -39,15 +41,23 @@ export const create = mutation({
 
     await requireProjectAccess(ctx, args.projectId);
 
+    let parent = null;
     if (args.parentId) {
-      const parent = await ctx.db.get(args.parentId);
+      parent = await ctx.db.get(args.parentId);
       if (!parent || parent.projectId !== args.projectId) {
         throw new Error('Parent node must belong to the same project');
       }
     }
+    const layerId = await resolveNodeLayer(ctx, {
+      projectId: args.projectId,
+      type: args.type,
+      layerId: args.layerId,
+      parent,
+    });
 
     const nodeId = await ctx.db.insert('nodes', {
       projectId: args.projectId,
+      layerId,
       parentId: args.parentId,
       type: args.type,
       name: trimmed,

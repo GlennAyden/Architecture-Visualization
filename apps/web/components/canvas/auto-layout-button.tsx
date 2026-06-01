@@ -8,9 +8,11 @@ import { api } from '../../../../convex/_generated/api';
 import type { Doc, Id } from '../../../../convex/_generated/dataModel';
 import { Button } from '@/components/ui/button';
 import { computeAutoLayout, type LayoutNodeInput } from '@/lib/auto-layout';
+import { computeLayerLayout } from '@/lib/architecture-layers';
 
 interface Props {
   nodes: Doc<'nodes'>[] | undefined;
+  layers?: Doc<'projectLayers'>[] | undefined;
 }
 
 // Inter-mutation delay. Spreads the burst that the previous Promise.all
@@ -28,7 +30,7 @@ interface StatusMessage {
   text: string;
 }
 
-export function AutoLayoutButton({ nodes }: Props) {
+export function AutoLayoutButton({ nodes, layers }: Props) {
   const updateMutation = useMutation(api.nodes.update);
   const [running, setRunning] = useState(false);
   const [status, setStatus] = useState<StatusMessage | null>(null);
@@ -49,12 +51,18 @@ export function AutoLayoutButton({ nodes }: Props) {
     setStatus(null);
 
     try {
-      const layoutInput: LayoutNodeInput[] = nodes.map((n) => ({
-        id: n._id as string,
-        type: n.type,
-        parentId: (n.parentId as string | undefined) ?? null,
-      }));
-      const result = computeAutoLayout(layoutInput);
+      const result =
+        layers && layers.length > 0
+          ? computeLayerLayout(layers, nodes)
+          : computeAutoLayout(
+              nodes.map(
+                (n): LayoutNodeInput => ({
+                  id: n._id as string,
+                  type: n.type,
+                  parentId: (n.parentId as string | undefined) ?? null,
+                }),
+              ),
+            );
 
       const byId = new Map(nodes.map((n) => [n._id as string, n]));
       const tasks: Array<{ id: Id<'nodes'>; positionX: number; positionY: number }> = [];
@@ -146,7 +154,7 @@ export function AutoLayoutButton({ nodes }: Props) {
         onClick={handleClick}
         disabled={disabled}
         aria-label="Auto-layout the canvas"
-        title="Re-arrange all nodes into a clean tree layout"
+        title="Re-arrange nodes inside their layers"
       >
         <LayoutGrid className="h-4 w-4" />
         {running ? 'Arranging…' : 'Auto Layout'}

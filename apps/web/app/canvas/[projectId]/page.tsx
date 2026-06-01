@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ChevronLeft, FileQuestion, History, Home, Search, Share2, X } from 'lucide-react';
@@ -24,6 +24,7 @@ import { AddNodeButton } from '@/components/canvas/add-node-button';
 import { AutoLayoutButton } from '@/components/canvas/auto-layout-button';
 import { CommandPalette } from '@/components/canvas/command-palette';
 import { ExportProjectButton } from '@/components/canvas/export-project-button';
+import { LayerLanes } from '@/components/canvas/layer-lanes';
 import {
   FLOW_EDGE_TYPES,
   FlowSidebar,
@@ -47,6 +48,8 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
   const project = useQuery(api.projects.get, { id: projectId });
   const nodes = useQuery(api.nodes.listByProject, { projectId });
   const edges = useQuery(api.nodeEdges.listByProject, { projectId });
+  const layers = useQuery(api.projectLayers.listByProject, { projectId });
+  const ensureDefaultLayers = useMutation(api.projectLayers.ensureDefaults);
   const openModal = useModalStore((s) => s.open);
   const selectedNodeId = useModalStore((s) => s.selectedNodeId);
   const [selectedFlow, setSelectedFlow] = useState<ArchitectureFlowId | null>(
@@ -66,6 +69,16 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
     });
 
   const rf = useReactFlow();
+  const ensuredLayersFor = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!layers || !nodes) return;
+    const needsLayerSetup = layers.length === 0 || nodes.some((node) => !node.layerId);
+    if (!needsLayerSetup) return;
+    if (ensuredLayersFor.current === projectId) return;
+    ensuredLayersFor.current = projectId;
+    void ensureDefaultLayers({ projectId });
+  }, [ensureDefaultLayers, layers, nodes, projectId]);
 
   // Sprint 5C drill-down: keep the children map (parentId → child ids) in the
   // drill store so shape utils can read `hasChildren(nodeId)` to decide
@@ -263,9 +276,9 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
               </Link>
             }
           />
-          <AutoLayoutButton nodes={nodes} />
+          <AutoLayoutButton nodes={nodes} layers={layers} />
           <ExportProjectButton projectId={projectId} />
-          <AddNodeButton projectId={projectId} nodes={nodes} />
+          <AddNodeButton projectId={projectId} nodes={nodes} layers={layers} />
         </div>
       </header>
       {drillNodeId !== null && breadcrumb.length > 0 && (
@@ -316,17 +329,6 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
       )}
       <div className="flex min-h-0 flex-1 gap-3 p-3 max-lg:flex-col">
         <section className="relative min-w-0 flex-1 overflow-hidden rounded-lg border border-white/10 bg-zinc-950 shadow-2xl shadow-black/30">
-          <div className="pointer-events-none absolute inset-0 z-0 grid grid-cols-6">
-            {['Surfaces', 'Features', 'Convex', 'MCP / Agents', 'Infra', 'External'].map((lane) => (
-              <div key={lane} className="border-r border-white/[0.07] last:border-r-0">
-                <div className="border-b border-white/[0.07] bg-white/[0.02] px-6 py-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                    {lane}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
           <div className="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_50%_0%,rgba(34,211,238,0.12),transparent_42%)]" />
 
           <ReactFlow<ArchNode>
@@ -338,11 +340,14 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
             onEdgesChange={onEdgesChange}
             onNodeDragStop={onNodeDragStop}
             onConnect={onConnect}
+            nodesDraggable={false}
+            nodesConnectable={false}
             fitView
             fitViewOptions={{ padding: 0.2 }}
             minZoom={0.1}
             maxZoom={2}
           >
+            <LayerLanes layers={layers} />
             <Background gap={22} color="rgba(255,255,255,0.06)" />
             <Controls
               showInteractive={false}
@@ -360,6 +365,8 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
         </section>
 
         <FlowSidebar
+          projectId={projectId}
+          layers={layers}
           selectedFlow={selectedFlow}
           onSelectedFlowChange={setSelectedFlow}
           selectedNodeName={selectedNodeName}

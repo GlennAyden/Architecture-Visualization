@@ -87,6 +87,115 @@ describe('nodes.create', () => {
       }),
     ).rejects.toThrow(/same project/);
   });
+
+  test('rejects layerId from a different project so nodes cannot cross architecture sections', async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fakeIdentity('user_alice', 'alice@example.com'));
+
+    const projectA = await asUser.mutation(api.projects.create, { name: 'A' });
+    const projectB = await asUser.mutation(api.projects.create, { name: 'B' });
+    const [layerInA] = await asUser.query(api.projectLayers.listByProject, { projectId: projectA });
+
+    await expect(
+      asUser.mutation(api.nodes.create, {
+        projectId: projectB,
+        type: 'page',
+        name: 'Wrong layer',
+        layerId: layerInA._id,
+        positionX: 0,
+        positionY: 0,
+      }),
+    ).rejects.toThrow(/same project/);
+  });
+
+  test('rejects a feature layer that differs from its parent layer', async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fakeIdentity('user_alice', 'alice@example.com'));
+
+    const projectId = await asUser.mutation(api.projects.create, { name: 'P' });
+    const layers = await asUser.query(api.projectLayers.listByProject, { projectId });
+    const parent = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[0]!._id,
+      type: 'page',
+      name: 'Parent',
+      positionX: 0,
+      positionY: 0,
+    });
+
+    await expect(
+      asUser.mutation(api.nodes.create, {
+        projectId,
+        layerId: layers[1]!._id,
+        type: 'feature',
+        name: 'Child',
+        parentId: parent,
+        positionX: 0,
+        positionY: 0,
+      }),
+    ).rejects.toThrow(/same layer as its parent/);
+  });
+
+  test('stores a feature in the parent layer when layerId is omitted', async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fakeIdentity('user_alice', 'alice@example.com'));
+
+    const projectId = await asUser.mutation(api.projects.create, { name: 'P' });
+    const layers = await asUser.query(api.projectLayers.listByProject, { projectId });
+    const parent = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[2]!._id,
+      type: 'page',
+      name: 'Parent',
+      positionX: 0,
+      positionY: 0,
+    });
+
+    const child = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'feature',
+      name: 'Child',
+      parentId: parent,
+      positionX: 0,
+      positionY: 0,
+    });
+
+    const node = await asUser.query(api.nodes.get, { id: child });
+    expect(node!.layerId).toBe(layers[2]!._id);
+  });
+
+  test('backfills an older parent before placing a new child in its layer', async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fakeIdentity('user_alice', 'alice@example.com'));
+
+    const projectId = await asUser.mutation(api.projects.create, { name: 'P' });
+    const layers = await asUser.query(api.projectLayers.listByProject, { projectId });
+    const parent = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[0]!._id,
+      type: 'page',
+      name: 'Legacy parent',
+      positionX: 0,
+      positionY: 0,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(parent, { layerId: undefined });
+    });
+
+    const child = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'feature',
+      name: 'Child',
+      parentId: parent,
+      positionX: 0,
+      positionY: 0,
+    });
+
+    const parentAfter = await asUser.query(api.nodes.get, { id: parent });
+    const childAfter = await asUser.query(api.nodes.get, { id: child });
+    expect(parentAfter!.layerId).toBe(layers[0]!._id);
+    expect(childAfter!.layerId).toBe(layers[0]!._id);
+  });
 });
 
 describe('nodes.update', () => {
@@ -207,16 +316,12 @@ describe('node cascade deletes activityLog', () => {
       });
     });
 
-    let count = await t.run(async (ctx) =>
-      (await ctx.db.query('activityLog').collect()).length,
-    );
+    let count = await t.run(async (ctx) => (await ctx.db.query('activityLog').collect()).length);
     expect(count).toBe(1);
 
     await asUser.mutation(api.nodes.remove, { id: nodeId });
 
-    count = await t.run(async (ctx) =>
-      (await ctx.db.query('activityLog').collect()).length,
-    );
+    count = await t.run(async (ctx) => (await ctx.db.query('activityLog').collect()).length);
     expect(count).toBe(0);
   });
 });

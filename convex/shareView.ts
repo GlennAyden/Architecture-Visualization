@@ -31,21 +31,32 @@ export const get = query({
       .query('nodeEdges')
       .withIndex('by_project', (q) => q.eq('projectId', project._id))
       .collect();
+    const layers = await ctx.db
+      .query('projectLayers')
+      .withIndex('by_project', (q) => q.eq('projectId', project._id))
+      .collect();
 
     return {
       projectName: project.name,
       shareName: project.shareName,
+      layers: layers
+        .sort((a, b) => a.position - b.position)
+        .map((layer) => ({
+          _id: layer._id as string,
+          name: layer.name,
+          position: layer.position,
+        })),
       nodes: nodes.map((n) => ({
         _id: n._id as string,
         _creationTime: n._creationTime,
         type: n.type,
         name: n.name,
+        layerId: (n.layerId as string | undefined) ?? null,
         parentId: (n.parentId as string | undefined) ?? null,
         description: n.description ?? null,
         positionX: n.positionX,
         positionY: n.positionY,
-        metadata:
-          (n.metadata as Record<string, unknown> | undefined) ?? null,
+        metadata: (n.metadata as Record<string, unknown> | undefined) ?? null,
       })),
       edges: edges.map((e) => ({
         _id: e._id as string,
@@ -91,9 +102,7 @@ export const getNodeDetail = query({
       name: node.name,
       type: node.type,
       description: node.description ?? null,
-      files: files
-        .filter((f) => !f.archived)
-        .map((f) => ({ id: f._id as string, path: f.path })),
+      files: files.filter((f) => !f.archived).map((f) => ({ id: f._id as string, path: f.path })),
       kanbanTasks: tasks
         .sort((a, b) => a.position - b.position)
         .map((t) => ({

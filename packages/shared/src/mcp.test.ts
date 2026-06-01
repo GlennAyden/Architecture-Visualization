@@ -23,12 +23,14 @@ describe('createNodeInput', () => {
       type: 'feature',
       name: 'Auth',
       parentId: 'nodes:abc',
+      layerId: 'projectLayers:abc',
       description: 'OAuth handlers',
       files: ['src/auth.ts'],
       positionX: 100,
       positionY: 200,
     });
     expect(parsed.type).toBe('feature');
+    expect(parsed.layerId).toBe('projectLayers:abc');
     expect(parsed.files).toEqual(['src/auth.ts']);
   });
 
@@ -47,17 +49,19 @@ describe('updateNodeInput', () => {
   });
 
   test('allows partial fields', () => {
-    expect(
-      updateNodeInput.parse({ nodeId: 'nodes:abc', description: 'updated' }),
-    ).toMatchObject({ nodeId: 'nodes:abc', description: 'updated' });
+    expect(updateNodeInput.parse({ nodeId: 'nodes:abc', description: 'updated' })).toMatchObject({
+      nodeId: 'nodes:abc',
+      description: 'updated',
+    });
   });
 });
 
 describe('linkFilesInput', () => {
   test('accepts list of paths', () => {
-    expect(
-      linkFilesInput.parse({ nodeId: 'nodes:abc', paths: ['a.ts', 'b.ts'] }),
-    ).toEqual({ nodeId: 'nodes:abc', paths: ['a.ts', 'b.ts'] });
+    expect(linkFilesInput.parse({ nodeId: 'nodes:abc', paths: ['a.ts', 'b.ts'] })).toEqual({
+      nodeId: 'nodes:abc',
+      paths: ['a.ts', 'b.ts'],
+    });
   });
 
   test('rejects empty paths array', () => {
@@ -74,9 +78,9 @@ describe('addKanbanTaskInput', () => {
 
   test('accepts all status values', () => {
     for (const status of ['todo', 'doing', 'done'] as const) {
-      expect(
-        addKanbanTaskInput.parse({ nodeId: 'nodes:abc', title: 'X', status }).status,
-      ).toBe(status);
+      expect(addKanbanTaskInput.parse({ nodeId: 'nodes:abc', title: 'X', status }).status).toBe(
+        status,
+      );
     }
   });
 });

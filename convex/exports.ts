@@ -31,6 +31,10 @@ export const exportProject = query({
       .query('nodeEdges')
       .withIndex('by_project', (q) => q.eq('projectId', projectId))
       .collect();
+    const layers = await ctx.db
+      .query('projectLayers')
+      .withIndex('by_project', (q) => q.eq('projectId', projectId))
+      .collect();
 
     const nodeIds = nodes.map((n) => n._id);
     const files = await Promise.all(
@@ -60,7 +64,7 @@ export const exportProject = query({
     );
 
     return {
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
       exportedAt: Date.now(),
       project: {
         id: project._id as string,
@@ -68,11 +72,20 @@ export const exportProject = query({
         slug: project.slug,
         createdAt: project._creationTime,
       },
+      layers: layers
+        .sort((a, b) => a.position - b.position)
+        .map((layer) => ({
+          id: layer._id as string,
+          name: layer.name,
+          position: layer.position,
+          createdAt: layer._creationTime,
+        })),
       nodes: nodes.map((n, i) => ({
         id: n._id as string,
         createdAt: n._creationTime,
         type: n.type,
         name: n.name,
+        layerId: (n.layerId as string | undefined) ?? null,
         parentId: (n.parentId as string | undefined) ?? null,
         description: n.description ?? null,
         positionX: n.positionX,
@@ -83,15 +96,13 @@ export const exportProject = query({
           path: f.path,
           archived: f.archived ?? false,
         })),
-        kanbanTasks: tasks[i]!
-          .sort((a, b) => a.position - b.position)
-          .map((t) => ({
-            id: t._id as string,
-            title: t.title,
-            description: t.description ?? null,
-            status: t.status,
-            position: t.position,
-          })),
+        kanbanTasks: tasks[i]!.sort((a, b) => a.position - b.position).map((t) => ({
+          id: t._id as string,
+          title: t.title,
+          description: t.description ?? null,
+          status: t.status,
+          position: t.position,
+        })),
         activity: activity[i]!.map((a) => ({
           id: a._id as string,
           createdAt: a._creationTime,

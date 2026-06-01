@@ -7,6 +7,7 @@ import {
   getNodeInput,
   linkFilesInput,
   linkNodesInput,
+  listLayersInput,
   listNodesInput,
   logActivityByFileInput,
   logActivityInput,
@@ -88,6 +89,21 @@ http.route({
 /* -------------------------------------------------------------------------- */
 
 http.route({
+  path: '/api/mcp/layers/list',
+  method: 'POST',
+  handler: withMcpRoute({
+    input: listLayersInput,
+    run: async (ctx, auth) => {
+      const layers = await ctx.runMutation(internal.mcp.layers.listForProject, {
+        userId: auth.userId,
+        projectId: auth.projectId,
+      });
+      return { layers };
+    },
+  }),
+});
+
+http.route({
   path: '/api/mcp/nodes/list',
   method: 'POST',
   handler: withMcpRoute({
@@ -129,6 +145,7 @@ http.route({
         scopeProjectId: auth.projectId,
         type: input.type,
         name: input.name,
+        layerId: input.layerId as Id<'projectLayers'> | undefined,
         parentId: input.parentId as Id<'nodes'> | undefined,
         description: input.description,
         files: input.files,
@@ -357,11 +374,7 @@ http.route({
 
     const validated = scanSnapshotPushInput.safeParse(parsed);
     if (!validated.success) {
-      return errorResponse(
-        400,
-        'invalid_input',
-        validated.error.issues[0]?.message ?? 'invalid',
-      );
+      return errorResponse(400, 'invalid_input', validated.error.issues[0]?.message ?? 'invalid');
     }
 
     try {

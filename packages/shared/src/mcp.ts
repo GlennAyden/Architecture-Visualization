@@ -9,6 +9,7 @@ const descriptionPattern = z.string().max(4000).optional();
 const pathPattern = z.string().trim().min(1).max(500);
 
 export const listNodesInput = z.object({}).strict();
+export const listLayersInput = z.object({}).strict();
 
 export const getNodeInput = z.object({ nodeId: nodeIdSchema }).strict();
 
@@ -16,6 +17,7 @@ export const createNodeInput = z
   .object({
     type: z.enum(['page', 'feature']),
     name: namePattern,
+    layerId: z.string().optional(),
     parentId: z.string().optional(),
     description: descriptionPattern,
     files: z.array(pathPattern).optional(),

@@ -2,6 +2,7 @@ import { v } from 'convex/values';
 import { internalMutation, internalQuery } from '../_generated/server';
 import { deleteNodeCascade } from '../lib/cascade';
 import { ensureHierarchyEdge } from '../lib/edges';
+import { defaultNodePosition, resolveNodeLayer } from '../lib/layers';
 import { ForbiddenError, requireNodeOwnership, requireOwnership } from './lib';
 
 export const getProjectSummary = internalQuery({
@@ -32,6 +33,7 @@ export const listForProject = internalQuery({
       description: n.description ?? null,
       positionX: n.positionX,
       positionY: n.positionY,
+      layerId: n.layerId ?? null,
     }));
   },
 });
@@ -63,6 +65,7 @@ export const getDetail = internalQuery({
       description: node.description ?? null,
       positionX: node.positionX,
       positionY: node.positionY,
+      layerId: node.layerId ?? null,
       // Surface metadata (especially route + apiPaths) so the CLI's
       // navigation / data-flow walkers can build a route→node and
       // apiPath→node lookup from a single `nodes/get` pass per node.
@@ -88,6 +91,7 @@ export const createForProject = internalMutation({
     type: v.union(v.literal('page'), v.literal('feature')),
     name: v.string(),
     parentId: v.optional(v.id('nodes')),
+    layerId: v.optional(v.id('projectLayers')),
     description: v.optional(v.string()),
     files: v.optional(v.array(v.string())),
     positionX: v.optional(v.number()),
@@ -100,19 +104,43 @@ export const createForProject = internalMutation({
     if (trimmed.length === 0) throw new Error('Node name is required');
     if (trimmed.length > 80) throw new Error('Node name must be 80 characters or fewer');
 
+    let parent = null;
     if (args.parentId) {
-      const parent = await ctx.db.get(args.parentId);
+      parent = await ctx.db.get(args.parentId);
       if (!parent || parent.projectId !== args.scopeProjectId) {
         throw new ForbiddenError('Parent node not in token scope');
       }
     }
 
-    // Default position: scatter around origin so AI-created nodes don't stack.
-    const positionX = args.positionX ?? Math.round((Math.random() - 0.5) * 400);
-    const positionY = args.positionY ?? Math.round((Math.random() - 0.5) * 400);
+    const layerId = await resolveNodeLayer(ctx, {
+      projectId: args.scopeProjectId,
+      type: args.type,
+      layerId: args.layerId,
+      parent,
+      makeError: (message) =>
+        message === 'Layer must belong to the same project'
+          ? new ForbiddenError('Layer not in token scope')
+          : new Error(message),
+    });
+    const layer = layerId ? await ctx.db.get(layerId) : null;
+    const siblingCount = (
+      await ctx.db
+        .query('nodes')
+        .withIndex('by_project', (q) => q.eq('projectId', args.scopeProjectId))
+        .collect()
+    ).filter((node) => node.layerId === layerId && node.parentId === args.parentId).length;
+    const fallbackPosition = defaultNodePosition({
+      type: args.type,
+      layer,
+      parent,
+      siblingCount,
+    });
+    const positionX = args.positionX ?? fallbackPosition.x;
+    const positionY = args.positionY ?? fallbackPosition.y;
 
     const nodeId = await ctx.db.insert('nodes', {
       projectId: args.scopeProjectId,
+      layerId,
       parentId: args.parentId,
       type: args.type,
       name: trimmed,

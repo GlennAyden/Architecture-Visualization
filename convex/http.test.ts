@@ -112,6 +112,37 @@ describe('POST /api/mcp/nodes/list', () => {
   });
 });
 
+describe('POST /api/mcp/layers/list', () => {
+  test('200 seeds and returns default layers for an older project with no layers', async () => {
+    const t = convexTest(schema, modules);
+    const { projectId, rawToken } = await seedTokenForUser(t);
+    await t.run(async (ctx) => {
+      const layers = await ctx.db
+        .query('projectLayers')
+        .withIndex('by_project', (q) => q.eq('projectId', projectId))
+        .collect();
+      for (const layer of layers) await ctx.db.delete(layer._id);
+    });
+
+    const res = await t.fetch('/api/mcp/layers/list', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.layers.map((layer: { name: string }) => layer.name)).toEqual([
+      'Surfaces',
+      'Features',
+      'Convex',
+      'MCP / Agents',
+      'Infra',
+      'External',
+    ]);
+  });
+});
+
 describe('POST /api/mcp/nodes/get', () => {
   test('404 for unknown nodeId', async () => {
     const t = convexTest(schema, modules);
@@ -204,7 +235,29 @@ describe('POST /api/mcp/nodes/create', () => {
     const nodes = await asUser.query(api.nodes.listByProject, {
       projectId: (await asUser.query(api.projects.list))[0]!._id,
     });
-    expect(nodes.find((n) => n.name === 'About')).toBeDefined();
+    const layers = await asUser.query(api.projectLayers.listByProject, {
+      projectId: (await asUser.query(api.projects.list))[0]!._id,
+    });
+    const created = nodes.find((n) => n.name === 'About');
+    expect(created).toBeDefined();
+    expect(created!.layerId).toBe(layers[0]!._id);
+  });
+
+  test('200 creates a page in a requested project layer', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, rawToken } = await seedTokenForUser(t);
+    const layers = await asUser.query(api.projectLayers.listByProject, { projectId });
+
+    const res = await t.fetch('/api/mcp/nodes/create', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'page', name: 'Worker', layerId: layers[3]!._id }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const node = await asUser.query(api.nodes.get, { id: body.nodeId });
+    expect(node!.layerId).toBe(layers[3]!._id);
   });
 
   test('200 creates a feature with parentId, description, and files in one call', async () => {
@@ -261,6 +314,54 @@ describe('POST /api/mcp/nodes/create', () => {
       }),
     });
     expect(res.status).toBe(403);
+  });
+
+  test('403 when layerId belongs to a different project', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, rawToken } = await seedTokenForUser(t);
+    const other = await asUser.mutation(api.projects.create, { name: 'Other' });
+    const [foreignLayer] = await asUser.query(api.projectLayers.listByProject, {
+      projectId: other,
+    });
+
+    const res = await t.fetch('/api/mcp/nodes/create', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        type: 'page',
+        name: 'wrong layer',
+        layerId: foreignLayer!._id,
+      }),
+    });
+
+    expect(res.status).toBe(403);
+  });
+
+  test('400 when feature layer differs from parent layer', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, rawToken } = await seedTokenForUser(t);
+    const layers = await asUser.query(api.projectLayers.listByProject, { projectId });
+    const parentId = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[0]!._id,
+      type: 'page',
+      name: 'Parent',
+      positionX: 0,
+      positionY: 0,
+    });
+
+    const res = await t.fetch('/api/mcp/nodes/create', {
+      method: 'POST',
+      headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        type: 'feature',
+        name: 'wrong layer',
+        parentId,
+        layerId: layers[1]!._id,
+      }),
+    });
+
+    expect(res.status).toBe(400);
   });
 });
 
@@ -551,9 +652,7 @@ describe('POST /api/mcp/activity/log', () => {
     });
     expect(res.status).toBe(200);
 
-    const entries = await t.run(async (ctx) =>
-      ctx.db.query('activityLog').collect(),
-    );
+    const entries = await t.run(async (ctx) => ctx.db.query('activityLog').collect());
     expect(entries).toHaveLength(1);
     expect(entries[0]!.actor).toEqual('mcp:claude-code');
     expect(entries[0]!.message).toEqual('Implemented form');
@@ -615,9 +714,7 @@ describe('POST /api/mcp/activity/log_by_file', () => {
     expect(body.matched).toBe(true);
     expect(body.nodeId).toBe(nodeId);
 
-    const entries = await t.run(async (ctx) =>
-      ctx.db.query('activityLog').collect(),
-    );
+    const entries = await t.run(async (ctx) => ctx.db.query('activityLog').collect());
     expect(entries).toHaveLength(1);
     expect(entries[0]!.actor).toBe('hook:claude-code');
   });
@@ -639,9 +736,7 @@ describe('POST /api/mcp/activity/log_by_file', () => {
     const body = await res.json();
     expect(body.matched).toBe(false);
 
-    const entries = await t.run(async (ctx) =>
-      ctx.db.query('activityLog').collect(),
-    );
+    const entries = await t.run(async (ctx) => ctx.db.query('activityLog').collect());
     expect(entries).toEqual([]);
   });
 
@@ -681,9 +776,7 @@ describe('POST /api/mcp/activity/log_by_file', () => {
     expect((await res.json()).matched).toBe(false);
     expect(projectId).not.toBe(otherProjectId);
 
-    const entries = await t.run(async (ctx) =>
-      ctx.db.query('activityLog').collect(),
-    );
+    const entries = await t.run(async (ctx) => ctx.db.query('activityLog').collect());
     expect(entries).toEqual([]);
   });
 

@@ -11,6 +11,7 @@ import { ConvexApiError, ConvexMcpClient } from './client.js';
  * client a hint about each tool's signature.
  */
 export function registerTools(server: McpServer, client: ConvexMcpClient) {
+  registerListLayers(server, client);
   registerListNodes(server, client);
   registerGetNode(server, client);
   registerCreateNode(server, client);
@@ -49,6 +50,20 @@ async function run<T>(fn: () => Promise<T>): Promise<CallResult> {
   }
 }
 
+/* --------------------------- tool: list_layers --------------------------- */
+
+function registerListLayers(server: McpServer, client: ConvexMcpClient) {
+  server.registerTool(
+    'list_layers',
+    {
+      description:
+        'List the architecture layers/sections for this project. Use a returned layer id as `layerId` when creating nodes so scanned or agent-created nodes land in the right section.',
+      inputSchema: {},
+    },
+    async () => run(() => client.post('/api/mcp/layers/list', {})),
+  );
+}
+
 /* ---------------------------- tool: list_nodes --------------------------- */
 
 function registerListNodes(server: McpServer, client: ConvexMcpClient) {
@@ -56,7 +71,7 @@ function registerListNodes(server: McpServer, client: ConvexMcpClient) {
     'list_nodes',
     {
       description:
-        'List every node in the project this MCP instance is scoped to. Returns id, type, name, parentId, description, positionX, positionY for each node. Call this first when starting work to understand the current canvas state.',
+        'List every node in the project this MCP instance is scoped to. Returns id, type, name, layerId, parentId, description, positionX, positionY for each node. Call this first when starting work to understand the current canvas state.',
       inputSchema: {},
     },
     async () => run(() => client.post('/api/mcp/nodes/list', {})),
@@ -69,8 +84,7 @@ function registerGetNode(server: McpServer, client: ConvexMcpClient) {
   server.registerTool(
     'get_node',
     {
-      description:
-        'Fetch one node by id, with its linked files and kanban tasks joined.',
+      description: 'Fetch one node by id, with its linked files and kanban tasks joined.',
       inputSchema: { nodeId: z.string().describe('Id of the node to fetch.') },
     },
     async ({ nodeId }) => run(() => client.post('/api/mcp/nodes/get', { nodeId })),
@@ -84,13 +98,24 @@ function registerCreateNode(server: McpServer, client: ConvexMcpClient) {
     'create_node',
     {
       description:
-        'Create a new page or feature node in the canvas. Use `parentId` to nest a feature under an existing page. Position is optional — server scatters around origin if omitted. Optional `files` attaches file paths in one call.',
+        'Create a new page or feature node in the canvas. Use `parentId` to nest a feature under an existing page. Optional `layerId` places a page in a section; features inherit their parent layer and reject mismatches. Position is optional and defaults deterministically within the section. Optional `files` attaches file paths in one call.',
       inputSchema: {
-        type: z.enum(['page', 'feature']).describe('"page" for a top-level page; "feature" for a nested sub-feature under a page.'),
+        type: z
+          .enum(['page', 'feature'])
+          .describe(
+            '"page" for a top-level page; "feature" for a nested sub-feature under a page.',
+          ),
         name: z.string().describe('Human-readable name shown on the canvas.'),
+        layerId: z
+          .string()
+          .optional()
+          .describe('Id from list_layers. Features must use the same layer as their parent page.'),
         parentId: z.string().optional().describe('Required when type is "feature".'),
         description: z.string().optional(),
-        files: z.array(z.string()).optional().describe('File paths to link to the new node in one call.'),
+        files: z
+          .array(z.string())
+          .optional()
+          .describe('File paths to link to the new node in one call.'),
         positionX: z.number().optional(),
         positionY: z.number().optional(),
       },

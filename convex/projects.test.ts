@@ -36,6 +36,36 @@ describe('projects.create', () => {
     expect(list[0].slug).toEqual('my-first-project');
   });
 
+  test('seeds default architecture layers so a new project has a usable canvas structure', async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fakeIdentity('user_alice', 'alice@example.com'));
+
+    const projectId = await asUser.mutation(api.projects.create, { name: 'Layered' });
+
+    const layers = await asUser.query(api.projectLayers.listByProject, { projectId });
+    expect(layers.map((layer) => layer.name)).toEqual([
+      'Surfaces',
+      'Features',
+      'Convex',
+      'MCP / Agents',
+      'Infra',
+      'External',
+    ]);
+    expect(layers.map((layer) => layer.position)).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+
+  test('creates a custom layer after seeded layers so manual architecture sections keep order', async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fakeIdentity('user_alice', 'alice@example.com'));
+
+    const projectId = await asUser.mutation(api.projects.create, { name: 'Custom Layers' });
+    await asUser.mutation(api.projectLayers.create, { projectId, name: 'Integrations' });
+
+    const layers = await asUser.query(api.projectLayers.listByProject, { projectId });
+    expect(layers.at(-1)?.name).toEqual('Integrations');
+    expect(layers.at(-1)?.position).toEqual(6);
+  });
+
   test('appends -2 when the slug is already used by the same user', async () => {
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(fakeIdentity('user_alice', 'alice@example.com'));
@@ -107,5 +137,20 @@ describe('projects.remove', () => {
     const id = await asAlice.mutation(api.projects.create, { name: 'Alice project' });
 
     await expect(asBob.mutation(api.projects.remove, { id })).rejects.toThrow(/Unauthorized/);
+  });
+
+  test('removes project layers because layers are owned by the project lifecycle', async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fakeIdentity('user_alice', 'alice@example.com'));
+
+    const projectId = await asUser.mutation(api.projects.create, { name: 'Disposable' });
+    await asUser.mutation(api.projectLayers.create, { projectId, name: 'Custom' });
+
+    await asUser.mutation(api.projects.remove, { id: projectId });
+
+    await t.run(async (ctx) => {
+      const remaining = await ctx.db.query('projectLayers').collect();
+      expect(remaining.filter((layer) => layer.projectId === projectId)).toEqual([]);
+    });
   });
 });

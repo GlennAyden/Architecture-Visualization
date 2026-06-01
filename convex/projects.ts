@@ -9,6 +9,7 @@ import {
 } from './lib/auth';
 import { deleteNodeCascade } from './lib/cascade';
 import { slugify } from '@arch-viz/shared';
+import { seedDefaultLayers } from './projectLayers';
 
 export const list = query({
   args: {},
@@ -30,9 +31,7 @@ export const list = query({
       .withIndex('by_user', (q) => q.eq('userId', profile._id))
       .collect();
     const accepted = memberships.filter((m) => m.acceptedAt !== undefined);
-    const memberProjects = await Promise.all(
-      accepted.map((m) => ctx.db.get(m.projectId)),
-    );
+    const memberProjects = await Promise.all(accepted.map((m) => ctx.db.get(m.projectId)));
 
     const all = [
       ...owned.map((p) => ({ ...p, role: 'owner' as const })),
@@ -75,11 +74,13 @@ export const create = mutation({
       candidate = `${slug}-${counter++}`;
     }
 
-    return await ctx.db.insert('projects', {
+    const projectId = await ctx.db.insert('projects', {
       userId: profile._id,
       name: trimmed,
       slug: candidate,
     });
+    await seedDefaultLayers(ctx, projectId);
+    return projectId;
   },
 });
 
@@ -152,6 +153,12 @@ export const remove = mutation({
       .withIndex('by_project', (q) => q.eq('projectId', id))
       .collect();
     for (const m of members) await ctx.db.delete(m._id);
+
+    const layers = await ctx.db
+      .query('projectLayers')
+      .withIndex('by_project', (q) => q.eq('projectId', id))
+      .collect();
+    for (const layer of layers) await ctx.db.delete(layer._id);
 
     await ctx.db.delete(id);
   },

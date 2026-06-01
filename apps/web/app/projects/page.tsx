@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { useQuery } from 'convex/react';
-import { MoreVertical, ArrowUpRight, Settings } from 'lucide-react';
+import { MoreVertical, ArrowUpRight, FileQuestion, KeyRound, Settings } from 'lucide-react';
 import { UserButton } from '@clerk/nextjs';
 
 import { api } from '../../../../convex/_generated/api';
@@ -74,6 +74,37 @@ export default function ProjectsPage() {
 
         <InviteBanner />
 
+        <section className="mb-6 rounded-xl border border-cyan-400/20 bg-zinc-950/80 p-4 shadow-2xl shadow-black/20 sm:p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <p className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-cyan-300">
+                Connect existing project
+              </p>
+              <h2 className="mt-2 text-base font-semibold text-zinc-100">
+                Let your agent write updates into a canvas
+              </h2>
+              <div className="mt-3 grid gap-2 text-sm text-zinc-400 sm:grid-cols-3">
+                <p>Create a project for the codebase.</p>
+                <p>Issue one project token.</p>
+                <p>Open that project&apos;s scan review.</p>
+              </div>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                nativeButton={false}
+                render={
+                  <Link href="/settings/tokens">
+                    <KeyRound className="h-4 w-4" />
+                    Tokens
+                  </Link>
+                }
+              />
+            </div>
+          </div>
+        </section>
+
         {projects === undefined && (
           <div className="rounded-lg border border-white/10 bg-card/70 p-8 text-sm text-muted-foreground shadow-2xl shadow-black/20">
             Loading projects…
@@ -97,11 +128,11 @@ export default function ProjectsPage() {
             {projects.map((p) => (
               <li
                 key={p._id}
-                className="group flex items-center gap-2 rounded-xl border border-white/10 bg-card/70 px-4 py-3 shadow-2xl shadow-black/10 transition-colors hover:border-primary/35 hover:bg-muted/70"
+                className="group flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-card/70 px-4 py-3 shadow-2xl shadow-black/10 transition-colors hover:border-primary/35 hover:bg-muted/70"
               >
                 <Link
                   href={`/canvas/${p._id}`}
-                  className="flex flex-1 items-center justify-between gap-3"
+                  className="flex min-w-0 flex-[1_1_18rem] items-center justify-between gap-3"
                 >
                   <div className="min-w-0 space-y-1">
                     <div className="flex items-center gap-2">
@@ -118,6 +149,18 @@ export default function ProjectsPage() {
                   </div>
                   <ArrowUpRight className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:text-primary group-hover:opacity-100" />
                 </Link>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0 border border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.07] hover:text-zinc-50"
+                  nativeButton={false}
+                  render={
+                    <Link href={`/canvas/${p._id}/orphans`}>
+                      <FileQuestion className="h-4 w-4" />
+                      Review scan
+                    </Link>
+                  }
+                />
                 {p.role === 'owner' && (
                   <DropdownMenu>
                     <DropdownMenuTrigger

@@ -15,8 +15,15 @@ export default defineSchema({
     .index('by_user', ['userId'])
     .index('by_user_slug', ['userId', 'slug']),
 
+  projectLayers: defineTable({
+    projectId: v.id('projects'),
+    name: v.string(),
+    position: v.number(),
+  }).index('by_project', ['projectId']),
+
   nodes: defineTable({
     projectId: v.id('projects'),
+    layerId: v.optional(v.id('projectLayers')),
     parentId: v.optional(v.id('nodes')),
     type: v.union(v.literal('page'), v.literal('feature')),
     name: v.string(),
@@ -26,6 +33,7 @@ export default defineSchema({
     metadata: v.optional(v.any()),
   })
     .index('by_project', ['projectId'])
+    .index('by_project_layer', ['projectId', 'layerId'])
     .index('by_parent', ['parentId']),
 
   nodeFiles: defineTable({

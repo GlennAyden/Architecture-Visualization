@@ -1,9 +1,26 @@
 'use client';
 
-import { Bot, Code2, GitBranch, PlusSquare, Share2, Users, X, type LucideIcon } from 'lucide-react';
+import { useState } from 'react';
+import { useMutation } from 'convex/react';
+import {
+  Bot,
+  Code2,
+  GitBranch,
+  Layers3,
+  Plus,
+  PlusSquare,
+  Share2,
+  Users,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 
+import { api } from '../../../../convex/_generated/api';
+import type { Doc, Id } from '../../../../convex/_generated/dataModel';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { sortLayers } from '@/lib/architecture-layers';
 
 export type ArchitectureFlowId =
   | 'agent-updates-canvas'
@@ -142,6 +159,8 @@ const STEPS: Record<ArchitectureFlowId, Array<{ title: string; description: stri
 };
 
 interface Props {
+  projectId: Id<'projects'>;
+  layers: Doc<'projectLayers'>[] | undefined;
   selectedFlow: ArchitectureFlowId | null;
   onSelectedFlowChange: (flow: ArchitectureFlowId | null) => void;
   selectedNodeName: string | null;
@@ -150,19 +169,89 @@ interface Props {
 }
 
 export function FlowSidebar({
+  projectId,
+  layers,
   selectedFlow,
   onSelectedFlowChange,
   selectedNodeName,
   nodeCount,
   edgeCount,
 }: Props) {
+  const createLayer = useMutation(api.projectLayers.create);
+  const [newLayerName, setNewLayerName] = useState('');
+  const [layerError, setLayerError] = useState<string | null>(null);
+  const [creatingLayer, setCreatingLayer] = useState(false);
+  const sortedLayers = sortLayers(layers);
   const selectedSteps = selectedFlow ? STEPS[selectedFlow] : [];
   const selectedFlowName = selectedFlow
     ? FLOWS.find((flow) => flow.id === selectedFlow)?.name
     : null;
 
+  const handleCreateLayer = async () => {
+    const name = newLayerName.trim();
+    if (!name) {
+      setLayerError('Layer name is required');
+      return;
+    }
+    setCreatingLayer(true);
+    setLayerError(null);
+    try {
+      await createLayer({ projectId, name });
+      setNewLayerName('');
+    } catch (err) {
+      setLayerError(err instanceof Error ? err.message : 'Could not create layer');
+    } finally {
+      setCreatingLayer(false);
+    }
+  };
+
   return (
-    <aside className="flex min-h-0 w-[360px] shrink-0 flex-col gap-3 max-xl:w-[320px] max-lg:h-[360px] max-lg:w-full">
+    <aside className="flex min-h-0 w-[360px] shrink-0 flex-col gap-3 overflow-y-auto pr-1 max-xl:w-[320px] max-lg:h-[360px] max-lg:w-full">
+      <section className="rounded-lg border border-white/10 bg-zinc-950/80 p-3 shadow-2xl shadow-black/30">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">
+            Layers
+          </h2>
+          <Layers3 className="h-4 w-4 text-cyan-300" />
+        </div>
+        <div className="space-y-1.5">
+          {sortedLayers.map((layer, index) => (
+            <div
+              key={layer._id}
+              className="flex items-center gap-2 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1.5"
+            >
+              <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded bg-cyan-400/15 text-[10px] font-semibold text-cyan-200">
+                {index + 1}
+              </span>
+              <span className="truncate text-sm text-zinc-200">{layer.name}</span>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 flex gap-2">
+          <Input
+            value={newLayerName}
+            onChange={(event) => setNewLayerName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') void handleCreateLayer();
+            }}
+            placeholder="New layer"
+            disabled={creatingLayer}
+            className="h-8 border-white/10 bg-white/[0.03] text-zinc-100 placeholder:text-zinc-600"
+          />
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={handleCreateLayer}
+            disabled={creatingLayer}
+            aria-label="Add layer"
+            className="shrink-0 border border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.07] hover:text-zinc-50"
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+        </div>
+        {layerError && <p className="mt-2 text-xs text-destructive">{layerError}</p>}
+      </section>
+
       <section className="rounded-lg border border-white/10 bg-zinc-950/80 p-3 shadow-2xl shadow-black/30">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">Flows</h2>

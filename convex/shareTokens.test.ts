@@ -92,9 +92,9 @@ describe('shareTokens', () => {
     await expect(
       asStranger.mutation(api.shareTokens.create, { projectId, name: 'sneak' }),
     ).rejects.toThrow(/owner-only|Unauthorized/i);
-    await expect(
-      asStranger.mutation(api.shareTokens.revoke, { id: tokenId }),
-    ).rejects.toThrow(/Unauthorized/);
+    await expect(asStranger.mutation(api.shareTokens.revoke, { id: tokenId })).rejects.toThrow(
+      /Unauthorized/,
+    );
   });
 
   // Why: an unrecognised raw token must surface the same "null" as a
@@ -121,6 +121,7 @@ describe('shareTokens', () => {
     const view = await t.query(api.shareView.get, { rawToken });
     expect(view).not.toBeNull();
     const keys = Object.keys(view!);
-    expect(keys.sort()).toEqual(['edges', 'nodes', 'projectName', 'shareName']);
+    expect(keys.sort()).toEqual(['edges', 'layers', 'nodes', 'projectName', 'shareName']);
+    expect(view!.layers.map((layer) => layer.name)).toContain('Surfaces');
   });
 });
