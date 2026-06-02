@@ -1,4 +1,4 @@
-# @arch-viz/mcp-server
+# arch-viz-mcp
 
 Local stdio MCP server that lets AI agents (Claude Code, Codex, Cursor) read and update an Arch Viz canvas as they work — plus CLI subcommands for keeping the canvas strictly in sync with the codebase.
 
@@ -20,26 +20,31 @@ AI agents call the tools below over MCP. This is what your editor wires up.
 npx -y arch-viz-mcp scan-imports   # auto-link imports of every linked file
 npx -y arch-viz-mcp scan-orphans   # surface repo source files not linked yet
 npx -y arch-viz-mcp scan-drift     # find linked files that disappeared on disk
+npx -y arch-viz-mcp push-suggestions --from-json suggestions.json
 ```
 
 Run from the repo root. Each subcommand reuses the same `ARCHITECTURE_*` env vars as the stdio mode. `scan-orphans` and `scan-drift` push a snapshot to the project — view results at `/canvas/<projectId>/orphans` and in the node modal's `Drift` tab.
 
+`push-suggestions` posts Hermes-ready file-to-layer suggestions to
+`/api/mcp/codebase_suggestions/push`; see
+[`../../docs/hermes-integration.md`](../../docs/hermes-integration.md).
+
 ## Tools exposed
 
-| Tool                   | Purpose                                                                 |
-| ---------------------- | ----------------------------------------------------------------------- |
-| `list_nodes`           | Read current canvas state. Call first so the AI knows what exists.      |
-| `get_node`             | Drill into one node — description, linked files, kanban tasks, metadata. |
-| `create_node`          | Create a page or feature node. Optional `parentId`, `files`, position.  |
-| `update_node`          | Partial update: name, description, position, `metadata` (route / apiPaths). |
-| `delete_node`          | Cascade-delete a node, its children, files, kanban, and activity log.   |
-| `link_files`           | Attach one or more file paths to a node (dedupes against existing).     |
-| `link_nodes`           | Manually classify an edge (dependency / navigation / data_flow) between two nodes — for cross-language relations the import scanner cannot see. |
-| `unlink_nodes`         | Remove a manually-classified edge. Hierarchy edges are not removable here (they follow `parentId`). |
+| Tool                   | Purpose                                                                                                                                                |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `list_nodes`           | Read current canvas state. Call first so the AI knows what exists.                                                                                     |
+| `get_node`             | Drill into one node — description, linked files, kanban tasks, metadata.                                                                               |
+| `create_node`          | Create a page or feature node. Optional `parentId`, `files`, position.                                                                                 |
+| `update_node`          | Partial update: name, description, position, `metadata` (route / apiPaths).                                                                            |
+| `delete_node`          | Cascade-delete a node, its children, files, kanban, and activity log.                                                                                  |
+| `link_files`           | Attach one or more file paths to a node (dedupes against existing).                                                                                    |
+| `link_nodes`           | Manually classify an edge (dependency / navigation / data_flow) between two nodes — for cross-language relations the import scanner cannot see.        |
+| `unlink_nodes`         | Remove a manually-classified edge. Hierarchy edges are not removable here (they follow `parentId`).                                                    |
 | `lookup_files`         | Bulk-classify paths as linked or unlinked against the project. Used by the post-commit hook to surface unlinked files in `.arch-viz/suggestions.json`. |
-| `add_kanban_task`      | Add a task to a node's kanban (status: `todo` / `doing` / `done`).      |
-| `update_kanban_status` | Move a task across columns; auto-positions to bottom of destination.    |
-| `log_activity`         | Append a free-form activity log entry attributing the change to `actor`.|
+| `add_kanban_task`      | Add a task to a node's kanban (status: `todo` / `doing` / `done`).                                                                                     |
+| `update_kanban_status` | Move a task across columns; auto-positions to bottom of destination.                                                                                   |
+| `log_activity`         | Append a free-form activity log entry attributing the change to `actor`.                                                                               |
 
 ## Install
 
@@ -55,11 +60,11 @@ For local development from a checkout, build with `pnpm --filter arch-viz-mcp bu
 
 Three environment variables are required:
 
-| Variable                   | Value                                                                            |
-| -------------------------- | -------------------------------------------------------------------------------- |
-| `ARCHITECTURE_CONVEX_URL`  | Deployment HTTP URL — **must end in `.convex.site`** (NOT `.convex.cloud`)       |
-| `ARCHITECTURE_API_KEY`     | Token starting with `archv_`, generated at `/settings/tokens` in the web app     |
-| `ARCHITECTURE_PROJECT_ID`  | Convex project id (visible in the canvas URL: `/canvas/<projectId>`)             |
+| Variable                  | Value                                                                        |
+| ------------------------- | ---------------------------------------------------------------------------- |
+| `ARCHITECTURE_CONVEX_URL` | Deployment HTTP URL — **must end in `.convex.site`** (NOT `.convex.cloud`)   |
+| `ARCHITECTURE_API_KEY`    | Token starting with `archv_`, generated at `/settings/tokens` in the web app |
+| `ARCHITECTURE_PROJECT_ID` | Convex project id (visible in the canvas URL: `/canvas/<projectId>`)         |
 
 > **Why `.convex.site`?** Convex serves HTTP Actions (what this server calls) on a different subdomain than the main client API. `.convex.cloud` will return 404 for every request.
 
@@ -95,7 +100,11 @@ Edit `~/.codex/mcp.json`:
     "arch-viz": {
       "command": "npx",
       "args": ["-y", "arch-viz-mcp"],
-      "env": { "ARCHITECTURE_CONVEX_URL": "…", "ARCHITECTURE_API_KEY": "…", "ARCHITECTURE_PROJECT_ID": "…" }
+      "env": {
+        "ARCHITECTURE_CONVEX_URL": "…",
+        "ARCHITECTURE_API_KEY": "…",
+        "ARCHITECTURE_PROJECT_ID": "…"
+      }
     }
   }
 }
@@ -119,14 +128,14 @@ The AI should call `list_nodes` and return the current nodes. Watch the canvas i
 
 ## Troubleshooting
 
-| Symptom                                          | Likely cause                                                                                    |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| Startup error: `ARCHITECTURE_CONVEX_URL points to …convex.cloud …` | URL has the wrong subdomain. Replace `.convex.cloud` with `.convex.site`.        |
-| Startup error: `prefix "archv_"`                  | Token was pasted incomplete or the wrong value was copied. Regenerate at `/settings/tokens`.    |
-| `[unauthorized] Missing or invalid API token.`    | Token revoked or never existed. Generate a fresh one.                                           |
-| `[forbidden] Node not in token scope.`            | The token belongs to a different project than the node being modified. Check `ARCHITECTURE_PROJECT_ID`. |
-| AI never calls any tool                           | The MCP server didn't connect. Check the AI's MCP panel for connection state; restart the client. |
-| Logs from the server clobbering JSON-RPC output   | The server logs to stderr only — never stdout. If you see message corruption, something else (a wrapper script?) is writing to stdout. |
+| Symptom                                                            | Likely cause                                                                                                                           |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Startup error: `ARCHITECTURE_CONVEX_URL points to …convex.cloud …` | URL has the wrong subdomain. Replace `.convex.cloud` with `.convex.site`.                                                              |
+| Startup error: `prefix "archv_"`                                   | Token was pasted incomplete or the wrong value was copied. Regenerate at `/settings/tokens`.                                           |
+| `[unauthorized] Missing or invalid API token.`                     | Token revoked or never existed. Generate a fresh one.                                                                                  |
+| `[forbidden] Node not in token scope.`                             | The token belongs to a different project than the node being modified. Check `ARCHITECTURE_PROJECT_ID`.                                |
+| AI never calls any tool                                            | The MCP server didn't connect. Check the AI's MCP panel for connection state; restart the client.                                      |
+| Logs from the server clobbering JSON-RPC output                    | The server logs to stderr only — never stdout. If you see message corruption, something else (a wrapper script?) is writing to stdout. |
 
 ## Security
 
@@ -139,7 +148,7 @@ The AI should call `list_nodes` and return the current nodes. Watch the canvas i
 
 ```bash
 # Run from source (no build step) with stdio
-pnpm --filter @arch-viz/mcp-server dev
+pnpm --filter arch-viz-mcp dev
 
 # Run unit tests
 pnpm vitest run apps/mcp-server/

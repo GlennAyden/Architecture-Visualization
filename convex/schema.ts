@@ -43,7 +43,9 @@ export default defineSchema({
     // exists on disk) without deleting the link, so it stays as historical
     // breadcrumb but never resurfaces in future drift scans. Absent = false.
     archived: v.optional(v.boolean()),
-  }).index('by_node', ['nodeId']),
+  })
+    .index('by_node', ['nodeId'])
+    .index('by_path', ['path']),
 
   kanbanTasks: defineTable({
     nodeId: v.id('nodes'),
@@ -123,6 +125,7 @@ export default defineSchema({
     source: v.string(),
     status: v.union(v.literal('pending'), v.literal('applied'), v.literal('rejected')),
     appliedNodeId: v.optional(v.id('nodes')),
+    createdAt: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index('by_project_status', ['projectId', 'status'])

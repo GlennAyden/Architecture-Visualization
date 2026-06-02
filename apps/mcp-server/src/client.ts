@@ -33,7 +33,7 @@ export class ConvexApiError extends Error {
 
 /**
  * Thin wrapper around fetch that POSTs JSON to a Convex MCP HTTP route,
- * carries the x-api-key header, and surfaces structured errors as
+ * carries the bearer token header, and surfaces structured errors as
  * ConvexApiError instances.
  *
  * The injectable `fetchImpl` parameter lets tests mock fetch without
@@ -53,7 +53,7 @@ export class ConvexMcpClient {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'x-api-key': this.config.apiKey,
+          Authorization: `Bearer ${this.config.apiKey}`,
         },
         body: JSON.stringify(body),
       });
@@ -81,8 +81,7 @@ export class ConvexMcpClient {
     if (!res.ok) {
       const body = parsed as ConvexErrorBody | null;
       const code = body?.error?.code ?? `http_${res.status}`;
-      const message =
-        body?.error?.message ?? (text.slice(0, 500) || `HTTP ${res.status}`);
+      const message = body?.error?.message ?? (text.slice(0, 500) || `HTTP ${res.status}`);
       const hint = body?.error?.hint;
       throw new ConvexApiError(res.status, code, message, hint);
     }

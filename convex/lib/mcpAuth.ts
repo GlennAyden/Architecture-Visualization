@@ -8,16 +8,23 @@ export type AuthResult = {
   tokenId: Id<'apiTokens'>;
 };
 
+function readRawToken(req: Request): string | null {
+  const authorization = req.headers.get('Authorization');
+  const bearer = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+  if (bearer) return bearer;
+
+  const legacy = req.headers.get('x-api-key')?.trim();
+  return legacy && legacy.length > 0 ? legacy : null;
+}
+
 /**
- * Reads `x-api-key` from the request, verifies against apiTokens.
+ * Reads `Authorization: Bearer <token>` from the request, with `x-api-key`
+ * retained as a compatibility fallback for older MCP clients.
  * Returns the resolved auth principal or null if the header is missing
  * or the token is unknown / revoked.
  */
-export async function requireApiToken(
-  ctx: ActionCtx,
-  req: Request,
-): Promise<AuthResult | null> {
-  const raw = req.headers.get('x-api-key');
+export async function requireApiToken(ctx: ActionCtx, req: Request): Promise<AuthResult | null> {
+  const raw = readRawToken(req);
   if (!raw) return null;
   const result = await ctx.runMutation(internal.apiTokens.verifyToken, { rawToken: raw });
   if (!result) return null;
@@ -36,8 +43,5 @@ export function errorResponse(
   message: string,
   hint?: string,
 ): Response {
-  return jsonResponse(
-    { error: { code, message, ...(hint ? { hint } : {}) } },
-    status,
-  );
+  return jsonResponse({ error: { code, message, ...(hint ? { hint } : {}) } }, status);
 }

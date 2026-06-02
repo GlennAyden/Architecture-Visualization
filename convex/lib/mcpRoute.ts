@@ -1,10 +1,5 @@
 import { ActionCtx, httpAction } from '../_generated/server';
-import {
-  errorResponse,
-  jsonResponse,
-  requireApiToken,
-  type AuthResult,
-} from './mcpAuth';
+import { errorResponse, jsonResponse, requireApiToken, type AuthResult } from './mcpAuth';
 
 /**
  * Minimal structural type matching Zod's safeParse output. Declared locally
@@ -13,7 +8,9 @@ import {
  * schema implements this shape.
  */
 type SchemaLike<T> = {
-  safeParse(value: unknown):
+  safeParse(
+    value: unknown,
+  ):
     | { success: true; data: T }
     | { success: false; error: { issues: ReadonlyArray<{ message?: string }> } };
 };
@@ -41,7 +38,7 @@ function mapMcpError(err: unknown): Response {
 
 /**
  * Wraps an MCP route handler with the standard pipeline:
- *   1. authenticate via `x-api-key` header (→ 401 on miss/revoked)
+ *   1. authenticate via bearer token header (→ 401 on miss/revoked)
  *   2. parse JSON body and Zod-validate (→ 400 on parse error)
  *   3. call `run(ctx, auth, input)` and return its result as JSON
  *   4. catch + map any thrown error to a structured `{ error: {…} }`
@@ -55,22 +52,13 @@ export function withMcpRoute<Input, Result>(opts: {
   return httpAction(async (ctx, req) => {
     const auth = await requireApiToken(ctx, req);
     if (!auth) {
-      return errorResponse(
-        401,
-        'unauthorized',
-        'Missing or invalid API token.',
-        UNAUTHORIZED_HINT,
-      );
+      return errorResponse(401, 'unauthorized', 'Missing or invalid API token.', UNAUTHORIZED_HINT);
     }
 
     const raw = await req.json().catch(() => ({}));
     const parsed = opts.input.safeParse(raw);
     if (!parsed.success) {
-      return errorResponse(
-        400,
-        'invalid_input',
-        parsed.error.issues[0]?.message ?? 'invalid',
-      );
+      return errorResponse(400, 'invalid_input', parsed.error.issues[0]?.message ?? 'invalid');
     }
 
     try {

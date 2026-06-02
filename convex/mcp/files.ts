@@ -59,10 +59,7 @@ export const autoLinkByOrigin = internalMutation({
     originFilePath: v.string(),
     importedFilePaths: v.array(v.string()),
   },
-  handler: async (
-    ctx,
-    { userId, scopeProjectId, originFilePath, importedFilePaths },
-  ) => {
+  handler: async (ctx, { userId, scopeProjectId, originFilePath, importedFilePaths }) => {
     await requireOwnership(ctx, userId, scopeProjectId);
 
     const normalizedOrigin = normalizePath(originFilePath);
@@ -70,12 +67,11 @@ export const autoLinkByOrigin = internalMutation({
       return { linked: 0, alreadyLinked: 0, skipped: 0, matchedNodes: 0 };
     }
 
-    // Find every node in scope that owns the origin file. `nodeFiles` doesn't
-    // have a (projectId, path) index — we filter by path then verify project
-    // scope on each candidate. Volume is low (most files belong to ≤1 node).
+    // Find every node in scope that owns the origin file, then verify project
+    // scope on each candidate.
     const originLinks = await ctx.db
       .query('nodeFiles')
-      .filter((q) => q.eq(q.field('path'), normalizedOrigin))
+      .withIndex('by_path', (q) => q.eq('path', normalizedOrigin))
       .collect();
 
     const scopedNodeIds: string[] = [];
@@ -121,7 +117,7 @@ export const autoLinkByOrigin = internalMutation({
       const existing = await ctx.db
         .query('nodeFiles')
         .withIndex('by_node', (q) =>
-          q.eq('nodeId', nodeId as typeof originLinks[number]['nodeId']),
+          q.eq('nodeId', nodeId as (typeof originLinks)[number]['nodeId']),
         )
         .collect();
       const existingPaths = new Set(existing.map((f) => f.path));
@@ -131,7 +127,7 @@ export const autoLinkByOrigin = internalMutation({
           continue;
         }
         await ctx.db.insert('nodeFiles', {
-          nodeId: nodeId as typeof originLinks[number]['nodeId'],
+          nodeId: nodeId as (typeof originLinks)[number]['nodeId'],
           path,
         });
         linked++;
@@ -179,14 +175,13 @@ export const lookupPaths = internalMutation({
     }
 
     // Look up each path against nodeFiles, filtered to nodes inside the
-    // token's project scope. No (projectId, path) compound index exists
-    // so we filter post-fetch — acceptable at personal-tool scale.
+    // token's project scope.
     const linked: string[] = [];
     const unlinked: string[] = [];
     for (const path of normalized) {
       const matches = await ctx.db
         .query('nodeFiles')
-        .filter((q) => q.eq(q.field('path'), path))
+        .withIndex('by_path', (q) => q.eq('path', path))
         .collect();
       let hit = false;
       for (const m of matches) {

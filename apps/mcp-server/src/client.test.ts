@@ -8,9 +8,7 @@ const config: McpConfig = {
   projectId: 'projects:x',
 };
 
-function mockFetch(
-  response: { status: number; body: unknown } | Error,
-): typeof fetch {
+function mockFetch(response: { status: number; body: unknown } | Error): typeof fetch {
   return vi.fn().mockImplementation(async () => {
     if (response instanceof Error) throw response;
     return new Response(JSON.stringify(response.body), {
@@ -21,22 +19,21 @@ function mockFetch(
 }
 
 describe('ConvexMcpClient.post', () => {
-  test('sends POST with x-api-key + json body, returns parsed response', async () => {
-    const fetcher = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ ok: true, value: 42 }), { status: 200 }),
-    );
+  test('sends POST with Authorization bearer + json body, returns parsed response', async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true, value: 42 }), { status: 200 }));
     const client = new ConvexMcpClient(config, fetcher as unknown as typeof fetch);
 
-    const result = await client.post<{ ok: boolean; value: number }>(
-      '/api/mcp/health',
-      { hello: 'world' },
-    );
+    const result = await client.post<{ ok: boolean; value: number }>('/api/mcp/health', {
+      hello: 'world',
+    });
 
     expect(result).toEqual({ ok: true, value: 42 });
     const [calledUrl, init] = fetcher.mock.calls[0]!;
     expect(calledUrl).toBe('https://x.convex.site/api/mcp/health');
     expect(init.method).toBe('POST');
-    expect(init.headers['x-api-key']).toBe('archv_test');
+    expect(init.headers.Authorization).toBe('Bearer archv_test');
     expect(init.headers['content-type']).toBe('application/json');
     expect(JSON.parse(init.body)).toEqual({ hello: 'world' });
   });
@@ -60,9 +57,7 @@ describe('ConvexMcpClient.post', () => {
   });
 
   test('falls back gracefully when error body is not JSON', async () => {
-    const fetcher = vi.fn().mockResolvedValue(
-      new Response('plain text crash', { status: 500 }),
-    );
+    const fetcher = vi.fn().mockResolvedValue(new Response('plain text crash', { status: 500 }));
     const client = new ConvexMcpClient(config, fetcher as unknown as typeof fetch);
 
     await expect(client.post('/api/mcp/health', {})).rejects.toMatchObject({
@@ -73,10 +68,7 @@ describe('ConvexMcpClient.post', () => {
   });
 
   test('wraps fetch failure as network_error', async () => {
-    const client = new ConvexMcpClient(
-      config,
-      mockFetch(new Error('ENOTFOUND')),
-    );
+    const client = new ConvexMcpClient(config, mockFetch(new Error('ENOTFOUND')));
 
     await expect(client.post('/api/mcp/health', {})).rejects.toMatchObject({
       status: 0,

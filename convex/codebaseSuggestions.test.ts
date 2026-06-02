@@ -36,7 +36,7 @@ async function pushSuggestion(
 ) {
   return await t.fetch('/api/mcp/codebase_suggestions/push', {
     method: 'POST',
-    headers: { 'x-api-key': rawToken, 'content-type': 'application/json' },
+    headers: { Authorization: `Bearer ${rawToken}`, 'content-type': 'application/json' },
     body: JSON.stringify({ suggestions: [suggestion] }),
   });
 }
@@ -85,6 +85,48 @@ describe('codebase suggestions', () => {
       suggestedNodeName: 'Home page',
       source: 'hermes',
     });
+    expect(pending[0]!.createdAt).toEqual(expect.any(Number));
+    expect(pending[0]!.updatedAt).toBeGreaterThanOrEqual(pending[0]!.createdAt);
+  });
+
+  test('push updates an existing pending suggestion for the same file', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, rawToken, projectId, layers } = await seedTokenForUser(t);
+
+    await pushSuggestion(t, rawToken, {
+      filePath: 'apps/web/app/page.tsx',
+      layerId: layers[0]!._id,
+      suggestedNodeName: 'Old page name',
+      confidence: 0.5,
+      reason: 'Old classification.',
+    });
+    const first = await asUser.query(api.codebaseSuggestions.listByProject, {
+      projectId,
+      status: 'pending',
+    });
+
+    await pushSuggestion(t, rawToken, {
+      filePath: 'apps/web/app/page.tsx',
+      layerId: layers[1]!._id,
+      suggestedNodeName: 'Updated page name',
+      confidence: 0.7,
+      reason: 'Latest Hermes classification should replace the stale pending row.',
+    });
+
+    const pending = await asUser.query(api.codebaseSuggestions.listByProject, {
+      projectId,
+      status: 'pending',
+    });
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({
+      _id: first[0]!._id,
+      layerId: layers[1]!._id,
+      suggestedNodeName: 'Updated page name',
+      confidence: 0.7,
+      reason: 'Latest Hermes classification should replace the stale pending row.',
+    });
+    expect(pending[0]!.createdAt).toBe(first[0]!.createdAt);
+    expect(pending[0]!.updatedAt).toBeGreaterThanOrEqual(first[0]!.updatedAt);
   });
 
   test('push auto-applies high-confidence suggestions into the requested layer', async () => {

@@ -31,7 +31,7 @@ export async function findLinkedNodeForPath(
 ) {
   const links = await ctx.db
     .query('nodeFiles')
-    .filter((q) => q.eq(q.field('path'), filePath))
+    .withIndex('by_path', (q) => q.eq('path', filePath))
     .collect();
 
   for (const link of links) {
@@ -145,6 +145,7 @@ export async function upsertSuggestion(
     : await ctx.db.insert('codebaseSuggestions', {
         projectId,
         filePath,
+        createdAt: now,
         ...patch,
       });
 
