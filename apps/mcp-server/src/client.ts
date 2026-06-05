@@ -54,6 +54,7 @@ export class ConvexMcpClient {
         headers: {
           'content-type': 'application/json',
           Authorization: `Bearer ${this.config.apiKey}`,
+          'x-api-key': this.config.apiKey,
         },
         body: JSON.stringify(body),
       });

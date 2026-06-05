@@ -19,7 +19,7 @@ function mockFetch(response: { status: number; body: unknown } | Error): typeof 
 }
 
 describe('ConvexMcpClient.post', () => {
-  test('sends POST with Authorization bearer + json body, returns parsed response', async () => {
+  test('sends POST with Authorization bearer, x-api-key fallback, and json body; returns parsed response', async () => {
     const fetcher = vi
       .fn()
       .mockResolvedValue(new Response(JSON.stringify({ ok: true, value: 42 }), { status: 200 }));
@@ -34,6 +34,7 @@ describe('ConvexMcpClient.post', () => {
     expect(calledUrl).toBe('https://x.convex.site/api/mcp/health');
     expect(init.method).toBe('POST');
     expect(init.headers.Authorization).toBe('Bearer archv_test');
+    expect(init.headers['x-api-key']).toBe('archv_test');
     expect(init.headers['content-type']).toBe('application/json');
     expect(JSON.parse(init.body)).toEqual({ hello: 'world' });
   });

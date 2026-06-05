@@ -92,13 +92,16 @@ export default function ProjectOrphansPage() {
   }, [snapshot?.id]);
 
   useEffect(() => {
-    if (!layers || !nodes) return;
+    if (!project || !layers || !nodes) return;
     const needsLayerSetup = layers.length === 0 || nodes.some((node) => !node.layerId);
     if (!needsLayerSetup) return;
     if (ensuredLayersFor.current === projectId) return;
     ensuredLayersFor.current = projectId;
-    void ensureDefaultLayers({ projectId });
-  }, [ensureDefaultLayers, layers, nodes, projectId]);
+    void ensureDefaultLayers({ projectId }).catch((error) => {
+      ensuredLayersFor.current = null;
+      console.error('Failed to ensure default project layers', error);
+    });
+  }, [ensureDefaultLayers, layers, nodes, project, projectId]);
 
   const data = (snapshot?.data ?? null) as OrphansSnapshotData | null;
 
