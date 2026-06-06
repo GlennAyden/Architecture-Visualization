@@ -3,6 +3,23 @@ import { MutationCtx, QueryCtx } from '../_generated/server';
 
 type AnyCtx = QueryCtx | MutationCtx;
 
+const clerkDisabled = process.env.CONVEX_DISABLE_CLERK_AUTH === 'true';
+
+async function getDebugProfile(ctx: AnyCtx): Promise<Doc<'profiles'> | null> {
+  if (!clerkDisabled) return null;
+
+  const debugEmail = process.env.CONVEX_DEBUG_PROFILE_EMAIL;
+  if (debugEmail) {
+    const profile = await ctx.db
+      .query('profiles')
+      .filter((q) => q.eq(q.field('email'), debugEmail))
+      .first();
+    if (profile) return profile;
+  }
+
+  return await ctx.db.query('profiles').order('asc').first();
+}
+
 export class UnauthorizedError extends Error {
   constructor(message = 'Unauthorized') {
     super(message);
@@ -21,6 +38,14 @@ export class NotFoundError extends Error {
  * Returns the Clerk identity. Throws UnauthorizedError if no signed-in user.
  */
 export async function getRequiredIdentity(ctx: AnyCtx) {
+  const debugProfile = await getDebugProfile(ctx);
+  if (debugProfile) {
+    return {
+      subject: debugProfile.clerkId,
+      email: debugProfile.email,
+    };
+  }
+
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) throw new UnauthorizedError();
   return identity;
@@ -52,6 +77,9 @@ export async function getOrCreateProfile(ctx: MutationCtx): Promise<Doc<'profile
  * `requireProjectAccess` can use it from mutations too.
  */
 export async function getProfile(ctx: AnyCtx): Promise<Doc<'profiles'> | null> {
+  const debugProfile = await getDebugProfile(ctx);
+  if (debugProfile) return debugProfile;
+
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) return null;
   return ctx.db
