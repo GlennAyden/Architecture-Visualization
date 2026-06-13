@@ -120,12 +120,14 @@ async function main(): Promise<void> {
 
   if (arg === '--help' || arg === '-h') {
     printHelp();
-    process.exit(0);
+    process.exitCode = 0;
+    return;
   }
 
   if (arg && SUBCOMMANDS.has(arg as Subcommand)) {
     const code = await runSubcommand(arg as Subcommand, process.argv.slice(3));
-    process.exit(code);
+    process.exitCode = code;
+    return;
   }
 
   // Default mode: stdio MCP server. Unrecognized args fall through here on

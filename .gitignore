@@ -20,6 +20,8 @@ coverage/
 *.tsbuildinfo
 .eslintcache
 .prettiercache
+.codex/
+.playwright-mcp/
 .data/
 *.sqlite
 *.sqlite-*
