@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const publicPrefixes = ['/sign-in', '/sign-up', '/setup', '/share', '/api/auth'];
+const publicPrefixes = ['/sign-in', '/sign-up', '/setup', '/share', '/api/auth', '/api/hermes'];
 
 function isPublicPath(pathname: string): boolean {
   return publicPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
