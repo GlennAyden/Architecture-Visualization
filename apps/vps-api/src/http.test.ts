@@ -8,7 +8,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { createLocalAuthStore, type LocalAuthStore } from './auth-store.js';
-import { createVpsApiServer } from './http.js';
+import { createVpsApiServer, type VpsApiOptions } from './http.js';
 
 describe('VPS auth API', () => {
   const tempDirs: string[] = [];
@@ -32,13 +32,17 @@ describe('VPS auth API', () => {
     }
   });
 
-  async function withServer<T>(fn: (baseUrl: string) => Promise<T>): Promise<T> {
+  async function withServer<T>(
+    fn: (baseUrl: string) => Promise<T>,
+    overrides: Partial<VpsApiOptions> = {},
+  ): Promise<T> {
     const server = createVpsApiServer({
       store,
       proxyToken: 'proxy-secret',
       jwtPrivateKey: privateKeyPem,
       jwtIssuer: 'https://auth.archviz.example',
       jwtAudience: 'convex',
+      ...overrides,
     });
 
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -140,5 +144,105 @@ describe('VPS auth API', () => {
       });
       expect(tokenAfterLogout.status).toBe(401);
     });
+  });
+
+  test('Hermes mapping endpoint starts an async job and submits completed suggestions', async () => {
+    let resolveSubmitted: (body: Record<string, unknown>) => void = () => undefined;
+    const submitted = new Promise<Record<string, unknown>>((resolve) => {
+      resolveSubmitted = resolve;
+    });
+
+    await withServer(
+      async (baseUrl) => {
+        const response = await post(baseUrl, '/hermes/mapping-runs/start', {
+          runId: 'runs:abc',
+          submitToken: 'submit-token-submit-token-submit-token',
+          convexSiteUrl: 'https://archviz.convex.site',
+          context: {
+            runId: 'runs:abc',
+            project: { _id: 'projects:abc', name: 'Arch Viz' },
+            layers: [{ _id: 'layers:infra', name: 'Infra', position: 0 }],
+            nodes: [],
+            latestScan: { data: { orphans: ['convex/_generated/api.js'] } },
+            suggestions: [],
+          },
+        });
+
+        expect(response.status).toBe(202);
+        await expect(response.json()).resolves.toMatchObject({
+          ok: true,
+          status: 'queued',
+          runId: 'runs:abc',
+        });
+      },
+      {
+        hermesMapper: async () => ({
+          suggestions: [
+            {
+              filePath: 'convex/_generated/api.js',
+              action: 'ignore',
+              confidence: 0.96,
+              reason: 'Generated file.',
+              source: 'hermes',
+            },
+          ],
+        }),
+        fetchImpl: async (_url, init) => {
+          resolveSubmitted(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        },
+      },
+    );
+
+    await expect(submitted).resolves.toMatchObject({
+      runId: 'runs:abc',
+      submitToken: 'submit-token-submit-token-submit-token',
+      status: 'completed',
+      suggestions: [{ filePath: 'convex/_generated/api.js', action: 'ignore' }],
+    });
+  });
+
+  test('Hermes mapping endpoint reports safe failed completion when mapper throws', async () => {
+    let resolveSubmitted: (body: Record<string, unknown>) => void = () => undefined;
+    const submitted = new Promise<Record<string, unknown>>((resolve) => {
+      resolveSubmitted = resolve;
+    });
+
+    await withServer(
+      async (baseUrl) => {
+        const response = await post(baseUrl, '/hermes/mapping-runs/start', {
+          runId: 'runs:failed',
+          submitToken: 'submit-token-submit-token-submit-token',
+          convexSiteUrl: 'https://archviz.convex.site',
+          context: {
+            runId: 'runs:failed',
+            project: { _id: 'projects:abc', name: 'Arch Viz' },
+            layers: [],
+            nodes: [],
+            latestScan: { data: { orphans: ['src/a.ts'] } },
+            suggestions: [],
+          },
+        });
+
+        expect(response.status).toBe(202);
+      },
+      {
+        hermesMapper: async () => {
+          throw new Error('failed with archv_secretvalue and Bearer secret.jwt');
+        },
+        fetchImpl: async (_url, init) => {
+          resolveSubmitted(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        },
+      },
+    );
+
+    const body = await submitted;
+    expect(body).toMatchObject({
+      runId: 'runs:failed',
+      status: 'failed',
+    });
+    expect(String(body.errorMessage)).toContain('[redacted-token]');
+    expect(String(body.errorMessage)).toContain('Bearer [redacted]');
   });
 });

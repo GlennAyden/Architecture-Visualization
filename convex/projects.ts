@@ -141,7 +141,7 @@ export const remove = mutation({
       await ctx.db.delete(snap._id);
     }
 
-    const suggestionStatuses = ['pending', 'applied', 'rejected'] as const;
+    const suggestionStatuses = ['pending', 'applied', 'rejected', 'ignored'] as const;
     for (const status of suggestionStatuses) {
       const suggestions = await ctx.db
         .query('codebaseSuggestions')
@@ -149,6 +149,12 @@ export const remove = mutation({
         .collect();
       for (const suggestion of suggestions) await ctx.db.delete(suggestion._id);
     }
+
+    const mappingRuns = await ctx.db
+      .query('hermesMappingRuns')
+      .withIndex('by_project', (q) => q.eq('projectId', id))
+      .collect();
+    for (const run of mappingRuns) await ctx.db.delete(run._id);
 
     // Sprint 4 — share tokens and project memberships die with the project.
     const shares = await ctx.db

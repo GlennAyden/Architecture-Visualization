@@ -61,7 +61,42 @@ describe('readSuggestionsPayload', () => {
     );
 
     expect(readSuggestionsPayload(file)).toMatchObject({
-      suggestions: [{ filePath: 'src/a.ts', source: 'hermes' }],
+      suggestions: [{ filePath: 'src/a.ts', action: 'create_node', source: 'hermes' }],
+    });
+  });
+
+  test('accepts V2 action suggestions for Hermes mapping review', () => {
+    const root = tempRepo();
+    const file = join(root, 'suggestions-v2.json');
+    writeFileSync(
+      file,
+      JSON.stringify({
+        runId: 'runs:abc',
+        suggestions: [
+          {
+            filePath: 'src/generated.ts',
+            action: 'ignore',
+            confidence: 0.95,
+            reason: 'Generated support file.',
+            evidence: ['generated output'],
+          },
+          {
+            filePath: 'src/login.ts',
+            action: 'link_existing_node',
+            targetNodeId: 'nodes:auth',
+            confidence: 0.91,
+            reason: 'Auth node already exists.',
+          },
+        ],
+      }),
+    );
+
+    expect(readSuggestionsPayload(file)).toMatchObject({
+      runId: 'runs:abc',
+      suggestions: [
+        { action: 'ignore', filePath: 'src/generated.ts' },
+        { action: 'link_existing_node', targetNodeId: 'nodes:auth' },
+      ],
     });
   });
 
@@ -111,6 +146,7 @@ describe('runPushSuggestions', () => {
           suggestions: [
             {
               filePath: 'src/a.ts',
+              action: 'create_node',
               layerId: 'projectLayers:abc',
               suggestedNodeName: 'A',
               confidence: 0.9,

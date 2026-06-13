@@ -11,6 +11,7 @@ import {
   listNodesInput,
   logActivityByFileInput,
   logActivityInput,
+  hermesMappingRunCompleteInput,
   lookupFilesInput,
   pushCodebaseSuggestionsInput,
   reconcileEdgesInput,
@@ -437,13 +438,84 @@ http.route({
         scopeProjectId: auth.projectId,
         suggestions: input.suggestions.map((suggestion) => ({
           filePath: suggestion.filePath,
-          layerId: suggestion.layerId as Id<'projectLayers'>,
+          runId: input.runId as Id<'hermesMappingRuns'> | undefined,
+          action: suggestion.action,
+          layerId: suggestion.layerId as Id<'projectLayers'> | undefined,
+          targetNodeId: suggestion.targetNodeId as Id<'nodes'> | undefined,
+          groupKey: suggestion.groupKey,
           suggestedNodeName: suggestion.suggestedNodeName,
           confidence: suggestion.confidence,
           reason: suggestion.reason,
+          evidence: suggestion.evidence,
           source: suggestion.source,
         })),
       }),
+  }),
+});
+
+/* -------------------------------------------------------------------------- */
+/* /api/hermes/mapping-runs/complete                                          */
+/*                                                                            */
+/* Run-scoped submit endpoint for the VPS/Hermes worker. It uses the          */
+/* per-run submit token created by the authenticated UI route, not a project  */
+/* API token, so the worker can complete only the run it was given.           */
+/* -------------------------------------------------------------------------- */
+
+http.route({
+  path: '/api/hermes/mapping-runs/complete',
+  method: 'POST',
+  handler: httpAction(async (ctx, req) => {
+    const rawText = await req.text().catch(() => '');
+    if (rawText.length > SCAN_PAYLOAD_BYTES_LIMIT) {
+      return errorResponse(
+        413,
+        'payload_too_large',
+        `Mapping payload exceeds ${SCAN_PAYLOAD_BYTES_LIMIT} bytes`,
+      );
+    }
+
+    let raw: unknown;
+    try {
+      raw = rawText.length > 0 ? JSON.parse(rawText) : {};
+    } catch {
+      return errorResponse(400, 'invalid_input', 'Invalid JSON body');
+    }
+
+    const parsed = hermesMappingRunCompleteInput.safeParse(raw);
+    if (!parsed.success) {
+      return errorResponse(400, 'invalid_input', parsed.error.issues[0]?.message ?? 'invalid');
+    }
+
+    try {
+      const result = await ctx.runMutation(internal.hermesMappingRuns.complete, {
+        runId: parsed.data.runId as Id<'hermesMappingRuns'>,
+        submitToken: parsed.data.submitToken,
+        status: parsed.data.status,
+        errorMessage: parsed.data.errorMessage,
+        suggestions: parsed.data.suggestions.map((suggestion) => ({
+          filePath: suggestion.filePath,
+          action: suggestion.action,
+          layerId: suggestion.layerId as Id<'projectLayers'> | undefined,
+          targetNodeId: suggestion.targetNodeId as Id<'nodes'> | undefined,
+          groupKey: suggestion.groupKey,
+          suggestedNodeName: suggestion.suggestedNodeName,
+          confidence: suggestion.confidence,
+          reason: suggestion.reason,
+          evidence: suggestion.evidence,
+          source: suggestion.source,
+        })),
+      });
+      return jsonResponse(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('Invalid mapping run submit token')) {
+        return errorResponse(401, 'unauthorized', 'Invalid mapping run submit token');
+      }
+      if (msg.includes('not found') || msg.includes('Not found')) {
+        return errorResponse(404, 'not_found', msg);
+      }
+      return errorResponse(400, 'invalid_input', msg);
+    }
   }),
 });
 

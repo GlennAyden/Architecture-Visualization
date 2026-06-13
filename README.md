@@ -111,7 +111,13 @@ The stdio MCP server is published to npm as [`arch-viz-mcp`](https://www.npmjs.c
 
 ## Hermes integration
 
-Hermes can push file-to-layer suggestions into the canvas through the MCP HTTP route and `arch-viz-mcp push-suggestions --from-json <file>`. See [`docs/hermes-integration.md`](docs/hermes-integration.md) for the V1 contract, auth header, payload format, auto-apply threshold, and boundaries.
+Hermes Mapping Review can be started from the canvas right panel. Vercel creates
+a Convex mapping run, sends bounded project/orphan context to the VPS worker,
+and Convex stores the resulting action-aware suggestions for review. The legacy
+Discord/CLI path can still push V1 or V2 suggestions through
+`arch-viz-mcp push-suggestions --from-json <file>`. See
+[`docs/hermes-integration.md`](docs/hermes-integration.md) for the run flow,
+payload contract, thresholds, and security boundaries.
 
 ## VPS auth backend
 

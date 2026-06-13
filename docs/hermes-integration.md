@@ -1,85 +1,172 @@
-# Hermes Integration V1
+# Hermes Mapping Review
 
-Hermes V1 is a contract and inbox integration. Architecture Visualization does
-not call the Hermes VPS directly, and Hermes does not edit this repository. The
-only inbound artifact is a batch of file-to-layer suggestions.
+Hermes Mapping Review lets Architecture Visualization ask Hermes to classify
+orphan files against the current canvas. Convex remains the source of truth for
+projects, layers, nodes, file links, suggestions, and run state. The VPS/Hermes
+side is only an analysis worker and bridge.
 
-Architecture Visualization remains the source of truth for projects, layers,
-nodes, and file links. Hermes may recommend a file path, target layer, page node
-name, confidence, and a short user-safe reason.
+## Canvas Flow
 
-## Endpoint
+From the canvas right panel, click **Ask Hermes**. The Vercel route:
 
-```text
-POST /api/mcp/codebase_suggestions/push
-```
+1. validates the local session through the VPS auth backend,
+2. creates a Convex `hermesMappingRuns` row,
+3. builds a bounded context from layers, nodes, linked files, orphan scan, and
+   existing suggestions,
+4. sends that context to the VPS endpoint,
+5. returns only `{ runId, status }` to the browser.
 
-Call the Convex HTTP Actions host ending in `.convex.site`.
-
-## Auth
-
-Use an existing project API token. Project scope comes from the token, not from
-any `project` string in the payload.
+The browser never receives the run submit token.
 
 ```text
-Authorization: Bearer <PROJECT_API_TOKEN>
-Content-Type: application/json
+POST /api/hermes/mapping-runs/start
 ```
 
-## Payload
+Required body:
+
+```json
+{ "projectId": "j..." }
+```
+
+## VPS Bridge
+
+Vercel calls the VPS backend with the existing backend proxy token.
+
+```text
+POST /hermes/mapping-runs/start
+Authorization: Bearer <ARCHVIZ_BACKEND_PROXY_TOKEN>
+```
+
+The VPS receives:
+
+- `runId`
+- `submitToken`
+- `convexSiteUrl`
+- bounded mapping context
+
+The current V1 worker uses a deterministic heuristic mapper so the system is
+usable before a direct Hermes runtime connection is wired in. Hermes can later
+replace that mapper as long as it returns the same structured suggestions.
+
+## Convex Completion Route
+
+The worker completes a run through Convex HTTP Actions on `.convex.site`:
+
+```text
+POST /api/hermes/mapping-runs/complete
+```
+
+Payload:
 
 ```json
 {
+  "runId": "run-id",
+  "submitToken": "run-scoped-token",
+  "status": "completed",
   "suggestions": [
     {
-      "filePath": "apps/web/app/projects/[projectId]/page.tsx",
-      "layerId": "target-layer-id",
-      "suggestedNodeName": "Project Detail Page",
-      "confidence": 0.92,
-      "reason": "File ini merepresentasikan halaman detail project dan cocok ditempatkan di layer UI/page.",
+      "filePath": "apps/web/app/api/auth/login/route.ts",
+      "action": "link_existing_node",
+      "targetNodeId": "node-id",
+      "suggestedNodeName": "Auth Proxy",
+      "confidence": 0.91,
+      "reason": "Final explanation safe for UI",
+      "evidence": ["route /api/auth/login", "exports POST"],
       "source": "hermes"
     }
   ]
 }
 ```
 
-Fields:
+Failed runs must submit a safe error message:
 
-- `filePath` is required and must be a non-empty string.
-- `layerId` is required and must belong to the token's project.
-- `suggestedNodeName` is required and must be a non-empty string.
-- `confidence` is required and must be a number from 0 to 1.
-- `reason` is required, short, and safe to display to the user.
-- `source` is optional and defaults to `hermes`.
+```json
+{
+  "runId": "run-id",
+  "submitToken": "run-scoped-token",
+  "status": "failed",
+  "errorMessage": "Hermes output was malformed",
+  "suggestions": []
+}
+```
 
-## Behavior
+## Suggestion Contract V2
 
-- `confidence >= 0.85` creates a `page` node in the suggested layer and links
-  `filePath` to it.
-- `confidence < 0.85` is stored as `pending` for review in the canvas right
-  panel under Hermes Inbox.
-- Pending suggestions for the same file are updated with the latest layer,
-  name, confidence, and reason.
-- Files already linked to any node in the project are skipped so no duplicate
-  node is created.
-- Suggestions already applied do not create duplicate nodes.
-- Users can apply or reject pending suggestions from Hermes Inbox. Applying uses
-  the same page-node creation and file-link behavior as auto-apply.
+Each row is still one file. `action` defaults to `create_node` for V1
+compatibility.
 
-## CLI Bridge
+| Field               | Notes                                                                         |
+| ------------------- | ----------------------------------------------------------------------------- |
+| `filePath`          | Required repo-relative path.                                                  |
+| `action`            | `create_node`, `link_existing_node`, `group_into_node`, or `ignore`.          |
+| `layerId`           | Required for `create_node` and `group_into_node`. Must belong to the project. |
+| `targetNodeId`      | Required for `link_existing_node`. Must belong to the project.                |
+| `groupKey`          | Required for `group_into_node`; grouped rows share one stable key.            |
+| `suggestedNodeName` | Optional for V2; fallback comes from the file path.                           |
+| `confidence`        | Number from `0` to `1`.                                                       |
+| `reason`            | Final, user-safe explanation.                                                 |
+| `evidence`          | Optional short UI-safe facts, max 8.                                          |
+| `source`            | Optional, defaults to `hermes`.                                               |
+
+Auto-apply thresholds:
+
+- `create_node` and `group_into_node`: confidence `>= 0.85`
+- `link_existing_node` and `ignore`: confidence `>= 0.90`
+
+Low-confidence suggestions stay pending in Hermes Inbox. Users can apply,
+reject, ignore, bulk-apply high-confidence rows, or edit action/layer/node
+before applying.
+
+## CLI / Discord Compatibility
+
+The existing project API token route remains available for Discord/CLI paths:
+
+```text
+POST /api/mcp/codebase_suggestions/push
+Authorization: Bearer <PROJECT_API_TOKEN>
+```
+
+The CLI reads the same JSON contract:
 
 ```bash
 arch-viz-mcp push-suggestions --from-json suggestions.json
 ```
 
-The CLI reads and validates the same JSON contract, then posts to
-`/api/mcp/codebase_suggestions/push` using the configured project token. It must
-not print or persist the token.
+V1 payloads still work:
 
-## V1 Boundaries
+```json
+{
+  "suggestions": [
+    {
+      "filePath": "apps/web/app/page.tsx",
+      "layerId": "target-layer-id",
+      "suggestedNodeName": "Home Page",
+      "confidence": 0.92,
+      "reason": "This page is a UI surface."
+    }
+  ]
+}
+```
 
-- Do not hard-code a Hermes VPS IP, URL, token, or secret.
-- Do not add `HERMES_URL`, `HERMES_KEY`, or similar private configuration.
-- Do not surface chain-of-thought or private reasoning.
-- Do not treat Hermes output as a final diagram or Mermaid result.
-- Do not create a separate Hermes results page outside the canvas workflow.
+## Scanner Context
+
+`arch-viz-mcp scan-orphans` now includes optional `fileFacts`:
+
+- `path`
+- `kind`
+- `imports`
+- `exports`
+- `routeHint`
+- `apiHint`
+
+These facts help Hermes classify files without receiving raw source contents.
+
+## Boundaries
+
+- Do not hard-code Hermes VPS IPs, URLs, or secrets.
+- Do not expose run submit tokens to the browser.
+- Do not expose project API tokens to Hermes unless the caller is explicitly
+  using the MCP token route.
+- Do not display chain-of-thought or private reasoning.
+- Do not store product data in the VPS as the source of truth.
+- Do not reintroduce Clerk.

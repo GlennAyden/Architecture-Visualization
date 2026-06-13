@@ -13,6 +13,7 @@ interface PushSuggestionsResponse {
   accepted: number;
   pending: number;
   applied: number;
+  ignored?: number;
   skipped: Array<{ filePath: string; reason: string }>;
 }
 
@@ -23,16 +24,46 @@ export interface PushSuggestionsClient {
 const suggestionSchema = z
   .object({
     filePath: z.string().trim().min(1).max(500),
-    layerId: z.string().trim().min(1),
-    suggestedNodeName: z.string().trim().min(1).max(80),
+    action: z
+      .enum(['create_node', 'link_existing_node', 'group_into_node', 'ignore'])
+      .default('create_node'),
+    layerId: z.string().trim().min(1).optional(),
+    targetNodeId: z.string().trim().min(1).optional(),
+    groupKey: z.string().trim().min(1).max(160).optional(),
+    suggestedNodeName: z.string().trim().min(1).max(80).optional(),
     confidence: z.number().min(0).max(1),
     reason: z.string().trim().min(1).max(1000),
+    evidence: z.array(z.string().trim().min(1).max(240)).max(8).optional(),
     source: z.string().trim().min(1).max(80).default('hermes'),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if ((value.action === 'create_node' || value.action === 'group_into_node') && !value.layerId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['layerId'],
+        message: 'layerId is required for create_node and group_into_node',
+      });
+    }
+    if (value.action === 'link_existing_node' && !value.targetNodeId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['targetNodeId'],
+        message: 'targetNodeId is required for link_existing_node',
+      });
+    }
+    if (value.action === 'group_into_node' && !value.groupKey) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['groupKey'],
+        message: 'groupKey is required for group_into_node',
+      });
+    }
+  });
 
 const pushSuggestionsSchema = z
   .object({
+    runId: z.string().trim().min(1).optional(),
     suggestions: z.array(suggestionSchema).min(1).max(500),
   })
   .strict();
@@ -85,7 +116,8 @@ export async function runPushSuggestions(
   const result = await client.post('/api/mcp/codebase_suggestions/push', payload);
   summary(
     `Suggestions: accepted ${result.accepted}, applied ${result.applied}, ` +
-      `pending ${result.pending}, skipped ${result.skipped.length}.`,
+      `pending ${result.pending}, ignored ${result.ignored ?? 0}, ` +
+      `skipped ${result.skipped.length}.`,
   );
   return 0;
 }

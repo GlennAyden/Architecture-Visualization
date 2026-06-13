@@ -8,6 +8,7 @@ import {
   addKanbanTaskInput,
   updateKanbanStatusInput,
   logActivityInput,
+  hermesMappingRunCompleteInput,
   pushCodebaseSuggestionsInput,
 } from './mcp';
 
@@ -126,9 +127,48 @@ describe('pushCodebaseSuggestionsInput', () => {
 
     expect(parsed.suggestions[0]).toMatchObject({
       filePath: 'apps/web/app/page.tsx',
+      action: 'create_node',
       source: 'hermes',
       confidence: 0.9,
     });
+  });
+
+  test('accepts V2 action suggestions for link, group, and ignore', () => {
+    const parsed = pushCodebaseSuggestionsInput.parse({
+      runId: 'runs:abc',
+      suggestions: [
+        {
+          filePath: 'apps/web/app/api/auth/login/route.ts',
+          action: 'link_existing_node',
+          targetNodeId: 'nodes:auth',
+          confidence: 0.91,
+          reason: 'Existing auth node already owns this behavior.',
+          evidence: ['route handler', 'auth proxy'],
+        },
+        {
+          filePath: 'apps/web/lib/auth/proxy.ts',
+          action: 'group_into_node',
+          groupKey: 'auth-proxy',
+          layerId: 'projectLayers:infra',
+          suggestedNodeName: 'Auth Proxy',
+          confidence: 0.88,
+          reason: 'Shared auth proxy files should be grouped.',
+        },
+        {
+          filePath: 'convex/_generated/api.js',
+          action: 'ignore',
+          confidence: 0.95,
+          reason: 'Generated file is not an architecture node.',
+        },
+      ],
+    });
+
+    expect(parsed.runId).toBe('runs:abc');
+    expect(parsed.suggestions.map((s) => s.action)).toEqual([
+      'link_existing_node',
+      'group_into_node',
+      'ignore',
+    ]);
   });
 
   test('rejects invalid confidence and empty suggestion fields', () => {
@@ -159,5 +199,64 @@ describe('pushCodebaseSuggestionsInput', () => {
         ],
       }),
     ).toThrow();
+  });
+
+  test('requires target identifiers for action-specific suggestions', () => {
+    expect(() =>
+      pushCodebaseSuggestionsInput.parse({
+        suggestions: [
+          {
+            filePath: 'src/a.ts',
+            action: 'link_existing_node',
+            confidence: 0.9,
+            reason: 'Missing target node.',
+          },
+        ],
+      }),
+    ).toThrow(/targetNodeId/);
+
+    expect(() =>
+      pushCodebaseSuggestionsInput.parse({
+        suggestions: [
+          {
+            filePath: 'src/a.ts',
+            action: 'group_into_node',
+            layerId: 'projectLayers:abc',
+            confidence: 0.9,
+            reason: 'Missing group key.',
+          },
+        ],
+      }),
+    ).toThrow(/groupKey/);
+  });
+});
+
+describe('hermesMappingRunCompleteInput', () => {
+  test('accepts successful run completion with V2 suggestions', () => {
+    const parsed = hermesMappingRunCompleteInput.parse({
+      runId: 'runs:abc',
+      submitToken: 'x'.repeat(32),
+      status: 'completed',
+      suggestions: [
+        {
+          filePath: 'src/a.ts',
+          action: 'ignore',
+          confidence: 0.95,
+          reason: 'Generated/test-only file.',
+        },
+      ],
+    });
+
+    expect(parsed.suggestions[0]!.action).toBe('ignore');
+  });
+
+  test('requires a safe error message for failed run completion', () => {
+    expect(() =>
+      hermesMappingRunCompleteInput.parse({
+        runId: 'runs:abc',
+        submitToken: 'x'.repeat(32),
+        status: 'failed',
+      }),
+    ).toThrow(/errorMessage/);
   });
 });

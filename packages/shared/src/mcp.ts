@@ -7,6 +7,7 @@ const taskIdSchema = z.string().min(1);
 const namePattern = z.string().trim().min(1, 'name is required').max(80);
 const descriptionPattern = z.string().max(4000).optional();
 const pathPattern = z.string().trim().min(1).max(500);
+const evidenceSchema = z.array(z.string().trim().min(1).max(240)).max(8);
 
 export const listNodesInput = z.object({}).strict();
 export const listLayersInput = z.object({}).strict();
@@ -118,6 +119,17 @@ export const lookupFilesInput = z
 // open-ended on purpose (validated client-side); we cap size at 1MB at the
 // HTTP layer so a misbehaving CLI can't fill the table.
 const scanKindSchema = z.enum(['orphans', 'drift']);
+export const scanFileKindSchema = z.enum([
+  'component',
+  'api',
+  'convex',
+  'mcp',
+  'config',
+  'test',
+  'generated',
+  'script',
+  'unknown',
+]);
 
 export const scanSnapshotPushInput = z
   .object({
@@ -132,22 +144,76 @@ export const scanSnapshotGetInput = z
   })
   .strict();
 
+export const codebaseSuggestionActionSchema = z.enum([
+  'create_node',
+  'link_existing_node',
+  'group_into_node',
+  'ignore',
+]);
+
 const codebaseSuggestionSchema = z
   .object({
     filePath: pathPattern,
-    layerId: z.string().trim().min(1),
-    suggestedNodeName: namePattern,
+    action: codebaseSuggestionActionSchema.default('create_node'),
+    layerId: z.string().trim().min(1).optional(),
+    targetNodeId: z.string().trim().min(1).optional(),
+    groupKey: z.string().trim().min(1).max(160).optional(),
+    suggestedNodeName: namePattern.optional(),
     confidence: z.number().min(0).max(1),
     reason: z.string().trim().min(1, 'reason is required').max(1000),
+    evidence: evidenceSchema.optional(),
     source: z.string().trim().min(1).max(80).default('hermes'),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if ((value.action === 'create_node' || value.action === 'group_into_node') && !value.layerId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['layerId'],
+        message: 'layerId is required for create_node and group_into_node',
+      });
+    }
+    if (value.action === 'link_existing_node' && !value.targetNodeId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['targetNodeId'],
+        message: 'targetNodeId is required for link_existing_node',
+      });
+    }
+    if (value.action === 'group_into_node' && !value.groupKey) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['groupKey'],
+        message: 'groupKey is required for group_into_node',
+      });
+    }
+  });
 
 export const pushCodebaseSuggestionsInput = z
   .object({
+    runId: z.string().trim().min(1).optional(),
     suggestions: z.array(codebaseSuggestionSchema).min(1).max(500),
   })
   .strict();
+
+export const hermesMappingRunCompleteInput = z
+  .object({
+    runId: z.string().trim().min(1),
+    submitToken: z.string().trim().min(32),
+    status: z.enum(['completed', 'failed']),
+    errorMessage: z.string().trim().min(1).max(1000).optional(),
+    suggestions: z.array(codebaseSuggestionSchema).max(500).default([]),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.status === 'failed' && !value.errorMessage) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['errorMessage'],
+        message: 'errorMessage is required for failed runs',
+      });
+    }
+  });
 
 // Sprint 3 — non-hierarchy edge types. Hierarchy is auto-mirrored from
 // `parentId` and never manipulated through these endpoints.

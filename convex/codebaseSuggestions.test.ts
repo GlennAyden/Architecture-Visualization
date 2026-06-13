@@ -19,6 +19,14 @@ const fakeIdentity = (subject: string, email: string) => {
   };
 };
 
+async function hashSubmitToken(raw: string) {
+  const data = new TextEncoder().encode(raw);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 async function seedTokenForUser(t: ReturnType<typeof convexTest>) {
   const asUser = t.withIdentity(fakeIdentity('user_a', 'a@example.com'));
   const projectId = await asUser.mutation(api.projects.create, { name: 'P' });
@@ -35,10 +43,14 @@ async function pushSuggestion(
   rawToken: string,
   suggestion: {
     filePath: string;
-    layerId: string;
-    suggestedNodeName: string;
+    action?: 'create_node' | 'link_existing_node' | 'group_into_node' | 'ignore';
+    layerId?: string;
+    targetNodeId?: string;
+    groupKey?: string;
+    suggestedNodeName?: string;
     confidence: number;
     reason: string;
+    evidence?: string[];
   },
 ) {
   return await t.fetch('/api/mcp/codebase_suggestions/push', {
@@ -169,6 +181,100 @@ describe('codebase suggestions', () => {
     });
   });
 
+  test('push links high-confidence suggestions to an existing target node', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, rawToken, projectId, layers } = await seedTokenForUser(t);
+    const authNode = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[4]!._id,
+      type: 'page',
+      name: 'Auth Proxy',
+      positionX: 0,
+      positionY: 0,
+    });
+
+    const res = await pushSuggestion(t, rawToken, {
+      filePath: 'apps/web/app/api/auth/login/route.ts',
+      action: 'link_existing_node',
+      targetNodeId: authNode,
+      suggestedNodeName: 'Auth Proxy',
+      confidence: 0.91,
+      reason: 'Route belongs to the existing auth proxy node.',
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ accepted: 1, applied: 1 });
+
+    const files = await asUser.query(api.nodeFiles.listByNode, { nodeId: authNode });
+    expect(files.map((file) => file.path)).toContain('apps/web/app/api/auth/login/route.ts');
+  });
+
+  test('push groups related files into one node when group confidence is high', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, rawToken, projectId, layers } = await seedTokenForUser(t);
+
+    const res = await t.fetch('/api/mcp/codebase_suggestions/push', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${rawToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        suggestions: [
+          {
+            filePath: 'apps/web/lib/auth/proxy.ts',
+            action: 'group_into_node',
+            groupKey: 'auth-proxy',
+            layerId: layers[4]!._id,
+            suggestedNodeName: 'Auth Proxy',
+            confidence: 0.86,
+            reason: 'Shared auth proxy files should be grouped.',
+          },
+          {
+            filePath: 'apps/web/lib/auth/request.ts',
+            action: 'group_into_node',
+            groupKey: 'auth-proxy',
+            layerId: layers[4]!._id,
+            suggestedNodeName: 'Auth Proxy',
+            confidence: 0.86,
+            reason: 'Shared auth proxy files should be grouped.',
+          },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ accepted: 2, applied: 2 });
+
+    const nodes = await asUser.query(api.nodes.listByProject, { projectId });
+    const grouped = nodes.filter((node) => node.name === 'Auth Proxy');
+    expect(grouped).toHaveLength(1);
+    const files = await asUser.query(api.nodeFiles.listByNode, { nodeId: grouped[0]!._id });
+    expect(files.map((file) => file.path).sort()).toEqual([
+      'apps/web/lib/auth/proxy.ts',
+      'apps/web/lib/auth/request.ts',
+    ]);
+  });
+
+  test('push ignores high-confidence generated or support files without creating nodes', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, rawToken, projectId } = await seedTokenForUser(t);
+
+    const res = await pushSuggestion(t, rawToken, {
+      filePath: 'convex/_generated/api.js',
+      action: 'ignore',
+      confidence: 0.96,
+      reason: 'Generated output should be hidden from orphan review.',
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ accepted: 1, ignored: 1 });
+
+    const ignored = await asUser.query(api.codebaseSuggestions.listByProject, {
+      projectId,
+      status: 'ignored',
+    });
+    expect(ignored.map((suggestion) => suggestion.filePath)).toEqual(['convex/_generated/api.js']);
+    await expect(asUser.query(api.nodes.listByProject, { projectId })).resolves.toHaveLength(0);
+  });
+
   test('push rejects a layer from another project', async () => {
     const t = convexTest(schema, modules);
     const { asUser, rawToken } = await seedTokenForUser(t);
@@ -183,6 +289,34 @@ describe('codebase suggestions', () => {
       suggestedNodeName: 'Wrong',
       confidence: 0.8,
       reason: 'Wrong project layer.',
+    });
+
+    expect(res.status).toBe(403);
+  });
+
+  test('push rejects a target node from another project', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, rawToken } = await seedTokenForUser(t);
+    const otherProjectId = await asUser.mutation(api.projects.create, { name: 'Other' });
+    const otherLayers = await asUser.query(api.projectLayers.listByProject, {
+      projectId: otherProjectId,
+    });
+    const otherNode = await asUser.mutation(api.nodes.create, {
+      projectId: otherProjectId,
+      layerId: otherLayers[0]!._id,
+      type: 'page',
+      name: 'Foreign',
+      positionX: 0,
+      positionY: 0,
+    });
+
+    const res = await pushSuggestion(t, rawToken, {
+      filePath: 'src/wrong-link.ts',
+      action: 'link_existing_node',
+      targetNodeId: otherNode,
+      suggestedNodeName: 'Wrong link',
+      confidence: 0.91,
+      reason: 'Wrong project target.',
     });
 
     expect(res.status).toBe(403);
@@ -260,6 +394,86 @@ describe('codebase suggestions', () => {
     expect(rejectedRows.map((s) => s.filePath)).toContain('src/reject.ts');
   });
 
+  test('mapping run complete route verifies submit token and stores suggestions', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, layers } = await seedTokenForUser(t);
+    const submitToken = 'submit-token-submit-token-submit-token';
+    const run = await asUser.mutation(api.hermesMappingRuns.start, {
+      projectId,
+      source: 'canvas',
+      scope: 'orphans',
+      submitTokenHash: await hashSubmitToken(submitToken),
+    });
+
+    const invalid = await t.fetch('/api/hermes/mapping-runs/complete', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        runId: run.runId,
+        submitToken: 'wrong-token-wrong-token-wrong-token',
+        status: 'completed',
+        suggestions: [],
+      }),
+    });
+    expect(invalid.status).toBe(401);
+
+    const valid = await t.fetch('/api/hermes/mapping-runs/complete', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        runId: run.runId,
+        submitToken,
+        status: 'completed',
+        suggestions: [
+          {
+            filePath: 'src/from-run.ts',
+            layerId: layers[0]!._id,
+            suggestedNodeName: 'From run',
+            confidence: 0.6,
+            reason: 'Run-scoped suggestion should enter the review queue.',
+          },
+        ],
+      }),
+    });
+    expect(valid.status).toBe(200);
+    await expect(valid.json()).resolves.toMatchObject({ pending: 1 });
+
+    const runs = await asUser.query(api.hermesMappingRuns.latestByProject, { projectId });
+    expect(runs[0]).toMatchObject({
+      status: 'completed',
+      suggestedCount: 1,
+      pendingCount: 1,
+    });
+  });
+
+  test('bulk apply resolves pending suggestions above their action threshold', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, rawToken, projectId, layers } = await seedTokenForUser(t);
+    await pushSuggestion(t, rawToken, {
+      filePath: 'src/high.ts',
+      layerId: layers[0]!._id,
+      suggestedNodeName: 'High confidence',
+      confidence: 0.84,
+      reason: 'Below threshold at first so the user can bulk apply later after edit.',
+    });
+    const pending = await asUser.query(api.codebaseSuggestions.listByProject, {
+      projectId,
+      status: 'pending',
+    });
+    await asUser.mutation(api.codebaseSuggestions.updateReview, {
+      id: pending[0]!._id,
+      suggestedNodeName: 'High confidence',
+      layerId: layers[0]!._id,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(pending[0]!._id, { confidence: 0.85 });
+    });
+
+    await expect(
+      asUser.mutation(api.codebaseSuggestions.applyHighConfidence, { projectId }),
+    ).resolves.toMatchObject({ applied: 1 });
+  });
+
   test('project deletion removes suggestion inbox rows', async () => {
     const t = convexTest(schema, modules);
     const { asUser, rawToken, projectId, layers } = await seedTokenForUser(t);
@@ -269,6 +483,12 @@ describe('codebase suggestions', () => {
       suggestedNodeName: 'Delete me',
       confidence: 0.5,
       reason: 'Temporary suggestion.',
+    });
+    await asUser.mutation(api.hermesMappingRuns.start, {
+      projectId,
+      source: 'canvas',
+      scope: 'orphans',
+      submitTokenHash: await hashSubmitToken('delete-run-submit-token'),
     });
 
     await asUser.mutation(api.projects.remove, { id: projectId });
@@ -280,5 +500,12 @@ describe('codebase suggestions', () => {
         .collect(),
     );
     expect(leftovers).toEqual([]);
+    const runLeftovers = await t.run(async (ctx) =>
+      ctx.db
+        .query('hermesMappingRuns')
+        .withIndex('by_project', (q) => q.eq('projectId', projectId))
+        .collect(),
+    );
+    expect(runLeftovers).toEqual([]);
   });
 });

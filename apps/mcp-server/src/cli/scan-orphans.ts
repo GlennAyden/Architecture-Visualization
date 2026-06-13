@@ -3,6 +3,28 @@ import { loadConfig } from '../config.js';
 import { walkSourceFiles } from './fs-walk.js';
 import { collectLinkedFiles } from './scan-imports.js';
 import { progress, summary } from './output.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+export type ScanFileKind =
+  | 'component'
+  | 'api'
+  | 'convex'
+  | 'mcp'
+  | 'config'
+  | 'test'
+  | 'generated'
+  | 'script'
+  | 'unknown';
+
+export interface ScanFileFact {
+  path: string;
+  kind: ScanFileKind;
+  imports: string[];
+  exports: string[];
+  routeHint?: string;
+  apiHint?: string;
+}
 
 /**
  * The orphans payload schema agreed with the backend. The shape is mirrored
@@ -11,6 +33,7 @@ import { progress, summary } from './output.js';
 export interface OrphansPayload {
   repoFiles: string[];
   orphans: string[];
+  fileFacts?: ScanFileFact[];
   scannedAt: number;
   truncated?: boolean;
 }
@@ -52,15 +75,18 @@ export function buildOrphansPayload(
   repoFiles: ReadonlyArray<string>,
   orphans: ReadonlyArray<string>,
   scannedAt: number,
+  fileFacts: ReadonlyArray<ScanFileFact> = [],
 ): OrphansPayload {
   let truncated = false;
   let trimmedRepoFiles = repoFiles as string[];
   let trimmedOrphans = orphans as string[];
+  let trimmedFileFacts = fileFacts as ScanFileFact[];
 
   if (repoFiles.length > REPO_FILES_SOFT_LIMIT) {
     truncated = true;
     trimmedRepoFiles = repoFiles.slice(0, REPO_FILES_SOFT_LIMIT);
     trimmedOrphans = orphans.slice(0, ORPHANS_HARD_LIMIT);
+    trimmedFileFacts = fileFacts.slice(0, REPO_FILES_SOFT_LIMIT);
   }
 
   const payload: OrphansPayload = {
@@ -68,8 +94,84 @@ export function buildOrphansPayload(
     orphans: trimmedOrphans,
     scannedAt,
   };
+  if (trimmedFileFacts.length > 0) payload.fileFacts = trimmedFileFacts;
   if (truncated) payload.truncated = true;
   return payload;
+}
+
+function uniqueCapped(values: Iterable<string>, cap: number): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+    if (out.length >= cap) break;
+  }
+  return out;
+}
+
+function classifyFile(path: string): ScanFileKind {
+  const lower = path.toLowerCase();
+  if (lower.includes('/_generated/') || lower.includes('\\_generated\\')) return 'generated';
+  if (/\.(test|spec)\.[cm]?[tj]sx?$/.test(lower) || lower.includes('/tests/')) return 'test';
+  if (
+    /(^|\/)(eslint|vitest|next|postcss|tailwind|tsconfig|playwright)\.config\./.test(lower) ||
+    lower.endsWith('package.json')
+  ) {
+    return 'config';
+  }
+  if (lower.startsWith('convex/')) return 'convex';
+  if (lower.startsWith('apps/mcp-server/')) return 'mcp';
+  if (lower.includes('/scripts/')) return 'script';
+  if (lower.startsWith('apps/web/app/api/')) return 'api';
+  if (lower.startsWith('apps/web/components/')) return 'component';
+  return 'unknown';
+}
+
+function routeHintFor(path: string): string | undefined {
+  const routeMatch = path.match(/^apps\/web\/app\/(.+)\/(?:page|route)\.[cm]?[tj]sx?$/);
+  if (!routeMatch) return undefined;
+  const route = routeMatch[1]!
+    .replace(/\/\[\[\.\.\..+?\]\]/g, '')
+    .replace(/\/\(.+?\)/g, '')
+    .replace(/\/page$/, '');
+  return route.length === 0 ? '/' : `/${route}`;
+}
+
+export function buildFileFacts(rootDir: string, files: ReadonlyArray<string>): ScanFileFact[] {
+  return files.map((path) => {
+    let text = '';
+    try {
+      text = readFileSync(join(rootDir, path), 'utf8');
+    } catch {
+      // Best-effort: Hermes can still reason from the path and kind.
+    }
+
+    const imports = uniqueCapped(
+      [
+        ...text.matchAll(/import(?:\s+type)?[\s\S]*?\sfrom\s+['"]([^'"]+)['"]/g),
+        ...text.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g),
+      ].map((match) => match[1] ?? ''),
+      20,
+    );
+    const namedExports = [
+      ...text.matchAll(/export\s+(?:async\s+)?(?:function|const|class)\s+(\w+)/g),
+    ]
+      .map((match) => match[1] ?? '')
+      .filter(Boolean);
+    const exports = uniqueCapped(
+      text.includes('export default') ? ['default', ...namedExports] : namedExports,
+      20,
+    );
+    const routeHint = routeHintFor(path);
+    const kind = classifyFile(path);
+    const fact: ScanFileFact = { path, kind, imports, exports };
+    if (routeHint) fact.routeHint = routeHint;
+    if (kind === 'api' && routeHint) fact.apiHint = routeHint;
+    return fact;
+  });
 }
 
 export async function runScanOrphans(
@@ -92,7 +194,12 @@ export async function runScanOrphans(
   progress(`[scan-orphans] ${repoFiles.length} source files on disk`);
 
   const orphans = computeOrphans({ repoFiles, linked });
-  const payload = buildOrphansPayload(repoFiles, orphans, Date.now());
+  const payload = buildOrphansPayload(
+    repoFiles,
+    orphans,
+    Date.now(),
+    buildFileFacts(cwd, repoFiles),
+  );
 
   await client.post('/api/mcp/scans/push', { kind: 'orphans', data: payload });
 

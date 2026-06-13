@@ -25,7 +25,7 @@ npx -y arch-viz-mcp push-suggestions --from-json suggestions.json
 
 Run from the repo root. Each subcommand reuses the same `ARCHITECTURE_*` env vars as the stdio mode. `scan-orphans` and `scan-drift` push a snapshot to the project — view results at `/canvas/<projectId>/orphans` and in the node modal's `Drift` tab.
 
-`push-suggestions` posts Hermes-ready file-to-layer suggestions to
+`push-suggestions` posts Hermes-ready mapping suggestions to
 `/api/mcp/codebase_suggestions/push`; see
 [`../../docs/hermes-integration.md`](../../docs/hermes-integration.md).
 

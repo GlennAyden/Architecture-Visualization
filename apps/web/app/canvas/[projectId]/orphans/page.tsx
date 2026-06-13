@@ -60,6 +60,24 @@ function relativeTime(ms: number): string {
 
 const EXTENSION_OPTIONS = ['all', '.ts', '.tsx', '.js', '.jsx'] as const;
 type ExtensionFilter = (typeof EXTENSION_OPTIONS)[number];
+const RECOMMENDATION_FILTER_OPTIONS = [
+  'active',
+  'needs-review',
+  'auto-applied',
+  'ignored',
+  'no-suggestion',
+  'all',
+] as const;
+type RecommendationFilter = (typeof RECOMMENDATION_FILTER_OPTIONS)[number];
+
+const RECOMMENDATION_LABELS: Record<RecommendationFilter, string> = {
+  active: 'Active',
+  'needs-review': 'Needs review',
+  'auto-applied': 'Auto-applied',
+  ignored: 'Ignored',
+  'no-suggestion': 'No suggestion',
+  all: 'All',
+};
 
 export default function ProjectOrphansPage() {
   const router = useRouter();
@@ -69,6 +87,18 @@ export default function ProjectOrphansPage() {
   const snapshot = useQuery(api.scans.getLatestByKind, { projectId, kind: 'orphans' });
   const nodes = useQuery(api.nodes.listByProject, { projectId });
   const layers = useQuery(api.projectLayers.listByProject, { projectId });
+  const pendingSuggestions = useQuery(api.codebaseSuggestions.listByProject, {
+    projectId,
+    status: 'pending',
+  });
+  const appliedSuggestions = useQuery(api.codebaseSuggestions.listByProject, {
+    projectId,
+    status: 'applied',
+  });
+  const ignoredSuggestions = useQuery(api.codebaseSuggestions.listByProject, {
+    projectId,
+    status: 'ignored',
+  });
   const ensureDefaultLayers = useMutation(api.projectLayers.ensureDefaults);
   const ensuredLayersFor = useRef<string | null>(null);
 
@@ -79,6 +109,7 @@ export default function ProjectOrphansPage() {
   const [createPath, setCreatePath] = useState<string | null>(null);
   const [pathFilter, setPathFilter] = useState('');
   const [extFilter, setExtFilter] = useState<ExtensionFilter>('all');
+  const [recommendationFilter, setRecommendationFilter] = useState<RecommendationFilter>('active');
 
   // Redirect when the project is gone (e.g. cascade-deleted in another tab).
   useEffect(() => {
@@ -104,17 +135,32 @@ export default function ProjectOrphansPage() {
   }, [ensureDefaultLayers, layers, nodes, project, projectId]);
 
   const data = (snapshot?.data ?? null) as OrphansSnapshotData | null;
+  const suggestionStatusByPath = useMemo(() => {
+    const map = new Map<string, 'pending' | 'applied' | 'ignored'>();
+    for (const suggestion of pendingSuggestions ?? []) map.set(suggestion.filePath, 'pending');
+    for (const suggestion of appliedSuggestions ?? []) map.set(suggestion.filePath, 'applied');
+    for (const suggestion of ignoredSuggestions ?? []) map.set(suggestion.filePath, 'ignored');
+    return map;
+  }, [appliedSuggestions, ignoredSuggestions, pendingSuggestions]);
 
   const visibleOrphans = useMemo(() => {
     if (!data) return [];
     const trimmedFilter = pathFilter.trim().toLowerCase();
     return data.orphans.filter((path) => {
+      const recommendation = suggestionStatusByPath.get(path);
       if (linkedPaths.has(path)) return false;
       if (extFilter !== 'all' && !path.endsWith(extFilter)) return false;
       if (trimmedFilter && !path.toLowerCase().includes(trimmedFilter)) return false;
+      if (recommendationFilter === 'active') {
+        if (recommendation === 'ignored' || recommendation === 'applied') return false;
+      }
+      if (recommendationFilter === 'needs-review' && recommendation !== 'pending') return false;
+      if (recommendationFilter === 'auto-applied' && recommendation !== 'applied') return false;
+      if (recommendationFilter === 'ignored' && recommendation !== 'ignored') return false;
+      if (recommendationFilter === 'no-suggestion' && recommendation !== undefined) return false;
       return true;
     });
-  }, [data, pathFilter, extFilter, linkedPaths]);
+  }, [data, pathFilter, extFilter, linkedPaths, recommendationFilter, suggestionStatusByPath]);
 
   if (project === undefined) {
     return <p className="dark bg-zinc-950 p-8 text-zinc-400">Loading…</p>;
@@ -226,6 +272,19 @@ export default function ProjectOrphansPage() {
                       </option>
                     ))}
                   </select>
+                  <select
+                    value={recommendationFilter}
+                    onChange={(e) =>
+                      setRecommendationFilter(e.target.value as RecommendationFilter)
+                    }
+                    className="h-8 rounded-lg border border-white/10 bg-zinc-950 px-2.5 text-sm text-zinc-200 outline-none focus-visible:border-cyan-300 focus-visible:ring-3 focus-visible:ring-cyan-300/20"
+                  >
+                    {RECOMMENDATION_FILTER_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {RECOMMENDATION_LABELS[opt]}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 {visibleOrphans.length === 0 ? (
@@ -243,6 +302,7 @@ export default function ProjectOrphansPage() {
                           {path}
                         </span>
                         <div className="flex shrink-0 gap-2">
+                          <RecommendationBadge status={suggestionStatusByPath.get(path)} />
                           <Button
                             variant="ghost"
                             size="sm"
@@ -316,6 +376,24 @@ function EmptyAllLinked() {
     <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-6 text-center text-sm text-emerald-300">
       All files are linked — canvas is in sync.
     </div>
+  );
+}
+
+function RecommendationBadge({ status }: { status?: 'pending' | 'applied' | 'ignored' }) {
+  if (!status) return null;
+  const className =
+    status === 'pending'
+      ? 'border-amber-400/30 bg-amber-400/10 text-amber-200'
+      : status === 'applied'
+        ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200'
+        : 'border-white/10 bg-white/[0.03] text-zinc-500';
+  const label = status === 'pending' ? 'review' : status === 'applied' ? 'applied' : 'ignored';
+  return (
+    <span
+      className={`inline-flex h-7 items-center rounded border px-2 text-[11px] font-medium ${className}`}
+    >
+      {label}
+    </span>
   );
 }
 

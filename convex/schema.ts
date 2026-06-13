@@ -119,19 +119,61 @@ export default defineSchema({
 
   codebaseSuggestions: defineTable({
     projectId: v.id('projects'),
+    runId: v.optional(v.id('hermesMappingRuns')),
     filePath: v.string(),
-    layerId: v.id('projectLayers'),
+    action: v.optional(
+      v.union(
+        v.literal('create_node'),
+        v.literal('link_existing_node'),
+        v.literal('group_into_node'),
+        v.literal('ignore'),
+      ),
+    ),
+    layerId: v.optional(v.id('projectLayers')),
+    targetNodeId: v.optional(v.id('nodes')),
+    groupKey: v.optional(v.string()),
     suggestedNodeName: v.string(),
     confidence: v.number(),
     reason: v.string(),
+    evidence: v.optional(v.array(v.string())),
     source: v.string(),
-    status: v.union(v.literal('pending'), v.literal('applied'), v.literal('rejected')),
+    status: v.union(
+      v.literal('pending'),
+      v.literal('applied'),
+      v.literal('rejected'),
+      v.literal('ignored'),
+    ),
     appliedNodeId: v.optional(v.id('nodes')),
     createdAt: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index('by_project_status', ['projectId', 'status'])
     .index('by_project_file', ['projectId', 'filePath']),
+
+  hermesMappingRuns: defineTable({
+    projectId: v.id('projects'),
+    requestedBy: v.id('profiles'),
+    source: v.union(v.literal('canvas'), v.literal('discord'), v.literal('cli')),
+    scope: v.union(v.literal('orphans'), v.literal('project')),
+    status: v.union(
+      v.literal('queued'),
+      v.literal('running'),
+      v.literal('completed'),
+      v.literal('failed'),
+    ),
+    totalFiles: v.number(),
+    suggestedCount: v.number(),
+    appliedCount: v.number(),
+    pendingCount: v.number(),
+    ignoredCount: v.number(),
+    errorMessage: v.optional(v.string()),
+    submitTokenHash: v.string(),
+    createdAt: v.number(),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+  })
+    .index('by_project', ['projectId'])
+    .index('by_project_status', ['projectId', 'status']),
 
   // Sprint 4 — read-only public share tokens. A `/share/<rawToken>` URL
   // resolves a row here, then renders the project's canvas without auth.

@@ -5,10 +5,22 @@ import { upsertSuggestion } from '../lib/codebaseSuggestions';
 
 const suggestionValidator = v.object({
   filePath: v.string(),
-  layerId: v.id('projectLayers'),
-  suggestedNodeName: v.string(),
+  runId: v.optional(v.id('hermesMappingRuns')),
+  action: v.optional(
+    v.union(
+      v.literal('create_node'),
+      v.literal('link_existing_node'),
+      v.literal('group_into_node'),
+      v.literal('ignore'),
+    ),
+  ),
+  layerId: v.optional(v.id('projectLayers')),
+  targetNodeId: v.optional(v.id('nodes')),
+  groupKey: v.optional(v.string()),
+  suggestedNodeName: v.optional(v.string()),
   confidence: v.number(),
   reason: v.string(),
+  evidence: v.optional(v.array(v.string())),
   source: v.string(),
 });
 
@@ -24,6 +36,7 @@ export const pushForProject = internalMutation({
     const skipped: Array<{ filePath: string; reason: string }> = [];
     let pending = 0;
     let applied = 0;
+    let ignored = 0;
 
     for (const suggestion of suggestions) {
       const result = await upsertSuggestion(ctx, scopeProjectId, suggestion);
@@ -31,15 +44,18 @@ export const pushForProject = internalMutation({
         skipped.push({ filePath: result.filePath, reason: result.reason });
       } else if (result.status === 'applied') {
         applied++;
+      } else if (result.status === 'ignored') {
+        ignored++;
       } else {
         pending++;
       }
     }
 
     return {
-      accepted: pending + applied,
+      accepted: pending + applied + ignored,
       pending,
       applied,
+      ignored,
       skipped,
     };
   },

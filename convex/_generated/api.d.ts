@@ -13,6 +13,7 @@ import type * as apiTokens from "../apiTokens.js";
 import type * as codebaseSuggestions from "../codebaseSuggestions.js";
 import type * as crons from "../crons.js";
 import type * as exports from "../exports.js";
+import type * as hermesMappingRuns from "../hermesMappingRuns.js";
 import type * as http from "../http.js";
 import type * as kanban from "../kanban.js";
 import type * as lib_auth from "../lib/auth.js";
@@ -55,6 +56,7 @@ declare const fullApi: ApiFromModules<{
   codebaseSuggestions: typeof codebaseSuggestions;
   crons: typeof crons;
   exports: typeof exports;
+  hermesMappingRuns: typeof hermesMappingRuns;
   http: typeof http;
   kanban: typeof kanban;
   "lib/auth": typeof lib_auth;

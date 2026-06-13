@@ -1,6 +1,12 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 
 import { createLocalAuthStore, type LocalAuthStore, type LocalSession } from './auth-store.js';
+import {
+  heuristicHermesMapper,
+  type HermesMapper,
+  type HermesMappingContext,
+  type HermesMappingSuggestion,
+} from './hermes-mapper.js';
 import { signLocalConvexToken } from './jwt.js';
 
 const DEFAULT_SESSION_DAYS = 30;
@@ -17,6 +23,8 @@ export interface VpsApiOptions {
   jwtPrivateKey: string;
   jwtIssuer: string;
   jwtAudience: string;
+  hermesMapper?: HermesMapper;
+  fetchImpl?: typeof fetch;
 }
 
 interface SessionBody {
@@ -26,6 +34,13 @@ interface SessionBody {
 interface CredentialsBody {
   email?: string;
   password?: string;
+}
+
+interface HermesMappingStartBody {
+  runId: string;
+  submitToken: string;
+  convexSiteUrl: string;
+  context: HermesMappingContext;
 }
 
 function publicUser(session: LocalSession): PublicUser {
@@ -67,6 +82,72 @@ function credentialsFromBody(body: Record<string, unknown>): Required<Credential
 
 function sessionTokenFromBody(body: SessionBody): string | null {
   return typeof body.sessionToken === 'string' && body.sessionToken ? body.sessionToken : null;
+}
+
+function hermesMappingStartFromBody(body: Record<string, unknown>): HermesMappingStartBody {
+  const runId = typeof body.runId === 'string' ? body.runId : '';
+  const submitToken = typeof body.submitToken === 'string' ? body.submitToken : '';
+  const convexSiteUrl = typeof body.convexSiteUrl === 'string' ? body.convexSiteUrl : '';
+  const context = body.context;
+  if (!runId || !submitToken || !convexSiteUrl) {
+    throw new Error('runId, submitToken, and convexSiteUrl are required');
+  }
+  if (!context || typeof context !== 'object') {
+    throw new Error('Hermes mapping context is required');
+  }
+  return { runId, submitToken, convexSiteUrl, context: context as HermesMappingContext };
+}
+
+function safeErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message
+    .replace(/archv_[A-Za-z0-9_-]+/g, '[redacted-token]')
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [redacted]')
+    .slice(0, 1000);
+}
+
+async function submitMappingRunCompletion(
+  fetchImpl: typeof fetch,
+  job: HermesMappingStartBody,
+  payload: {
+    status: 'completed' | 'failed';
+    errorMessage?: string;
+    suggestions?: HermesMappingSuggestion[];
+  },
+) {
+  const url = new URL('/api/hermes/mapping-runs/complete', job.convexSiteUrl);
+  const response = await fetchImpl(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      runId: job.runId,
+      submitToken: job.submitToken,
+      status: payload.status,
+      errorMessage: payload.errorMessage,
+      suggestions: payload.suggestions ?? [],
+    }),
+  });
+  if (!response.ok) throw new Error(`Convex mapping submit failed (${response.status})`);
+}
+
+export async function runHermesMappingJob(options: VpsApiOptions, job: HermesMappingStartBody) {
+  const mapper = options.hermesMapper ?? heuristicHermesMapper;
+  const fetchImpl = options.fetchImpl ?? fetch;
+  try {
+    const result = await mapper(job.context);
+    if (!Array.isArray(result.suggestions)) {
+      throw new Error('Hermes mapper returned malformed suggestions');
+    }
+    await submitMappingRunCompletion(fetchImpl, job, {
+      status: 'completed',
+      suggestions: result.suggestions,
+    });
+  } catch (error) {
+    await submitMappingRunCompletion(fetchImpl, job, {
+      status: 'failed',
+      errorMessage: safeErrorMessage(error),
+    }).catch(() => undefined);
+  }
 }
 
 function resolveStoreFromEnv(): LocalAuthStore {
@@ -188,6 +269,13 @@ export function createVpsApiHandler(options: VpsApiOptions) {
             audience: options.jwtAudience,
           }),
         });
+        return;
+      }
+
+      if (url.pathname === '/hermes/mapping-runs/start') {
+        const job = hermesMappingStartFromBody(body);
+        void runHermesMappingJob(options, job);
+        sendJson(res, 202, { ok: true, status: 'queued', runId: job.runId });
         return;
       }
 

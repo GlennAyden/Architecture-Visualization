@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
 import { walkSourceFiles } from './fs-walk.js';
-import { buildOrphansPayload, computeOrphans } from './scan-orphans.js';
+import { buildFileFacts, buildOrphansPayload, computeOrphans } from './scan-orphans.js';
 
 const TMPS: string[] = [];
 afterAll(() => {
@@ -74,5 +74,48 @@ describe('buildOrphansPayload', () => {
     expect(payload.truncated).toBe(true);
     expect(payload.repoFiles.length).toBeLessThanOrEqual(8_000);
     expect(payload.orphans.length).toBeLessThanOrEqual(5_000);
+  });
+});
+
+describe('buildFileFacts', () => {
+  test('classifies source files and extracts lightweight evidence for Hermes', () => {
+    const root = mkdtempSync(join(tmpdir(), 'arch-viz-facts-'));
+    TMPS.push(root);
+    const write = (p: string, body: string) => {
+      const abs = join(root, p);
+      mkdirSync(join(abs, '..'), { recursive: true });
+      writeFileSync(abs, body);
+    };
+
+    write(
+      'apps/web/app/api/auth/login/route.ts',
+      "import { x } from '@/lib/x'; export async function POST() {}",
+    );
+    write('apps/web/components/button.tsx', 'export const Button = () => null;');
+    write('convex/_generated/api.js', 'export default {};');
+    write('convex/codebaseSuggestions.test.ts', 'export const testOnly = true;');
+    write('eslint.config.mjs', 'export default [];');
+
+    const facts = buildFileFacts(root, [
+      'apps/web/app/api/auth/login/route.ts',
+      'apps/web/components/button.tsx',
+      'convex/_generated/api.js',
+      'convex/codebaseSuggestions.test.ts',
+      'eslint.config.mjs',
+    ]);
+
+    expect(facts.map((fact) => [fact.path, fact.kind])).toEqual([
+      ['apps/web/app/api/auth/login/route.ts', 'api'],
+      ['apps/web/components/button.tsx', 'component'],
+      ['convex/_generated/api.js', 'generated'],
+      ['convex/codebaseSuggestions.test.ts', 'test'],
+      ['eslint.config.mjs', 'config'],
+    ]);
+    expect(facts[0]).toMatchObject({
+      imports: ['@/lib/x'],
+      exports: ['POST'],
+      routeHint: '/api/auth/login',
+      apiHint: '/api/auth/login',
+    });
   });
 });
