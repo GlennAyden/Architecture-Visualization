@@ -1,9 +1,5 @@
-import { SignUp } from '@clerk/nextjs';
+import { redirect } from 'next/navigation';
 
-export default function Page() {
-  return (
-    <main className="flex min-h-screen items-center justify-center p-8">
-      <SignUp />
-    </main>
-  );
+export default function SignUpPage() {
+  redirect('/setup');
 }

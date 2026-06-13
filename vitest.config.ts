@@ -7,6 +7,8 @@ export default defineConfig({
     include: [
       'convex/**/*.test.ts',
       'packages/**/*.test.ts',
+      'apps/web/**/*.test.ts',
+      'apps/vps-api/**/*.test.ts',
       'apps/mcp-server/**/*.test.ts',
     ],
   },

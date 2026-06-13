@@ -7,18 +7,45 @@ import schema from './schema';
 // modules explicitly via Vite's `import.meta.glob`. Must include _generated.
 const modules = import.meta.glob('./**/*.{ts,js}');
 
-const fakeIdentity = (subject: string, email: string) => ({
-  subject,
-  email,
-  tokenIdentifier: `https://test.clerk.accounts.dev|${subject}`,
-  issuer: 'https://test.clerk.accounts.dev',
-});
+function localSubject(subject: string) {
+  return subject.startsWith('local:') ? subject : `local:${subject}`;
+}
+
+const fakeIdentity = (subject: string, email: string) => {
+  const subjectId = localSubject(subject);
+  return {
+    subject: subjectId,
+    email,
+    tokenIdentifier: `https://archviz-auth.test|${subjectId}`,
+    issuer: 'https://archviz-auth.test',
+  };
+};
 
 describe('projects', () => {
   test('list returns empty array for unauthenticated user', async () => {
     const t = convexTest(schema, modules);
     const result = await t.query(api.projects.list);
     expect(result).toEqual([]);
+  });
+
+  test('local auth reuses an existing profile with the same email', async () => {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      const userId = await ctx.db.insert('profiles', {
+        clerkId: 'old-provider-subject',
+        email: 'glenn@example.com',
+      });
+      await ctx.db.insert('projects', {
+        userId,
+        name: 'Existing canvas',
+        slug: 'existing-canvas',
+      });
+    });
+
+    const asLocalUser = t.withIdentity(fakeIdentity('local:local_user_1', 'glenn@example.com'));
+    const list = await asLocalUser.query(api.projects.list);
+
+    expect(list.map((project) => project.name)).toEqual(['Existing canvas']);
   });
 });
 

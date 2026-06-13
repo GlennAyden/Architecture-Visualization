@@ -4,12 +4,12 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { useQuery } from 'convex/react';
 import { ArrowLeft, KeyRound } from 'lucide-react';
-import { UserButton } from '@clerk/nextjs';
 
 import { api } from '../../../../../convex/_generated/api';
 import type { Id } from '../../../../../convex/_generated/dataModel';
 import { Button } from '@/components/ui/button';
 import { BrandMark } from '@/components/brand-mark';
+import { LocalUserMenu } from '@/components/auth/local-user-menu';
 import { CreateTokenDialog } from '@/components/tokens/create-token-dialog';
 import { TokenRevealDialog } from '@/components/tokens/token-reveal-dialog';
 import { RevokeTokenDialog } from '@/components/tokens/revoke-token-dialog';
@@ -27,7 +27,7 @@ export default function TokensPage() {
       <header className="sticky top-0 z-10 border-b border-border/60 bg-background/80 backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-6">
           <BrandMark href="/projects" />
-          <UserButton />
+          <LocalUserMenu />
         </div>
       </header>
 
@@ -49,9 +49,7 @@ export default function TokensPage() {
               token is scoped to one project.
             </p>
           </div>
-          <CreateTokenDialog
-            onCreated={(rawToken, name) => setReveal({ rawToken, name })}
-          />
+          <CreateTokenDialog onCreated={(rawToken, name) => setReveal({ rawToken, name })} />
         </div>
 
         <div className="mb-6 flex items-center gap-2">
@@ -109,8 +107,7 @@ export default function TokensPage() {
                     <span>Project: {t.projectName}</span>
                     <span aria-hidden>·</span>
                     <span>
-                      Last used:{' '}
-                      {t.lastUsedAt ? new Date(t.lastUsedAt).toLocaleString() : 'never'}
+                      Last used: {t.lastUsedAt ? new Date(t.lastUsedAt).toLocaleString() : 'never'}
                     </span>
                   </div>
                 </div>

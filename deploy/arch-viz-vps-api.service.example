@@ -1,0 +1,17 @@
+[Unit]
+Description=Architecture Visualization VPS Auth API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/architecture-visualization
+EnvironmentFile=/etc/arch-viz/vps-api.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/corepack pnpm --filter @arch-viz/vps-api start
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

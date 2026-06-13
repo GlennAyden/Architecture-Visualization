@@ -5,7 +5,9 @@ export default defineSchema({
   profiles: defineTable({
     clerkId: v.string(),
     email: v.string(),
-  }).index('by_clerk', ['clerkId']),
+  })
+    .index('by_clerk', ['clerkId'])
+    .index('by_email', ['email']),
 
   projects: defineTable({
     userId: v.id('profiles'),

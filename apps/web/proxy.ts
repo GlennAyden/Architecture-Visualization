@@ -1,18 +1,22 @@
-import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
-import { NextFetchEvent, NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
-const isPublicRoute = createRouteMatcher(['/sign-in(.*)', '/sign-up(.*)', '/share(.*)']);
-const clerkDisabled = process.env.NEXT_PUBLIC_DISABLE_CLERK === 'true';
+const publicPrefixes = ['/sign-in', '/sign-up', '/setup', '/share', '/api/auth'];
 
-const authProxy = clerkMiddleware(async (auth, req) => {
-  if (!isPublicRoute(req)) {
-    await auth.protect();
-  }
-});
+function isPublicPath(pathname: string): boolean {
+  return publicPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
 
-export default function proxy(req: NextRequest, event: NextFetchEvent) {
-  if (clerkDisabled) return NextResponse.next();
-  return authProxy(req, event);
+export default function proxy(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+  if (isPublicPath(pathname)) return NextResponse.next();
+
+  const cookieName = process.env.AUTH_COOKIE_NAME ?? 'arch_viz_session';
+  if (req.cookies.has(cookieName)) return NextResponse.next();
+
+  const url = req.nextUrl.clone();
+  url.pathname = '/sign-in';
+  url.search = '';
+  return NextResponse.redirect(url);
 }
 
 export const config = {

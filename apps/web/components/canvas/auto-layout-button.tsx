@@ -16,12 +16,9 @@ interface Props {
 }
 
 // Inter-mutation delay. Spreads the burst that the previous Promise.all
-// implementation would fire at the server in a single tick. With Clerk
-// running on dev keys (strict rate limits on identity refresh), bursting
-// 24+ authenticated mutations in parallel reliably tripped the throttle
-// and silently aborted the whole batch. Sequencing them at 60ms apart
-// gives Clerk's JWT cache room to breathe while still finishing a full
-// re-layout in well under 2 seconds for the projects we care about.
+// implementation would fire at the server in a single tick. Sequencing
+// authenticated mutations keeps token refresh and Convex writes stable while
+// still finishing a full re-layout quickly for the projects we care about.
 const DISPATCH_INTERVAL_MS = 60;
 const STATUS_FADE_MS = 4000;
 

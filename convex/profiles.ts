@@ -1,14 +1,14 @@
 import { query } from './_generated/server';
+import { getProfile } from './lib/auth';
 
 export const getMe = query({
   args: {},
   handler: async (ctx) => {
+    const profile = await getProfile(ctx);
+    if (profile) return profile;
+
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return null;
-    const existing = await ctx.db
-      .query('profiles')
-      .withIndex('by_clerk', (q) => q.eq('clerkId', identity.subject))
-      .unique();
-    return existing ?? { clerkId: identity.subject, email: identity.email ?? '' };
+    return { clerkId: identity.subject, email: identity.email ?? '' };
   },
 });

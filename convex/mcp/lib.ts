@@ -19,7 +19,7 @@ export class NotFoundError extends Error {
 
 /**
  * Internal-handler counterpart of `requireProjectAccess`: takes an explicit
- * userId (resolved by the HTTP auth layer) instead of reading Clerk identity.
+ * userId (resolved by the HTTP auth layer) instead of reading browser identity.
  */
 export async function requireOwnership(
   ctx: AnyCtx,

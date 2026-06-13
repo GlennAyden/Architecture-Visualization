@@ -2,7 +2,7 @@
 
 A personal living architecture canvas that mirrors the structure of your project and stays in sync with AI-driven development. Each node represents a page or feature and carries a description, linked files, a kanban (todo / doing / done), and an activity log. AI coding agents (Claude Code, Codex, Cursor) update nodes over MCP as they work, so the canvas reflects reality without manual upkeep.
 
-> **Status:** Active MVP. Core canvas, MCP sync, scan tooling, share links, collaborator invites, and local agent hooks are implemented. Production deploy (Vercel + Convex prod) is deferred.
+> **Status:** Active MVP. Core canvas, MCP sync, scan tooling, share links, collaborator invites, Hermes suggestions, and local agent hooks are implemented. The current production target is hybrid: Vercel frontend, VPS auth backend, and Convex app data.
 
 ## What's working
 
@@ -20,12 +20,13 @@ A personal living architecture canvas that mirrors the structure of your project
 
 ## Stack
 
-TypeScript · Next.js 16 (App Router) · React 19 · Tailwind CSS 4 + shadcn/ui (zinc + cyan theme) · React Flow · Convex · Clerk · `@modelcontextprotocol/sdk` · pnpm workspaces.
+TypeScript · Next.js 16 (App Router) · React 19 · Tailwind CSS 4 + shadcn/ui (zinc + cyan theme) · React Flow · Convex · VPS SQLite auth · `@modelcontextprotocol/sdk` · pnpm workspaces.
 
 ## Repository layout
 
 ```
 apps/web          Next.js app (UI + API routes)
+apps/vps-api      VPS backend for SQLite auth/session storage and Convex JWT signing
 apps/mcp-server   Stdio MCP server (Node.js)
 packages/shared   Zod schemas, shared types
 convex/           Schema, queries, mutations, HTTP actions; MCP internal handlers in convex/mcp/
@@ -37,7 +38,6 @@ docs/             superpowers/specs/ (design spec) and superpowers/plans/ (phase
 - Node.js ≥ 20
 - pnpm ≥ 10
 - A Convex account (https://convex.dev)
-- A Clerk account (https://clerk.com)
 
 ## Local development
 
@@ -47,43 +47,63 @@ docs/             superpowers/specs/ (design spec) and superpowers/plans/ (phase
    pnpm install
    ```
 
-2. Configure environment. Create `apps/web/.env.local` with:
+2. Generate auth keys for the VPS backend:
+
+   ```bash
+   pnpm --filter @arch-viz/vps-api auth:keys
+   ```
+
+   Copy the `AUTH_*` values into the VPS backend env, then run the printed
+   `convex env set` commands so Convex trusts tokens from the VPS issuer.
+
+3. Configure the web environment. Create `apps/web/.env.local` with:
 
    ```
    NEXT_PUBLIC_CONVEX_URL=<your Convex deployment URL>
-   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=...
-   CLERK_SECRET_KEY=...
+   ARCHVIZ_AUTH_BACKEND_URL=http://127.0.0.1:8788
+   ARCHVIZ_AUTH_BACKEND_TOKEN=<shared proxy token>
+   AUTH_COOKIE_NAME=arch_viz_session
    ```
 
-   See `apps/web/.env.example` for the full variable list.
+   Create `apps/vps-api/.env.local` or systemd environment on the VPS with:
 
-3. Set the Convex deployment env var (one-time):
-
-   ```bash
-   pnpm exec convex env set CLERK_JWT_ISSUER_DOMAIN "https://<your-instance>.clerk.accounts.dev"
+   ```
+   AUTH_SQLITE_PATH=.data/auth.sqlite
+   AUTH_SESSION_DAYS=30
+   ARCHVIZ_BACKEND_PROXY_TOKEN=<same shared proxy token>
+   AUTH_JWT_ISSUER=http://127.0.0.1:8788
+   AUTH_JWT_AUDIENCE=convex
+   AUTH_JWT_PRIVATE_KEY=...
    ```
 
-4. Run dev servers in two terminals:
+   See `apps/web/.env.example` and `apps/vps-api/.env.example` for the full
+   variable lists.
+
+4. Run dev servers in three terminals:
 
    ```bash
    pnpm exec convex dev   # deploys Convex functions and watches for changes
+   pnpm --filter @arch-viz/vps-api dev
    pnpm dev               # Next.js web app on http://localhost:3000
    ```
 
-5. Open http://localhost:3000.
+5. Open http://localhost:3000. On a fresh VPS SQLite database, the app redirects
+   to `/setup` so you can create the first local admin user through the web
+   proxy.
 
 ## Scripts
 
-| Command                             | What it does                                  |
-| ----------------------------------- | --------------------------------------------- |
-| `pnpm dev`                          | Run the Next.js web app                       |
-| `pnpm test`                         | Run unit / integration tests                  |
-| `pnpm test -- convex/nodes.test.ts` | Run one Vitest file                           |
-| `pnpm --filter @arch-viz/web e2e`   | Run Playwright tests                          |
-| `pnpm --filter arch-viz-mcp build`  | Build the MCP server/CLI package              |
-| `pnpm lint`                         | Run ESLint across the repo with zero warnings |
-| `pnpm typecheck`                    | Run TypeScript across all workspaces          |
-| `pnpm format` / `pnpm format:check` | Apply or verify Prettier formatting           |
+| Command                               | What it does                                  |
+| ------------------------------------- | --------------------------------------------- |
+| `pnpm dev`                            | Run the Next.js web app                       |
+| `pnpm test`                           | Run unit / integration tests                  |
+| `pnpm test -- convex/nodes.test.ts`   | Run one Vitest file                           |
+| `pnpm --filter @arch-viz/vps-api dev` | Run the VPS auth backend on `127.0.0.1:8788`  |
+| `pnpm --filter @arch-viz/web e2e`     | Run Playwright tests                          |
+| `pnpm --filter arch-viz-mcp build`    | Build the MCP server/CLI package              |
+| `pnpm lint`                           | Run ESLint across the repo with zero warnings |
+| `pnpm typecheck`                      | Run TypeScript across all workspaces          |
+| `pnpm format` / `pnpm format:check`   | Apply or verify Prettier formatting           |
 
 ## MCP server
 
@@ -92,6 +112,14 @@ The stdio MCP server is published to npm as [`arch-viz-mcp`](https://www.npmjs.c
 ## Hermes integration
 
 Hermes can push file-to-layer suggestions into the canvas through the MCP HTTP route and `arch-viz-mcp push-suggestions --from-json <file>`. See [`docs/hermes-integration.md`](docs/hermes-integration.md) for the V1 contract, auth header, payload format, auto-apply threshold, and boundaries.
+
+## VPS auth backend
+
+The Vercel app does not open SQLite directly. It proxies `/api/auth/*` requests
+to the VPS backend with `ARCHVIZ_AUTH_BACKEND_URL` and
+`ARCHVIZ_AUTH_BACKEND_TOKEN`; the VPS backend stores sessions in SQLite and
+signs Convex JWTs. A systemd template is available at
+[`deploy/arch-viz-vps-api.service.example`](deploy/arch-viz-vps-api.service.example).
 
 ## Agent hooks
 

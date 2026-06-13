@@ -23,6 +23,10 @@
 # misc
 .DS_Store
 *.pem
+.data/
+*.sqlite
+*.sqlite-*
+local-auth*.key
 
 # debug
 npm-debug.log*
@@ -40,5 +44,5 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# clerk configuration (can include secrets)
+# local auth / external provider configuration (can include secrets)
 /.clerk/

@@ -4,12 +4,12 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { useQuery } from 'convex/react';
 import { ArrowLeft, Link2 } from 'lucide-react';
-import { UserButton } from '@clerk/nextjs';
 
 import { api } from '../../../../../convex/_generated/api';
 import type { Id } from '../../../../../convex/_generated/dataModel';
 import { Button } from '@/components/ui/button';
 import { BrandMark } from '@/components/brand-mark';
+import { LocalUserMenu } from '@/components/auth/local-user-menu';
 import { CreateShareDialog } from '@/components/share/create-share-dialog';
 import { ShareRevealDialog } from '@/components/share/share-reveal-dialog';
 import { RevokeShareDialog } from '@/components/share/revoke-share-dialog';
@@ -79,11 +79,7 @@ function ShareTokensForProject({
               : `${tokens.length} share link${tokens.length === 1 ? '' : 's'}`}
           </div>
         </div>
-        <CreateShareDialog
-          projectId={projectId}
-          projectName={projectName}
-          onCreated={onReveal}
-        />
+        <CreateShareDialog projectId={projectId} projectName={projectName} onCreated={onReveal} />
       </div>
 
       {tokens === undefined && (
@@ -123,11 +119,7 @@ function ShareTokensForProject({
                   </div>
                 </div>
                 {state === 'active' && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onRevoke(t._id, t.name)}
-                  >
+                  <Button variant="outline" size="sm" onClick={() => onRevoke(t._id, t.name)}>
                     Revoke
                   </Button>
                 )}
@@ -155,7 +147,7 @@ export default function SettingsSharePage() {
       <header className="sticky top-0 z-10 border-b border-border/60 bg-background/80 backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-6">
           <BrandMark href="/projects" />
-          <UserButton />
+          <LocalUserMenu />
         </div>
       </header>
 

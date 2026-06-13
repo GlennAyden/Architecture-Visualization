@@ -1,11 +1,6 @@
 import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
-import {
-  UnauthorizedError,
-  getProfile,
-  getRequiredIdentity,
-  requireOwnership,
-} from './lib/auth';
+import { UnauthorizedError, getProfile, requireOwnership } from './lib/auth';
 
 const MAX_MEMBERS_PER_PROJECT = 3;
 
@@ -75,7 +70,7 @@ export const listInvitesForCurrentUser = query({
 /**
  * Owner invites another existing user by email. Pre-conditions:
  *   - caller is the project owner (strict)
- *   - target email matches an existing `profiles` row (Clerk-registered)
+ *   - target email matches an existing local-auth `profiles` row
  *   - target isn't the owner themselves
  *   - no existing membership row for (projectId, userId)
  *   - total member rows for this project is below the cap (3)
@@ -97,7 +92,7 @@ export const invite = mutation({
 
     const target = await ctx.db
       .query('profiles')
-      .filter((q) => q.eq(q.field('email'), trimmedEmail))
+      .withIndex('by_email', (q) => q.eq('email', trimmedEmail))
       .first();
     if (!target) {
       throw new Error(
@@ -110,9 +105,7 @@ export const invite = mutation({
 
     const existing = await ctx.db
       .query('projectMembers')
-      .withIndex('by_project_user', (q) =>
-        q.eq('projectId', projectId).eq('userId', target._id),
-      )
+      .withIndex('by_project_user', (q) => q.eq('projectId', projectId).eq('userId', target._id))
       .unique();
     if (existing) {
       throw new Error('That user is already invited or a member of this project.');
@@ -143,14 +136,10 @@ export const invite = mutation({
 export const accept = mutation({
   args: { id: v.id('projectMembers') },
   handler: async (ctx, { id }) => {
-    const identity = await getRequiredIdentity(ctx);
+    const profile = await getProfile(ctx);
     const row = await ctx.db.get(id);
     if (!row) throw new Error('Invite not found');
 
-    const profile = await ctx.db
-      .query('profiles')
-      .withIndex('by_clerk', (q) => q.eq('clerkId', identity.subject))
-      .unique();
     if (!profile || row.userId !== profile._id) {
       throw new UnauthorizedError('Unauthorized: invite is for a different user');
     }
@@ -183,13 +172,9 @@ export const revoke = mutation({
 export const decline = mutation({
   args: { id: v.id('projectMembers') },
   handler: async (ctx, { id }) => {
-    const identity = await getRequiredIdentity(ctx);
+    const profile = await getProfile(ctx);
     const row = await ctx.db.get(id);
     if (!row) return;
-    const profile = await ctx.db
-      .query('profiles')
-      .withIndex('by_clerk', (q) => q.eq('clerkId', identity.subject))
-      .unique();
     if (!profile || row.userId !== profile._id) {
       throw new UnauthorizedError('Unauthorized: invite is for a different user');
     }

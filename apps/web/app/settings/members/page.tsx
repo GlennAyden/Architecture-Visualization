@@ -4,12 +4,12 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { useQuery } from 'convex/react';
 import { ArrowLeft, Users } from 'lucide-react';
-import { UserButton } from '@clerk/nextjs';
 
 import { api } from '../../../../../convex/_generated/api';
 import type { Id } from '../../../../../convex/_generated/dataModel';
 import { Button } from '@/components/ui/button';
 import { BrandMark } from '@/components/brand-mark';
+import { LocalUserMenu } from '@/components/auth/local-user-menu';
 import { InviteMemberDialog } from '@/components/members/invite-member-dialog';
 import { RevokeMemberDialog } from '@/components/members/revoke-member-dialog';
 
@@ -56,11 +56,7 @@ function MembersForProject({
 }: {
   projectId: Id<'projects'>;
   projectName: string;
-  onRevoke: (
-    id: Id<'projectMembers'>,
-    email: string,
-    accepted: boolean,
-  ) => void;
+  onRevoke: (id: Id<'projectMembers'>, email: string, accepted: boolean) => void;
 }) {
   const members = useQuery(api.projectMembers.listByProject, { projectId });
   const count = members?.length ?? 0;
@@ -75,11 +71,7 @@ function MembersForProject({
             {members === undefined ? 'Loading…' : `${count} / ${MAX_MEMBERS} members`}
           </div>
         </div>
-        <InviteMemberDialog
-          projectId={projectId}
-          projectName={projectName}
-          disabled={atCap}
-        />
+        <InviteMemberDialog projectId={projectId} projectName={projectName} disabled={atCap} />
       </div>
 
       {members === undefined && (
@@ -145,7 +137,7 @@ export default function SettingsMembersPage() {
       <header className="sticky top-0 z-10 border-b border-border/60 bg-background/80 backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-6">
           <BrandMark href="/projects" />
-          <UserButton />
+          <LocalUserMenu />
         </div>
       </header>
 

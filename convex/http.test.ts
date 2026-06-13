@@ -5,12 +5,19 @@ import schema from './schema';
 
 const modules = import.meta.glob('./**/*.{ts,js}');
 
-const fakeIdentity = (subject: string, email: string) => ({
-  subject,
-  email,
-  tokenIdentifier: `https://test.clerk.accounts.dev|${subject}`,
-  issuer: 'https://test.clerk.accounts.dev',
-});
+function localSubject(subject: string) {
+  return subject.startsWith('local:') ? subject : `local:${subject}`;
+}
+
+const fakeIdentity = (subject: string, email: string) => {
+  const subjectId = localSubject(subject);
+  return {
+    subject: subjectId,
+    email,
+    tokenIdentifier: `https://archviz-auth.test|${subjectId}`,
+    issuer: 'https://archviz-auth.test',
+  };
+};
 
 async function seedTokenForUser(t: ReturnType<typeof convexTest>) {
   const asUser = t.withIdentity(fakeIdentity('user_a', 'a@example.com'));

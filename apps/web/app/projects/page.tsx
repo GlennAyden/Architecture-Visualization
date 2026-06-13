@@ -4,12 +4,12 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { useQuery } from 'convex/react';
 import { MoreVertical, ArrowUpRight, FileQuestion, KeyRound, Settings } from 'lucide-react';
-import { UserButton } from '@clerk/nextjs';
 
 import { api } from '../../../../convex/_generated/api';
 import type { Doc } from '../../../../convex/_generated/dataModel';
 import { Button } from '@/components/ui/button';
 import { BrandMark } from '@/components/brand-mark';
+import { LocalUserMenu } from '@/components/auth/local-user-menu';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -53,7 +53,7 @@ export default function ProjectsPage() {
                 </Link>
               }
             />
-            <UserButton />
+            <LocalUserMenu />
           </div>
         </div>
       </header>

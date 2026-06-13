@@ -2,22 +2,23 @@ import { Doc, Id } from '../_generated/dataModel';
 import { MutationCtx, QueryCtx } from '../_generated/server';
 
 type AnyCtx = QueryCtx | MutationCtx;
+type AuthIdentity = { subject: string; email?: string | null };
 
-const clerkDisabled = process.env.CONVEX_DISABLE_CLERK_AUTH === 'true';
+async function findProfileForIdentity(
+  ctx: AnyCtx,
+  identity: AuthIdentity,
+): Promise<Doc<'profiles'> | null> {
+  const exact = await ctx.db
+    .query('profiles')
+    .withIndex('by_clerk', (q) => q.eq('clerkId', identity.subject))
+    .unique();
+  if (exact) return exact;
 
-async function getDebugProfile(ctx: AnyCtx): Promise<Doc<'profiles'> | null> {
-  if (!clerkDisabled) return null;
-
-  const debugEmail = process.env.CONVEX_DEBUG_PROFILE_EMAIL;
-  if (debugEmail) {
-    const profile = await ctx.db
-      .query('profiles')
-      .filter((q) => q.eq(q.field('email'), debugEmail))
-      .first();
-    if (profile) return profile;
-  }
-
-  return await ctx.db.query('profiles').order('asc').first();
+  if (!identity.email) return null;
+  return await ctx.db
+    .query('profiles')
+    .withIndex('by_email', (q) => q.eq('email', identity.email ?? ''))
+    .first();
 }
 
 export class UnauthorizedError extends Error {
@@ -35,20 +36,15 @@ export class NotFoundError extends Error {
 }
 
 /**
- * Returns the Clerk identity. Throws UnauthorizedError if no signed-in user.
+ * Returns the local JWT identity. Throws UnauthorizedError if no signed-in user.
  */
 export async function getRequiredIdentity(ctx: AnyCtx) {
-  const debugProfile = await getDebugProfile(ctx);
-  if (debugProfile) {
-    return {
-      subject: debugProfile.clerkId,
-      email: debugProfile.email,
-    };
-  }
-
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) throw new UnauthorizedError();
-  return identity;
+  return {
+    subject: identity.subject,
+    email: identity.email,
+  };
 }
 
 /**
@@ -57,11 +53,18 @@ export async function getRequiredIdentity(ctx: AnyCtx) {
  */
 export async function getOrCreateProfile(ctx: MutationCtx): Promise<Doc<'profiles'>> {
   const identity = await getRequiredIdentity(ctx);
-  const existing = await ctx.db
-    .query('profiles')
-    .withIndex('by_clerk', (q) => q.eq('clerkId', identity.subject))
-    .unique();
-  if (existing) return existing;
+  const existing = await findProfileForIdentity(ctx, identity);
+  if (existing) {
+    if (existing.clerkId !== identity.subject) {
+      await ctx.db.patch(existing._id, {
+        clerkId: identity.subject,
+        email: identity.email ?? existing.email,
+      });
+      const patched = await ctx.db.get(existing._id);
+      if (patched) return patched;
+    }
+    return existing;
+  }
   const id = await ctx.db.insert('profiles', {
     clerkId: identity.subject,
     email: identity.email ?? '',
@@ -77,15 +80,9 @@ export async function getOrCreateProfile(ctx: MutationCtx): Promise<Doc<'profile
  * `requireProjectAccess` can use it from mutations too.
  */
 export async function getProfile(ctx: AnyCtx): Promise<Doc<'profiles'> | null> {
-  const debugProfile = await getDebugProfile(ctx);
-  if (debugProfile) return debugProfile;
-
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) return null;
-  return ctx.db
-    .query('profiles')
-    .withIndex('by_clerk', (q) => q.eq('clerkId', identity.subject))
-    .unique();
+  return await findProfileForIdentity(ctx, identity);
 }
 
 /**
@@ -110,9 +107,7 @@ export async function requireProjectAccess(
 
   const membership = await ctx.db
     .query('projectMembers')
-    .withIndex('by_project_user', (q) =>
-      q.eq('projectId', projectId).eq('userId', profile._id),
-    )
+    .withIndex('by_project_user', (q) => q.eq('projectId', projectId).eq('userId', profile._id))
     .unique();
   if (membership && membership.acceptedAt) return project;
 
@@ -160,9 +155,7 @@ export async function getProjectIfAccessible(
   if (project.userId === profile._id) return project;
   const membership = await ctx.db
     .query('projectMembers')
-    .withIndex('by_project_user', (q) =>
-      q.eq('projectId', projectId).eq('userId', profile._id),
-    )
+    .withIndex('by_project_user', (q) => q.eq('projectId', projectId).eq('userId', profile._id))
     .unique();
   if (membership && membership.acceptedAt) return project;
   return null;

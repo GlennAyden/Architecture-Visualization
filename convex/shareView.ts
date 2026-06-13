@@ -9,10 +9,10 @@ import { hashToken } from './lib/tokens';
  * NOTHING else from the project's private surface area:
  *
  *   - No `apiTokens`, `shareTokens`, or `projectMembers` rows surface.
- *   - The owner's email / Clerk identity is never returned.
+ *   - The owner's email / auth identity is never returned.
  *   - Internal hashes (`tokenHash`) never appear in the response.
  *
- * No Clerk auth required — the share token itself is the only credential.
+ * No browser auth required — the share token itself is the only credential.
  * A null return means "token unknown, revoked, or expired"; the UI
  * surfaces a single generic "share link not available" page for all of
  * those so a probe attack can't tell them apart.

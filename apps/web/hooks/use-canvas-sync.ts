@@ -268,7 +268,7 @@ interface SyncResult {
 }
 
 // `nodes.listByProject` and `nodeEdges.listByProject` are lenient — they
-// return `[]` while Clerk's JWT is mid-refresh. Without a grace period,
+// return `[]` while the auth token is mid-refresh. Without a grace period,
 // the empty-set replacement below would wipe the canvas. Defer the wipe
 // so an auth-recovered tick can restore content first.
 const SUSPICIOUS_EMPTY_GRACE_MS = 1500;
