@@ -92,6 +92,17 @@ describe('buildFileFacts', () => {
       "import { x } from '@/lib/x'; export async function POST() {}",
     );
     write('apps/web/components/button.tsx', 'export const Button = () => null;');
+    write(
+      'tsconfig.json',
+      JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { '@/*': ['src/*'] } } }),
+    );
+    write('src/lib/x.ts', 'export const x = true;');
+    write(
+      'src/app/api/billing/route.ts',
+      "import { x } from '@/lib/x'; export async function POST() {}",
+    );
+    write('src/features/admin/users/page.tsx', 'export default function UsersPage() { return null; }');
+    write('src/server/jobs/heartbeat.ts', 'export async function heartbeat() {}');
     write('convex/_generated/api.js', 'export default {};');
     write('convex/codebaseSuggestions.test.ts', 'export const testOnly = true;');
     write('eslint.config.mjs', 'export default [];');
@@ -99,6 +110,9 @@ describe('buildFileFacts', () => {
     const facts = buildFileFacts(root, [
       'apps/web/app/api/auth/login/route.ts',
       'apps/web/components/button.tsx',
+      'src/app/api/billing/route.ts',
+      'src/features/admin/users/page.tsx',
+      'src/server/jobs/heartbeat.ts',
       'convex/_generated/api.js',
       'convex/codebaseSuggestions.test.ts',
       'eslint.config.mjs',
@@ -107,6 +121,9 @@ describe('buildFileFacts', () => {
     expect(facts.map((fact) => [fact.path, fact.kind])).toEqual([
       ['apps/web/app/api/auth/login/route.ts', 'api'],
       ['apps/web/components/button.tsx', 'component'],
+      ['src/app/api/billing/route.ts', 'api'],
+      ['src/features/admin/users/page.tsx', 'component'],
+      ['src/server/jobs/heartbeat.ts', 'api'],
       ['convex/_generated/api.js', 'generated'],
       ['convex/codebaseSuggestions.test.ts', 'test'],
       ['eslint.config.mjs', 'config'],
@@ -119,7 +136,23 @@ describe('buildFileFacts', () => {
       featureHint: 'login',
       pathGroup: 'web-api',
     });
+    expect(facts[2]).toMatchObject({
+      imports: ['@/lib/x'],
+      resolvedImports: ['src/lib/x.ts'],
+      routeHint: '/api/billing',
+      apiHint: '/api/billing',
+      featureHint: 'billing',
+      pathGroup: 'web-api',
+    });
     expect(facts[3]).toMatchObject({
+      featureHint: 'admin',
+      pathGroup: 'features/admin',
+    });
+    expect(facts[4]).toMatchObject({
+      featureHint: 'jobs',
+      pathGroup: 'server',
+    });
+    expect(facts[6]).toMatchObject({
       testTargetHint: 'convex/codebaseSuggestions.ts',
       pathGroup: 'convex',
     });

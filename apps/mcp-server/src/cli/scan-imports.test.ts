@@ -9,6 +9,7 @@ import {
   parseScanImportsArgs,
   resolveLocalImport,
 } from './scan-imports.js';
+import { createImportResolver } from './import-resolver.js';
 
 const TMPS: string[] = [];
 afterAll(() => {
@@ -106,6 +107,24 @@ describe('resolveLocalImport', () => {
     const repo = makeRepo({ 'src/x.ts': '' });
     const importer = resolve(repo, 'src/x.ts');
     expect(resolveLocalImport(importer, '../../sibling', repo)).toBeNull();
+  });
+
+  test('resolves tsconfig path aliases such as @/* into repo files', () => {
+    // WHY: real Next.js repos commonly import through `@/`. If scan-imports
+    // treats that as an npm package, dependency edges vanish and users need a
+    // manual alias-aware pass outside the official scanner.
+    const root = makeRepo({
+      'tsconfig.json': JSON.stringify({
+        compilerOptions: { baseUrl: '.', paths: { '@/*': ['src/*'] } },
+      }),
+      'src/app/page.tsx': "import { helper } from '@/lib/helper';",
+      'src/lib/helper.ts': 'export const helper = true;',
+    });
+    const importer = resolve(root, 'src/app/page.tsx');
+    const resolver = createImportResolver(root);
+
+    expect(isLocalImport('@/lib/helper', resolver)).toBe(true);
+    expect(resolveLocalImport(importer, '@/lib/helper', root)).toBe('src/lib/helper.ts');
   });
 });
 

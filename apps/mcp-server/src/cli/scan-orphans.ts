@@ -1,7 +1,8 @@
 import { ConvexMcpClient } from '../client.js';
 import { loadConfig } from '../config.js';
 import { walkSourceFiles } from './fs-walk.js';
-import { collectLinkedFiles } from './scan-imports.js';
+import { createImportResolver } from './import-resolver.js';
+import { collectLinkedFiles, extractImportSpecifiers } from './scan-imports.js';
 import { progress, summary } from './output.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -21,6 +22,7 @@ export interface ScanFileFact {
   path: string;
   kind: ScanFileKind;
   imports: string[];
+  resolvedImports?: string[];
   exports: string[];
   routeHint?: string;
   apiHint?: string;
@@ -118,9 +120,16 @@ function uniqueCapped(values: Iterable<string>, cap: number): string[] {
 function classifyFile(path: string): ScanFileKind {
   const lower = path.toLowerCase();
   if (lower.includes('/_generated/') || lower.includes('\\_generated\\')) return 'generated';
-  if (/\.(test|spec)\.[cm]?[tj]sx?$/.test(lower) || lower.includes('/tests/')) return 'test';
+  if (
+    /\.(test|spec)\.[cm]?[tj]sx?$/.test(lower) ||
+    lower.includes('/tests/') ||
+    lower.includes('/__tests__/')
+  ) {
+    return 'test';
+  }
   if (
     /(^|\/)(eslint|vitest|next|postcss|tailwind|tsconfig|playwright)\.config\./.test(lower) ||
+    /(^|\/)(tsconfig|jsconfig)\.json$/.test(lower) ||
     lower.endsWith('package.json')
   ) {
     return 'config';
@@ -128,15 +137,48 @@ function classifyFile(path: string): ScanFileKind {
   if (lower.startsWith('convex/')) return 'convex';
   if (lower.startsWith('apps/mcp-server/')) return 'mcp';
   if (lower.includes('/scripts/')) return 'script';
-  if (lower.startsWith('apps/web/app/api/')) return 'api';
-  if (lower.startsWith('apps/web/components/')) return 'component';
+  if (
+    lower.startsWith('apps/web/app/api/') ||
+    lower.startsWith('src/app/api/') ||
+    lower.startsWith('src/pages/api/') ||
+    lower.startsWith('pages/api/')
+  ) {
+    return 'api';
+  }
+  if (
+    lower.startsWith('apps/web/components/') ||
+    lower.startsWith('src/components/') ||
+    lower.startsWith('components/') ||
+    lower.includes('/components/') ||
+    lower.startsWith('src/features/') ||
+    lower.startsWith('features/') ||
+    /(^|\/)(page|layout|template)\.[cm]?[tj]sx?$/.test(lower)
+  ) {
+    return 'component';
+  }
+  if (lower.startsWith('src/server/') || lower.startsWith('server/')) return 'api';
   return 'unknown';
 }
 
 function routeHintFor(path: string): string | undefined {
-  const routeMatch = path.match(/^apps\/web\/app\/(.+)\/(?:page|route)\.[cm]?[tj]sx?$/);
+  const normalized = path.replace(/\\/g, '/');
+  if (
+    /^(?:apps\/web\/)?(?:src\/)?app\/(?:page|route)\.[cm]?[tj]sx?$/.test(normalized)
+  ) {
+    return '/';
+  }
+  const routeMatch =
+    normalized.match(/^apps\/web\/app\/(.+)\/(?:page|route)\.[cm]?[tj]sx?$/) ??
+    normalized.match(/^apps\/web\/src\/app\/(.+)\/(?:page|route)\.[cm]?[tj]sx?$/) ??
+    normalized.match(/^src\/app\/(.+)\/(?:page|route)\.[cm]?[tj]sx?$/) ??
+    normalized.match(/^app\/(.+)\/(?:page|route)\.[cm]?[tj]sx?$/) ??
+    normalized.match(/^apps\/web\/src\/pages\/(.+)\.[cm]?[tj]sx?$/) ??
+    normalized.match(/^src\/pages\/(.+)\.[cm]?[tj]sx?$/) ??
+    normalized.match(/^pages\/(.+)\.[cm]?[tj]sx?$/);
   if (!routeMatch) return undefined;
   const route = routeMatch[1]!
+    .replace(/^index$/, '')
+    .replace(/\/index$/, '')
     .replace(/\/\[\[\.\.\..+?\]\]/g, '')
     .replace(/\/\(.+?\)/g, '')
     .replace(/\/page$/, '');
@@ -150,8 +192,16 @@ function featureHintFor(path: string): string | undefined {
   const parts = normalized.split('/');
   const componentIndex = parts.findIndex((part) => part === 'components');
   if (componentIndex >= 0 && parts[componentIndex + 1]) return parts[componentIndex + 1];
+  const featuresIndex = parts.findIndex((part) => part === 'features');
+  if (featuresIndex >= 0 && parts[featuresIndex + 1]) return parts[featuresIndex + 1];
   const appIndex = parts.findIndex((part) => part === 'app');
   if (appIndex >= 0 && parts[appIndex + 1]) return parts[appIndex + 1];
+  const pagesIndex = parts.findIndex((part) => part === 'pages');
+  if (pagesIndex >= 0 && parts[pagesIndex + 1]) return parts[pagesIndex + 1];
+  const serverIndex = parts.findIndex((part) => part === 'server');
+  if (serverIndex >= 0 && parts[serverIndex + 1]) return parts[serverIndex + 1];
+  const libIndex = parts.findIndex((part) => part === 'lib');
+  if (libIndex >= 0 && parts[libIndex + 1]) return parts[libIndex + 1];
   const convexIndex = parts.findIndex((part) => part === 'convex');
   if (convexIndex >= 0 && parts[convexIndex + 1]) {
     return parts[convexIndex + 1]!.replace(/\.[^.]+$/, '');
@@ -167,6 +217,15 @@ function pathGroupFor(path: string): string | undefined {
   if (normalized.startsWith('apps/web/app/api/')) return 'web-api';
   if (normalized.startsWith('apps/web/app/')) return 'web-app';
   if (normalized.startsWith('apps/web/components/')) return 'web-components';
+  if (normalized.startsWith('src/app/api/')) return 'web-api';
+  if (normalized.startsWith('src/pages/api/')) return 'web-api';
+  if (normalized.startsWith('src/app/')) return 'web-app';
+  if (normalized.startsWith('src/pages/')) return 'web-pages';
+  if (normalized.startsWith('src/components/')) return 'web-components';
+  if (normalized.startsWith('src/features/') && parts[2]) return `features/${parts[2]}`;
+  if (normalized.startsWith('src/server/')) return 'server';
+  if (normalized.startsWith('src/lib/')) return 'lib';
+  if (normalized.startsWith('src/hooks/')) return 'hooks';
   if (normalized.startsWith('apps/vps-api/')) return 'vps-api';
   if (normalized.startsWith('apps/mcp-server/')) return 'mcp-server';
   if (normalized.startsWith('packages/shared/')) return 'shared-contracts';
@@ -184,6 +243,7 @@ function testTargetHintFor(path: string): string | undefined {
 }
 
 export function buildFileFacts(rootDir: string, files: ReadonlyArray<string>): ScanFileFact[] {
+  const resolver = createImportResolver(rootDir);
   return files.map((path) => {
     let text = '';
     try {
@@ -192,11 +252,25 @@ export function buildFileFacts(rootDir: string, files: ReadonlyArray<string>): S
       // Best-effort: Hermes can still reason from the path and kind.
     }
 
+    let extractedImports: string[];
+    try {
+      extractedImports = extractImportSpecifiers(text, join(rootDir, path));
+    } catch {
+      extractedImports = [];
+    }
     const imports = uniqueCapped(
       [
-        ...text.matchAll(/import(?:\s+type)?[\s\S]*?\sfrom\s+['"]([^'"]+)['"]/g),
-        ...text.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g),
-      ].map((match) => match[1] ?? ''),
+        ...extractedImports,
+        ...[...text.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map(
+          (match) => match[1] ?? '',
+        ),
+      ],
+      20,
+    );
+    const resolvedImports = uniqueCapped(
+      imports
+        .map((spec) => (resolver.isLocal(spec) ? resolver.resolve(join(rootDir, path), spec) : null))
+        .filter((value): value is string => typeof value === 'string' && value !== path),
       20,
     );
     const namedExports = [
@@ -211,6 +285,7 @@ export function buildFileFacts(rootDir: string, files: ReadonlyArray<string>): S
     const routeHint = routeHintFor(path);
     const kind = classifyFile(path);
     const fact: ScanFileFact = { path, kind, imports, exports };
+    if (resolvedImports.length > 0) fact.resolvedImports = resolvedImports;
     const featureHint = featureHintFor(path);
     const pathGroup = pathGroupFor(path);
     const testTargetHint = testTargetHintFor(path);

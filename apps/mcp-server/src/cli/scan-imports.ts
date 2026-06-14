@@ -1,9 +1,10 @@
-import { existsSync, statSync } from 'node:fs';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { existsSync } from 'node:fs';
+import { isAbsolute, resolve } from 'node:path';
 import { Project, SyntaxKind, type SourceFile } from 'ts-morph';
 import { ConvexMcpClient } from '../client.js';
 import { loadConfig } from '../config.js';
 import { SOURCE_EXTENSIONS } from './fs-walk.js';
+import { createImportResolver, type ImportResolver } from './import-resolver.js';
 import { progress, summary } from './output.js';
 import { emitDependencyEdges } from './walkers/dependency.js';
 import { emitNavigationEdges } from './walkers/navigation.js';
@@ -142,7 +143,8 @@ export function extractImportSpecifiers(
  * inside the repo. Package imports (`react`, `@scope/x`) and absolute
  * outside-repo paths are excluded.
  */
-export function isLocalImport(spec: string): boolean {
+export function isLocalImport(spec: string, resolver?: ImportResolver): boolean {
+  if (resolver) return resolver.isLocal(spec);
   if (spec.length === 0) return false;
   if (spec.startsWith('.')) return true;
   // Treat absolute paths cautiously — they may or may not be inside the
@@ -166,35 +168,7 @@ export function resolveLocalImport(
   repoRoot: string,
   extensions: ReadonlyArray<string> = SOURCE_EXTENSIONS,
 ): string | null {
-  // Strip importer filename → directory containing it.
-  const importerDir = importerAbs.substring(0, importerAbs.lastIndexOf(sep));
-  const baseAbs = isAbsolute(spec) ? spec : resolve(importerDir, spec);
-
-  const candidates: string[] = [];
-  // Exact-match (only if it has an explicit extension — otherwise this
-  // would match a directory and short-circuit the index.<ext> search).
-  const hasExplicitExt = extensions.some((e) => baseAbs.toLowerCase().endsWith(e));
-  if (hasExplicitExt) candidates.push(baseAbs);
-  // Add extension
-  for (const ext of extensions) candidates.push(baseAbs + ext);
-  // Treat as directory → index.<ext>
-  for (const ext of extensions) candidates.push(baseAbs + sep + 'index' + ext);
-
-  for (const c of candidates) {
-    if (!existsSync(c)) continue;
-    let s;
-    try {
-      s = statSync(c);
-    } catch {
-      continue;
-    }
-    if (!s.isFile()) continue;
-    const rel = relative(repoRoot, c);
-    // Reject if it resolved outside the repo (e.g. ../../other-project)
-    if (rel.startsWith('..') || isAbsolute(rel)) return null;
-    return rel.split(sep).join('/');
-  }
-  return null;
+  return createImportResolver(repoRoot, extensions).resolve(importerAbs, spec);
 }
 
 /** Split `items` into chunks of at most `size` elements (preserves order). */
@@ -230,6 +204,7 @@ export async function runScanImports(
 
   const result: ScanImportsResult = { filesScanned: 0, linked: 0, alreadyLinked: 0, skipped: 0 };
   const edgeCandidates: EdgeCandidate[] = [];
+  const importResolver = createImportResolver(cwd);
 
   for (const [relPath, ownerNodeIds] of fileToOwners) {
     if (!hasSourceExtension(relPath)) continue;
@@ -246,8 +221,8 @@ export async function runScanImports(
     const specifiers = extractImportSpecifiers(sourceText, abs);
     const resolved = new Set<string>();
     for (const spec of specifiers) {
-      if (!isLocalImport(spec)) continue;
-      const target = resolveLocalImport(abs, spec, cwd);
+      if (!isLocalImport(spec, importResolver)) continue;
+      const target = importResolver.resolve(abs, spec);
       if (!target) continue;
       if (target === relPath) continue; // self-import guard
       resolved.add(target);
