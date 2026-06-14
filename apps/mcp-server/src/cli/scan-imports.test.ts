@@ -126,6 +126,26 @@ describe('resolveLocalImport', () => {
     expect(isLocalImport('@/lib/helper', resolver)).toBe(true);
     expect(resolveLocalImport(importer, '@/lib/helper', root)).toBe('src/lib/helper.ts');
   });
+
+  test('resolves aliases from the nearest nested tsconfig in monorepos', () => {
+    // WHY: Arch Viz itself keeps the Next.js alias in apps/web/tsconfig.json.
+    // The scanner runs from the repo root, but imports must still resolve
+    // relative to the app-level config.
+    const root = makeRepo({
+      'apps/web/tsconfig.json': JSON.stringify({
+        compilerOptions: { paths: { '@/*': ['./*'] } },
+      }),
+      'apps/web/app/page.tsx': "import { helper } from '@/lib/helper';",
+      'apps/web/lib/helper.ts': 'export const helper = true;',
+    });
+    const importer = resolve(root, 'apps/web/app/page.tsx');
+    const resolver = createImportResolver(root);
+
+    expect(isLocalImport('@/lib/helper', resolver)).toBe(true);
+    expect(resolveLocalImport(importer, '@/lib/helper', root)).toBe(
+      'apps/web/lib/helper.ts',
+    );
+  });
 });
 
 describe('chunk', () => {

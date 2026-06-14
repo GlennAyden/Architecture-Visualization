@@ -93,6 +93,11 @@ describe('buildFileFacts', () => {
     );
     write('apps/web/components/button.tsx', 'export const Button = () => null;');
     write(
+      'apps/web/tsconfig.json',
+      JSON.stringify({ compilerOptions: { paths: { '@/*': ['./*'] } } }),
+    );
+    write('apps/web/lib/x.ts', 'export const x = true;');
+    write(
       'tsconfig.json',
       JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { '@/*': ['src/*'] } } }),
     );
@@ -130,6 +135,7 @@ describe('buildFileFacts', () => {
     ]);
     expect(facts[0]).toMatchObject({
       imports: ['@/lib/x'],
+      resolvedImports: ['apps/web/lib/x.ts'],
       exports: ['POST'],
       routeHint: '/api/auth/login',
       apiHint: '/api/auth/login',

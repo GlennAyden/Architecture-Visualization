@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 import { SOURCE_EXTENSIONS } from './fs-walk.js';
 
@@ -13,6 +13,11 @@ interface TsConfigLike {
 interface AliasPattern {
   key: string;
   targets: string[];
+}
+
+interface AliasConfig {
+  baseUrlAbs: string;
+  patterns: AliasPattern[];
 }
 
 export interface ImportResolver {
@@ -71,12 +76,19 @@ function parseConfig(path: string): TsConfigLike | null {
   }
 }
 
-function loadAliasConfig(repoRoot: string): {
-  baseUrlAbs: string;
-  patterns: AliasPattern[];
-} {
+const SKIP_CONFIG_SCAN_DIRS = new Set([
+  '.git',
+  '.next',
+  '.turbo',
+  'coverage',
+  'dist',
+  'node_modules',
+  'out',
+]);
+
+function loadAliasConfig(configDir: string): AliasConfig {
   const configFile = ['tsconfig.json', 'jsconfig.json']
-    .map((name) => join(repoRoot, name))
+    .map((name) => join(configDir, name))
     .find((path) => existsSync(path));
   const parsed = configFile ? parseConfig(configFile) : null;
   const compilerOptions = parsed?.compilerOptions ?? {};
@@ -96,7 +108,52 @@ function loadAliasConfig(repoRoot: string): {
     }))
     .filter((pattern) => pattern.targets.length > 0)
     .sort((a, b) => b.key.replace('*', '').length - a.key.replace('*', '').length);
-  return { baseUrlAbs: resolve(repoRoot, baseUrl), patterns };
+  return { baseUrlAbs: resolve(configDir, baseUrl), patterns };
+}
+
+function collectAliasConfigs(repoRoot: string): AliasConfig[] {
+  const configs: AliasConfig[] = [];
+  const seen = new Set<string>();
+
+  function visit(dir: string): void {
+    if (seen.has(dir)) return;
+    seen.add(dir);
+    const config = loadAliasConfig(dir);
+    if (config.patterns.length > 0) configs.push(config);
+
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (SKIP_CONFIG_SCAN_DIRS.has(entry.name)) continue;
+      visit(join(dir, entry.name));
+    }
+  }
+
+  visit(repoRoot);
+  return configs;
+}
+
+function configsForImporter(repoRoot: string, importerAbs: string): AliasConfig[] {
+  const out: AliasConfig[] = [];
+  let dir = dirname(importerAbs);
+
+  while (true) {
+    const rel = relative(repoRoot, dir);
+    if (rel.startsWith('..') || isAbsolute(rel)) break;
+    const config = loadAliasConfig(dir);
+    if (config.patterns.length > 0) out.push(config);
+    if (dir === repoRoot) break;
+    const next = dirname(dir);
+    if (next === dir) break;
+    dir = next;
+  }
+
+  return out;
 }
 
 function matchAlias(pattern: string, spec: string): string | null {
@@ -145,15 +202,18 @@ export function createImportResolver(
   repoRoot: string,
   extensions: ReadonlyArray<string> = SOURCE_EXTENSIONS,
 ): ImportResolver {
-  const aliases = loadAliasConfig(repoRoot);
+  const repoRootAbs = resolve(repoRoot);
+  const allAliases = collectAliasConfigs(repoRootAbs);
 
-  function aliasBaseCandidates(spec: string): string[] {
+  function aliasBaseCandidates(spec: string, configs: ReadonlyArray<AliasConfig>): string[] {
     const out: string[] = [];
-    for (const pattern of aliases.patterns) {
-      const match = matchAlias(pattern.key, spec);
-      if (match === null) continue;
-      for (const target of pattern.targets) {
-        out.push(resolve(aliases.baseUrlAbs, applyAliasTarget(target, match)));
+    for (const config of configs) {
+      for (const pattern of config.patterns) {
+        const match = matchAlias(pattern.key, spec);
+        if (match === null) continue;
+        for (const target of pattern.targets) {
+          out.push(resolve(config.baseUrlAbs, applyAliasTarget(target, match)));
+        }
       }
     }
     return out;
@@ -163,16 +223,17 @@ export function createImportResolver(
     isLocal(spec: string): boolean {
       if (spec.length === 0) return false;
       if (spec.startsWith('.') || isAbsolute(spec)) return true;
-      return aliasBaseCandidates(spec).length > 0;
+      return aliasBaseCandidates(spec, allAliases).length > 0;
     },
     resolve(importerAbs: string, spec: string): string | null {
       const importerDir = importerAbs.substring(0, importerAbs.lastIndexOf(sep));
+      const aliasConfigs = configsForImporter(repoRootAbs, importerAbs);
       const bases =
         spec.startsWith('.') || isAbsolute(spec)
           ? [isAbsolute(spec) ? spec : resolve(importerDir, spec)]
-          : aliasBaseCandidates(spec);
+          : aliasBaseCandidates(spec, aliasConfigs);
       for (const base of bases) {
-        const resolved = resolveCandidate(repoRoot, candidateFiles(base, extensions));
+        const resolved = resolveCandidate(repoRootAbs, candidateFiles(base, extensions));
         if (resolved) return resolved;
       }
       return null;
