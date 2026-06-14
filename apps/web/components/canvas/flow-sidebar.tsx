@@ -5,7 +5,6 @@ import { useMutation, useQuery } from 'convex/react';
 import {
   Bot,
   CheckCircle2,
-  Code2,
   FileCode2,
   Gauge,
   GitBranch,
@@ -13,9 +12,6 @@ import {
   ListChecks,
   Network,
   Plus,
-  PlusSquare,
-  Share2,
-  Users,
   X,
   type LucideIcon,
 } from 'lucide-react';
@@ -26,142 +22,29 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { sortLayers } from '@/lib/architecture-layers';
+import type { CanvasEdgeMode } from '@/lib/canvas-edge-presentation';
 import { HermesInboxPanel } from './hermes-inbox-panel';
 
-export type ArchitectureFlowId =
-  | 'agent-updates-canvas'
-  | 'scan-imports'
-  | 'create-node'
-  | 'share-canvas'
-  | 'invite-collaborator';
-
-type EdgeType = 'hierarchy' | 'dependency' | 'navigation' | 'data_flow';
-
-export const FLOW_EDGE_TYPES: Record<ArchitectureFlowId, EdgeType[]> = {
-  'agent-updates-canvas': ['dependency', 'data_flow'],
-  'scan-imports': ['dependency'],
-  'create-node': ['hierarchy'],
-  'share-canvas': ['navigation', 'data_flow'],
-  'invite-collaborator': ['data_flow'],
-};
-
-const FLOWS: Array<{
-  id: ArchitectureFlowId;
-  name: string;
-  description: string;
-  icon: LucideIcon;
-}> = [
-  {
-    id: 'agent-updates-canvas',
-    name: 'Agent updates canvas',
-    description: 'AI work is reflected on the architecture map.',
-    icon: Bot,
-  },
-  {
-    id: 'scan-imports',
-    name: 'Scan imports',
-    description: 'Import edges are reconciled from the code graph.',
-    icon: Code2,
-  },
-  {
-    id: 'create-node',
-    name: 'Create node',
-    description: 'A page or feature is added to the canvas.',
-    icon: PlusSquare,
-  },
-  {
-    id: 'share-canvas',
-    name: 'Share canvas',
-    description: 'A read-only viewer link is created.',
-    icon: Share2,
-  },
-  {
-    id: 'invite-collaborator',
-    name: 'Invite collaborator',
-    description: 'A signed-in teammate gets project access.',
-    icon: Users,
-  },
+const EDGE_MODES: Array<{ id: CanvasEdgeMode; label: string }> = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'api', label: 'API' },
+  { id: 'data', label: 'Data' },
+  { id: 'agents', label: 'Agents' },
+  { id: 'dependencies', label: 'Deps' },
+  { id: 'all', label: 'All' },
 ];
 
-const STEPS: Record<ArchitectureFlowId, Array<{ title: string; description: string }>> = {
-  'agent-updates-canvas': [
-    {
-      title: 'Agent edits files',
-      description: 'AI agent modifies project files in the repo.',
-    },
-    {
-      title: 'Hook links changed paths',
-      description: 'Post-commit hooks detect changed paths.',
-    },
-    {
-      title: 'MCP writes node activity',
-      description: 'MCP records activity for affected nodes.',
-    },
-    {
-      title: 'Convex updates nodeEdges',
-      description: 'Convex stores edge and metadata changes.',
-    },
-    {
-      title: 'Canvas sync highlights flow',
-      description: 'React Flow receives live updates.',
-    },
-  ],
-  'scan-imports': [
-    {
-      title: 'Scanner reads imports',
-      description: 'The MCP CLI walks source files for imports.',
-    },
-    {
-      title: 'Paths map to nodes',
-      description: 'Linked files resolve imports back to features.',
-    },
-    {
-      title: 'Edges reconcile',
-      description: 'Auto dependency edges converge without manual drift.',
-    },
-  ],
-  'create-node': [
-    {
-      title: 'User adds node',
-      description: 'A page or feature is created at the viewport center.',
-    },
-    {
-      title: 'Convex persists it',
-      description: 'The node position and type become the source of truth.',
-    },
-    {
-      title: 'Canvas updates live',
-      description: 'Other tabs receive the new node through reactive queries.',
-    },
-  ],
-  'share-canvas': [
-    {
-      title: 'Owner creates link',
-      description: 'A revocable share token is generated.',
-    },
-    {
-      title: 'Viewer opens canvas',
-      description: 'The public route resolves a sanitized project snapshot.',
-    },
-    {
-      title: 'Read-only map renders',
-      description: 'Pan and zoom stay available while edits are disabled.',
-    },
-  ],
-  'invite-collaborator': [
-    {
-      title: 'Owner sends invite',
-      description: 'A collaborator is linked to the project by email.',
-    },
-    {
-      title: 'Member accepts',
-      description: 'Accepted membership enables canvas access.',
-    },
-    {
-      title: 'Shared work stays live',
-      description: 'Both users read the same Convex-backed project.',
-    },
-  ],
+const FLOW_KIND_LABELS: Record<Doc<'architectureFlows'>['kind'], string> = {
+  user_journey: 'User journey',
+  system_process: 'System process',
+  data_flow: 'Data flow',
+  agent_workflow: 'Agent workflow',
+  build_deploy: 'Build/deploy',
+  integration: 'Integration',
+};
+
+type ArchitectureFlowRow = Doc<'architectureFlows'> & {
+  nodeNames?: Record<string, string>;
 };
 
 type SidebarTab = 'overview' | 'layers' | 'hermes' | 'inspector' | 'flows';
@@ -197,8 +80,11 @@ interface Props {
     driftCount: number;
     lastScanAt: number | null;
   };
-  selectedFlow: ArchitectureFlowId | null;
-  onSelectedFlowChange: (flow: ArchitectureFlowId | null) => void;
+  flows: ArchitectureFlowRow[] | undefined;
+  selectedFlowId: Id<'architectureFlows'> | null;
+  onSelectedFlowChange: (flow: Id<'architectureFlows'> | null) => void;
+  edgeMode: CanvasEdgeMode;
+  onEdgeModeChange: (mode: CanvasEdgeMode) => void;
   selectedNodeName: string | null;
   nodeCount: number;
   edgeCount: number;
@@ -213,8 +99,11 @@ export function FlowSidebar({
   inspectedNodeId,
   onInspectedNodeChange,
   health,
-  selectedFlow,
+  flows,
+  selectedFlowId,
   onSelectedFlowChange,
+  edgeMode,
+  onEdgeModeChange,
   selectedNodeName,
   nodeCount,
   edgeCount,
@@ -231,10 +120,10 @@ export function FlowSidebar({
   const [activeTab, setActiveTab] = useState<SidebarTab>('overview');
   const [verifying, setVerifying] = useState(false);
   const sortedLayers = sortLayers(layers);
-  const selectedSteps = selectedFlow ? STEPS[selectedFlow] : [];
-  const selectedFlowName = selectedFlow
-    ? FLOWS.find((flow) => flow.id === selectedFlow)?.name
-    : null;
+  const selectedFlow = useMemo(
+    () => flows?.find((flow) => flow._id === selectedFlowId) ?? null,
+    [flows, selectedFlowId],
+  );
   const inspectedNode = useMemo(
     () => (inspectedNodeId && nodes ? nodes.find((node) => node._id === inspectedNodeId) : null),
     [inspectedNodeId, nodes],
@@ -327,7 +216,7 @@ export function FlowSidebar({
             </div>
             <div className="rounded-md border border-violet-400/30 bg-violet-400/10 p-3">
               <p className="truncate text-sm font-semibold text-zinc-100">
-                Selected: {selectedNodeName ?? selectedFlowName ?? 'None'}
+                Selected: {selectedNodeName ?? selectedFlow?.title ?? 'None'}
               </p>
               <p className="mt-1 text-xs text-zinc-500">
                 {nodeCount} nodes / {edgeCount} relationships
@@ -525,78 +414,137 @@ export function FlowSidebar({
         {activeTab === 'flows' && (
           <div className="space-y-3">
             <PanelTitle icon={GitBranch} title="Flows" />
-            <div className="overflow-hidden rounded-md border border-white/10">
-              {FLOWS.map((flow) => {
-                const Icon = flow.icon;
-                const selected = selectedFlow === flow.id;
-                return (
-                  <button
-                    key={flow.id}
-                    type="button"
-                    onClick={() => onSelectedFlowChange(flow.id)}
-                    className={cn(
-                      'flex w-full items-center gap-3 border-b border-white/10 px-3 py-3 text-left last:border-b-0',
-                      'transition-colors hover:bg-white/[0.04]',
-                      selected &&
-                        'bg-amber-400/10 text-amber-200 ring-1 ring-inset ring-amber-400/70',
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 text-zinc-400',
-                        selected && 'border-amber-400/70 text-amber-300',
-                      )}
-                    >
-                      <Icon className="h-4 w-4" />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium text-zinc-100">
-                        {flow.name}
-                      </span>
-                      <span className="mt-0.5 block truncate text-xs text-zinc-500">
-                        {flow.description}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
+            <div className="grid grid-cols-3 gap-1 rounded-md border border-white/10 bg-white/[0.03] p-1">
+              {EDGE_MODES.map((mode) => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  onClick={() => onEdgeModeChange(mode.id)}
+                  className={cn(
+                    'h-8 rounded text-xs text-zinc-500 transition-colors hover:bg-white/[0.05] hover:text-zinc-100',
+                    edgeMode === mode.id && 'bg-cyan-400/10 text-cyan-200 ring-1 ring-cyan-400/30',
+                  )}
+                >
+                  {mode.label}
+                </button>
+              ))}
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onSelectedFlowChange(null)}
-              disabled={!selectedFlow}
-              className="border border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.07] disabled:opacity-40"
-            >
-              <X className="h-4 w-4" />
-              Clear selection
-            </Button>
-            {selectedFlow ? (
-              <ol className="space-y-2">
-                {selectedSteps.map((step, index) => (
-                  <li
-                    key={step.title}
-                    className="grid grid-cols-[28px_1fr] gap-2 rounded-md border border-white/10 bg-white/[0.03] p-3"
-                  >
-                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-amber-400 text-xs font-bold text-zinc-950 shadow-[0_0_18px_rgba(251,191,36,0.45)]">
-                      {index + 1}
-                    </span>
-                    <span>
-                      <span className="block text-sm font-semibold text-zinc-100">
-                        {step.title}
-                      </span>
-                      <span className="mt-1 block text-xs leading-5 text-zinc-500">
-                        {step.description}
-                      </span>
-                    </span>
-                  </li>
-                ))}
-              </ol>
+            {flows === undefined ? (
+              <p className="rounded-md border border-white/10 bg-white/[0.03] p-3 text-sm text-zinc-500">
+                Loading architecture flows...
+              </p>
+            ) : flows.length > 0 ? (
+              <>
+                <div className="overflow-hidden rounded-md border border-white/10">
+                  {flows.map((flow) => {
+                    const selected = selectedFlowId === flow._id;
+                    return (
+                      <button
+                        key={flow._id}
+                        type="button"
+                        onClick={() => onSelectedFlowChange(flow._id)}
+                        className={cn(
+                          'flex w-full items-start gap-3 border-b border-white/10 px-3 py-3 text-left last:border-b-0',
+                          'transition-colors hover:bg-white/[0.04]',
+                          selected &&
+                            'bg-amber-400/10 text-amber-200 ring-1 ring-inset ring-amber-400/70',
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            'mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 text-zinc-400',
+                            selected && 'border-amber-400/70 text-amber-300',
+                          )}
+                        >
+                          <GitBranch className="h-4 w-4" />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium text-zinc-100">
+                            {flow.title}
+                          </span>
+                          <span className="mt-0.5 block truncate text-xs text-zinc-500">
+                            {FLOW_KIND_LABELS[flow.kind]} / {flow.nodeIds.length} nodes /{' '}
+                            {Math.round(flow.confidence * 100)}%
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onSelectedFlowChange(null)}
+                  disabled={!selectedFlow}
+                  className="border border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.07] disabled:opacity-40"
+                >
+                  <X className="h-4 w-4" />
+                  Clear flow
+                </Button>
+              </>
             ) : (
               <div className="flex min-h-48 items-center justify-center rounded-md border border-dashed border-white/10 px-6 text-center">
                 <p className="text-sm leading-6 text-zinc-500">
-                  Select a flow to highlight related paths and inspect its steps.
+                  No architecture flows yet. Ask Hermes from the Inbox to suggest semantic flows.
                 </p>
+              </div>
+            )}
+            {selectedFlow && (
+              <div className="space-y-3">
+                <div className="rounded-md border border-amber-400/25 bg-amber-400/5 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-zinc-100">
+                        {selectedFlow.title}
+                      </p>
+                      <p className="mt-1 text-xs text-amber-200">
+                        {FLOW_KIND_LABELS[selectedFlow.kind]} /{' '}
+                        {Math.round(selectedFlow.confidence * 100)}%
+                      </p>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-zinc-400">{selectedFlow.description}</p>
+                  <p className="mt-2 line-clamp-3 text-xs text-zinc-500">{selectedFlow.reason}</p>
+                </div>
+                <ol className="space-y-2">
+                  {selectedFlow.steps.map((step, index) => (
+                    <li
+                      key={`${step.title}-${index}`}
+                      className="grid grid-cols-[28px_1fr] gap-2 rounded-md border border-white/10 bg-white/[0.03] p-3"
+                    >
+                      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-amber-400 text-xs font-bold text-zinc-950 shadow-[0_0_18px_rgba(251,191,36,0.45)]">
+                        {index + 1}
+                      </span>
+                      <span>
+                        <span className="block text-sm font-semibold text-zinc-100">
+                          {step.title}
+                        </span>
+                        <span className="mt-1 block text-xs leading-5 text-zinc-500">
+                          {step.description}
+                        </span>
+                        {step.nodeIds && step.nodeIds.length > 0 && (
+                          <span className="mt-1 block truncate text-[11px] text-cyan-300">
+                            {selectedFlow.nodeNames?.[step.nodeIds[0] as string] ?? 'Mapped node'}
+                          </span>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+                {selectedFlow.evidence && selectedFlow.evidence.length > 0 && (
+                  <div className="rounded-md border border-white/10 bg-white/[0.03] p-3">
+                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.13em] text-zinc-500">
+                      Evidence
+                    </p>
+                    <div className="space-y-1">
+                      {selectedFlow.evidence.slice(0, 5).map((item) => (
+                        <p key={item} className="truncate text-xs text-zinc-400">
+                          {item}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -5,7 +5,10 @@ import { getProfile, getProjectIfAccessible, requireProjectAccess } from './lib/
 import { hashToken } from './lib/tokens';
 import { upsertSuggestion } from './lib/codebaseSuggestions';
 import { upsertRelationshipSuggestion } from './lib/relationshipSuggestions';
+import { upsertArchitectureFlow } from './lib/architectureFlows';
 import {
+  architectureFlowKindValidator,
+  edgeTypeValidator,
   linkedFileRoleValidator,
   manualEdgeTypeValidator,
   nodeSemanticKindValidator,
@@ -41,6 +44,33 @@ const relationshipSuggestionValidator = v.object({
   targetNodeId: v.id('nodes'),
   type: manualEdgeTypeValidator,
   label: v.optional(v.string()),
+  confidence: v.number(),
+  reason: v.string(),
+  evidence: v.optional(v.array(v.string())),
+  source: v.string(),
+});
+
+const flowEdgeRefValidator = v.object({
+  edgeId: v.optional(v.id('nodeEdges')),
+  sourceNodeId: v.optional(v.id('nodes')),
+  targetNodeId: v.optional(v.id('nodes')),
+  type: v.optional(edgeTypeValidator),
+});
+
+const flowStepValidator = v.object({
+  title: v.string(),
+  description: v.string(),
+  nodeIds: v.optional(v.array(v.id('nodes'))),
+  edgeRefs: v.optional(v.array(flowEdgeRefValidator)),
+});
+
+const flowSuggestionValidator = v.object({
+  title: v.string(),
+  description: v.string(),
+  kind: architectureFlowKindValidator,
+  nodeIds: v.array(v.id('nodes')),
+  edgeRefs: v.optional(v.array(flowEdgeRefValidator)),
+  steps: v.array(flowStepValidator),
   confidence: v.number(),
   reason: v.string(),
   evidence: v.optional(v.array(v.string())),
@@ -175,6 +205,7 @@ export const buildContext = query({
     const statuses = ['pending', 'applied', 'rejected', 'ignored'] as const;
     const suggestions = [];
     const relationshipSuggestions = [];
+    const flows = [];
     for (const status of statuses) {
       const rows = await ctx.db
         .query('codebaseSuggestions')
@@ -203,6 +234,20 @@ export const buildContext = query({
           type: row.type,
           label: row.label,
           status: row.status,
+          confidence: row.confidence,
+        })),
+      );
+
+      const flowRows = await ctx.db
+        .query('architectureFlows')
+        .withIndex('by_project_status', (q) => q.eq('projectId', projectId).eq('status', status))
+        .take(100);
+      flows.push(
+        ...flowRows.map((row) => ({
+          title: row.title,
+          kind: row.kind,
+          status: row.status,
+          nodeIds: row.nodeIds,
           confidence: row.confidence,
         })),
       );
@@ -237,6 +282,7 @@ export const buildContext = query({
         : null,
       suggestions,
       relationshipSuggestions,
+      flows,
     };
   },
 });
@@ -290,6 +336,12 @@ async function countRunSuggestions(
       .withIndex('by_project_status', (q) => q.eq('projectId', projectId).eq('status', status))
       .take(500);
     counts[status] += rows.filter((row) => row.runId === runId).length;
+
+    const flowRows = await ctx.db
+      .query('architectureFlows')
+      .withIndex('by_project_status', (q) => q.eq('projectId', projectId).eq('status', status))
+      .take(500);
+    counts[status] += flowRows.filter((row) => row.runId === runId).length;
   }
   return counts;
 }
@@ -302,6 +354,7 @@ export const complete = internalMutation({
     errorMessage: v.optional(v.string()),
     suggestions: v.array(suggestionValidator),
     relationshipSuggestions: v.optional(v.array(relationshipSuggestionValidator)),
+    flowSuggestions: v.optional(v.array(flowSuggestionValidator)),
   },
   handler: async (ctx, args) => {
     const run = await ctx.db.get(args.runId);
@@ -333,10 +386,20 @@ export const complete = internalMutation({
       });
     }
 
+    for (const flow of args.flowSuggestions ?? []) {
+      await upsertArchitectureFlow(ctx, run.projectId, {
+        ...flow,
+        runId: args.runId,
+      });
+    }
+
     const counts = await countRunSuggestions(ctx, run.projectId, args.runId);
     await ctx.db.patch(args.runId, {
       status: 'completed',
-      suggestedCount: args.suggestions.length + (args.relationshipSuggestions ?? []).length,
+      suggestedCount:
+        args.suggestions.length +
+        (args.relationshipSuggestions ?? []).length +
+        (args.flowSuggestions ?? []).length,
       appliedCount: counts.applied,
       pendingCount: counts.pending,
       ignoredCount: counts.ignored,

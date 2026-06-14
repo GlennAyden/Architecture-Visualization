@@ -148,6 +148,12 @@ export const remove = mutation({
         .withIndex('by_project_status', (q) => q.eq('projectId', id).eq('status', status))
         .collect();
       for (const suggestion of suggestions) await ctx.db.delete(suggestion._id);
+
+      const flows = await ctx.db
+        .query('architectureFlows')
+        .withIndex('by_project_status', (q) => q.eq('projectId', id).eq('status', status))
+        .collect();
+      for (const flow of flows) await ctx.db.delete(flow._id);
     }
 
     const mappingRuns = await ctx.db

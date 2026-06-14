@@ -55,6 +55,22 @@ export const relationshipSuggestionStatusValidator = v.union(
   v.literal('ignored'),
 );
 
+export const architectureFlowKindValidator = v.union(
+  v.literal('user_journey'),
+  v.literal('system_process'),
+  v.literal('data_flow'),
+  v.literal('agent_workflow'),
+  v.literal('build_deploy'),
+  v.literal('integration'),
+);
+
+export const architectureFlowStatusValidator = v.union(
+  v.literal('pending'),
+  v.literal('applied'),
+  v.literal('rejected'),
+  v.literal('ignored'),
+);
+
 export const edgeTypeValidator = v.union(
   v.literal('hierarchy'),
   v.literal('dependency'),

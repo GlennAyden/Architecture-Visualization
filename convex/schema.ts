@@ -3,6 +3,9 @@ import { v } from 'convex/values';
 import {
   layerPurposeValidator,
   linkedFileRoleValidator,
+  architectureFlowKindValidator,
+  architectureFlowStatusValidator,
+  edgeTypeValidator,
   manualEdgeTypeValidator,
   mappingStatusValidator,
   nodeSemanticKindValidator,
@@ -194,6 +197,52 @@ export default defineSchema({
   })
     .index('by_project_status', ['projectId', 'status'])
     .index('by_project_nodes_type', ['projectId', 'sourceNodeId', 'targetNodeId', 'type']),
+
+  architectureFlows: defineTable({
+    projectId: v.id('projects'),
+    runId: v.optional(v.id('hermesMappingRuns')),
+    title: v.string(),
+    description: v.string(),
+    kind: architectureFlowKindValidator,
+    nodeIds: v.array(v.id('nodes')),
+    edgeRefs: v.optional(
+      v.array(
+        v.object({
+          edgeId: v.optional(v.id('nodeEdges')),
+          sourceNodeId: v.optional(v.id('nodes')),
+          targetNodeId: v.optional(v.id('nodes')),
+          type: v.optional(edgeTypeValidator),
+        }),
+      ),
+    ),
+    steps: v.array(
+      v.object({
+        title: v.string(),
+        description: v.string(),
+        nodeIds: v.optional(v.array(v.id('nodes'))),
+        edgeRefs: v.optional(
+          v.array(
+            v.object({
+              edgeId: v.optional(v.id('nodeEdges')),
+              sourceNodeId: v.optional(v.id('nodes')),
+              targetNodeId: v.optional(v.id('nodes')),
+              type: v.optional(edgeTypeValidator),
+            }),
+          ),
+        ),
+      }),
+    ),
+    confidence: v.number(),
+    reason: v.string(),
+    evidence: v.optional(v.array(v.string())),
+    source: v.string(),
+    status: architectureFlowStatusValidator,
+    createdAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index('by_project_status', ['projectId', 'status'])
+    .index('by_project_run', ['projectId', 'runId'])
+    .index('by_project_title', ['projectId', 'title']),
 
   hermesMappingRuns: defineTable({
     projectId: v.id('projects'),

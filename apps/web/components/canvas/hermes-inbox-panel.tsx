@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from 'convex/react';
-import { Bot, Check, Pencil, Play, RotateCw, ShieldCheck, X } from 'lucide-react';
+import { Bot, Check, GitBranch, Pencil, Play, RotateCw, ShieldCheck, X } from 'lucide-react';
 
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
@@ -106,6 +106,18 @@ export function HermesInboxPanel({ projectId }: Props) {
     projectId,
     status: 'ignored',
   });
+  const pendingFlows = useQuery(api.architectureFlows.listByProject, {
+    projectId,
+    status: 'pending',
+  });
+  const appliedFlows = useQuery(api.architectureFlows.listByProject, {
+    projectId,
+    status: 'applied',
+  });
+  const ignoredFlows = useQuery(api.architectureFlows.listByProject, {
+    projectId,
+    status: 'ignored',
+  });
   const runs = useQuery(api.hermesMappingRuns.latestByProject, { projectId });
   const layers = useQuery(api.projectLayers.listByProject, { projectId });
   const nodes = useQuery(api.nodes.listByProject, { projectId });
@@ -118,6 +130,10 @@ export function HermesInboxPanel({ projectId }: Props) {
   const rejectRelationship = useMutation(api.relationshipSuggestions.reject);
   const ignoreRelationship = useMutation(api.relationshipSuggestions.ignore);
   const bulkApplyRelationships = useMutation(api.relationshipSuggestions.applyHighConfidence);
+  const applyFlow = useMutation(api.architectureFlows.apply);
+  const rejectFlow = useMutation(api.architectureFlows.reject);
+  const ignoreFlow = useMutation(api.architectureFlows.ignore);
+  const bulkApplyFlows = useMutation(api.architectureFlows.applyHighConfidence);
 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -139,14 +155,18 @@ export function HermesInboxPanel({ projectId }: Props) {
   const visibleIgnored = ignored?.slice(0, 3) ?? [];
   const visibleRelationshipApplied = appliedRelationships?.slice(0, 2) ?? [];
   const visibleRelationshipIgnored = ignoredRelationships?.slice(0, 2) ?? [];
+  const visibleFlowPending = pendingFlows?.slice(0, 3) ?? [];
+  const visibleFlowApplied = appliedFlows?.slice(0, 2) ?? [];
+  const visibleFlowIgnored = ignoredFlows?.slice(0, 2) ?? [];
   const latestRun = runs?.[0];
   const highConfidenceCount = useMemo(
     () =>
       (pending ?? []).filter((suggestion) =>
         isHighConfidence(suggestion.action as SuggestionAction, suggestion.confidence),
       ).length +
-      (pendingRelationships ?? []).filter((suggestion) => suggestion.confidence >= 0.9).length,
-    [pending, pendingRelationships],
+      (pendingRelationships ?? []).filter((suggestion) => suggestion.confidence >= 0.9).length +
+      (pendingFlows ?? []).filter((flow) => flow.confidence >= 0.9).length,
+    [pending, pendingFlows, pendingRelationships],
   );
 
   const handleStartRun = async () => {
@@ -231,6 +251,7 @@ export function HermesInboxPanel({ projectId }: Props) {
     try {
       await bulkApply({ projectId });
       await bulkApplyRelationships({ projectId });
+      await bulkApplyFlows({ projectId });
     } finally {
       setBusyId(null);
     }
@@ -258,6 +279,33 @@ export function HermesInboxPanel({ projectId }: Props) {
     setBusyId(id);
     try {
       await ignoreRelationship({ id });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleFlowApply = async (id: Id<'architectureFlows'>) => {
+    setBusyId(id);
+    try {
+      await applyFlow({ id });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleFlowReject = async (id: Id<'architectureFlows'>) => {
+    setBusyId(id);
+    try {
+      await rejectFlow({ id });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleFlowIgnore = async (id: Id<'architectureFlows'>) => {
+    setBusyId(id);
+    try {
+      await ignoreFlow({ id });
     } finally {
       setBusyId(null);
     }
@@ -621,10 +669,75 @@ export function HermesInboxPanel({ projectId }: Props) {
         </div>
       )}
 
+      {pendingFlows !== undefined && visibleFlowPending.length > 0 && (
+        <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+            Flow review
+          </p>
+          {visibleFlowPending.map((flow) => (
+            <div
+              key={flow._id}
+              className="rounded-md border border-amber-400/20 bg-amber-400/5 p-3"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-zinc-100">{flow.title}</p>
+                  <p className="mt-1 text-xs text-amber-200">
+                    {flow.kind.replace(/_/g, ' ')} / {flow.nodeIds.length} nodes
+                  </p>
+                </div>
+                <span className="shrink-0 rounded bg-amber-400/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-200">
+                  {Math.round(flow.confidence * 100)}%
+                </span>
+              </div>
+              <p className="mt-2 line-clamp-2 text-xs text-zinc-400">{flow.reason}</p>
+              {flow.evidence && flow.evidence.length > 0 && (
+                <p className="mt-1 truncate text-[11px] text-zinc-500">
+                  {flow.evidence.slice(0, 3).join(' / ')}
+                </p>
+              )}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 border border-emerald-400/30 bg-emerald-400/10 text-emerald-200 hover:bg-emerald-400/20"
+                  disabled={busyId !== null}
+                  onClick={() => void handleFlowApply(flow._id)}
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  Apply
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 border border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.07] hover:text-zinc-50"
+                  disabled={busyId !== null}
+                  onClick={() => void handleFlowIgnore(flow._id)}
+                >
+                  Ignore
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 border border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.07] hover:text-zinc-50"
+                  disabled={busyId !== null}
+                  onClick={() => void handleFlowReject(flow._id)}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Reject
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {(visibleApplied.length > 0 ||
         visibleIgnored.length > 0 ||
         visibleRelationshipApplied.length > 0 ||
-        visibleRelationshipIgnored.length > 0) && (
+        visibleRelationshipIgnored.length > 0 ||
+        visibleFlowApplied.length > 0 ||
+        visibleFlowIgnored.length > 0) && (
         <div className="mt-3 border-t border-white/10 pt-3">
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
             Auto-applied / ignored
@@ -672,6 +785,30 @@ export function HermesInboxPanel({ projectId }: Props) {
                   {suggestion.targetNodeName ?? 'Target'}
                 </span>
                 <span className="shrink-0 text-[11px] text-zinc-500">ignored edge</span>
+              </div>
+            ))}
+            {visibleFlowApplied.map((flow) => (
+              <div
+                key={flow._id}
+                className="flex items-center justify-between gap-2 rounded-md bg-white/[0.03] px-2 py-1.5"
+              >
+                <span className="inline-flex min-w-0 items-center gap-1.5">
+                  <GitBranch className="h-3 w-3 shrink-0 text-amber-300" />
+                  <span className="truncate text-xs text-zinc-300">{flow.title}</span>
+                </span>
+                <span className="shrink-0 text-[11px] text-amber-300">flow</span>
+              </div>
+            ))}
+            {visibleFlowIgnored.map((flow) => (
+              <div
+                key={flow._id}
+                className="flex items-center justify-between gap-2 rounded-md bg-white/[0.03] px-2 py-1.5"
+              >
+                <span className="inline-flex min-w-0 items-center gap-1.5">
+                  <GitBranch className="h-3 w-3 shrink-0 text-zinc-500" />
+                  <span className="truncate text-xs text-zinc-300">{flow.title}</span>
+                </span>
+                <span className="shrink-0 text-[11px] text-zinc-500">ignored flow</span>
               </div>
             ))}
           </div>

@@ -200,6 +200,37 @@ describe('VPS auth API', () => {
               source: 'hermes',
             },
           ],
+          flowSuggestions: [
+            {
+              title: 'Web reaches backend',
+              description: 'The web surface calls backend code.',
+              kind: 'user_journey',
+              nodeIds: ['nodes:web', 'nodes:backend'],
+              edgeRefs: [
+                {
+                  sourceNodeId: 'nodes:web',
+                  targetNodeId: 'nodes:backend',
+                  type: 'dependency',
+                },
+              ],
+              steps: [
+                {
+                  title: 'Web',
+                  description: 'Start from the web surface.',
+                  nodeIds: ['nodes:web'],
+                },
+                {
+                  title: 'Backend',
+                  description: 'Continue into backend logic.',
+                  nodeIds: ['nodes:backend'],
+                },
+              ],
+              confidence: 0.91,
+              reason: 'The dependency describes a meaningful path.',
+              evidence: ['apps/web/page.tsx imports apps/api/router.ts'],
+              source: 'hermes',
+            },
+          ],
         }),
         fetchImpl: async (_url, init) => {
           resolveSubmitted(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
@@ -225,6 +256,13 @@ describe('VPS auth API', () => {
           sourceNodeId: 'nodes:web',
           targetNodeId: 'nodes:backend',
           type: 'dependency',
+        },
+      ],
+      flowSuggestions: [
+        {
+          title: 'Web reaches backend',
+          kind: 'user_journey',
+          nodeIds: ['nodes:web', 'nodes:backend'],
         },
       ],
     });

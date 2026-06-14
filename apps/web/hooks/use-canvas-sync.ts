@@ -25,6 +25,11 @@ import {
   CLUSTER_PADDING,
   CLUSTER_TITLE_BAR_HEIGHT,
 } from '@/lib/auto-layout';
+import {
+  getCanvasEdgePresentation,
+  type CanvasEdgeMode,
+  type CanvasFlowSelection,
+} from '@/lib/canvas-edge-presentation';
 
 export type ArchNode = PageNodeType | FeatureNodeType;
 
@@ -35,9 +40,7 @@ export type NodeSummary = {
   verifiedCount: number;
   roles: Record<string, number>;
 };
-type HighlightMode = {
-  edgeTypes: ReadonlyArray<EdgeType>;
-};
+type HighlightMode = { edgeIds: ReadonlySet<string>; hasFocus: boolean };
 type EdgeVariantStyle = {
   stroke: string;
   strokeWidth: number;
@@ -65,8 +68,8 @@ const EDGE_STYLE_BY_TYPE: Record<EdgeType, EdgeVariantStyle> = {
 
 function convexEdgeToRf(edge: Doc<'nodeEdges'>, highlightMode: HighlightMode | undefined): Edge {
   const style = EDGE_STYLE_BY_TYPE[edge.type];
-  const active = highlightMode ? highlightMode.edgeTypes.includes(edge.type) : false;
-  const dimmed = highlightMode ? !active : false;
+  const active = highlightMode?.edgeIds.has(edge._id as string) ?? false;
+  const dimmed = highlightMode?.hasFocus ? !active : false;
   const stroke = active ? '#facc15' : style.stroke;
   const strokeWidth = active ? Math.max(style.strokeWidth, 2.5) : style.strokeWidth;
   return {
@@ -280,7 +283,8 @@ interface Args {
   nodes: Doc<'nodes'>[] | undefined;
   edges: Doc<'nodeEdges'>[] | undefined;
   nodeSummaries?: NodeSummary[] | undefined;
-  highlightedEdgeTypes?: ReadonlyArray<EdgeType>;
+  edgeMode?: CanvasEdgeMode;
+  selectedFlow?: CanvasFlowSelection | null;
 }
 
 interface SyncResult {
@@ -303,17 +307,13 @@ export function useCanvasSync({
   nodes,
   edges,
   nodeSummaries,
-  highlightedEdgeTypes,
+  edgeMode = 'overview',
+  selectedFlow,
 }: Args): SyncResult {
   const updateMutation = useMutation(api.nodes.update);
   const removeEdgeMutation = useMutation(api.nodeEdges.remove);
 
   const drillNodeId = useDrillStore((s) => s.drillNodeId);
-  const highlightMode = useMemo<HighlightMode | undefined>(() => {
-    if (!highlightedEdgeTypes || highlightedEdgeTypes.length === 0) return undefined;
-    return { edgeTypes: highlightedEdgeTypes };
-  }, [highlightedEdgeTypes]);
-
   const visibleNodes = useMemo(() => {
     if (!nodes) return undefined;
     if (drillNodeId === null) return nodes;
@@ -351,16 +351,22 @@ export function useCanvasSync({
     });
   }, [edges, visibleNodes, drillNodeId]);
 
+  const edgePresentation = useMemo(() => {
+    if (!visibleEdges) return undefined;
+    return getCanvasEdgePresentation(visibleEdges, edgeMode, selectedFlow);
+  }, [edgeMode, selectedFlow, visibleEdges]);
+
+  const highlightMode = useMemo<HighlightMode | undefined>(() => {
+    if (!edgePresentation?.hasFocus || !edgePresentation.highlightedEdgeIds) return undefined;
+    return {
+      edgeIds: edgePresentation.highlightedEdgeIds,
+      hasFocus: edgePresentation.hasFocus,
+    };
+  }, [edgePresentation]);
+
   const highlightedNodeIds = useMemo<Set<string> | undefined>(() => {
-    if (!visibleEdges || !highlightMode) return undefined;
-    const ids = new Set<string>();
-    for (const edge of visibleEdges) {
-      if (!highlightMode.edgeTypes.includes(edge.type)) continue;
-      ids.add(edge.sourceNodeId as string);
-      ids.add(edge.targetNodeId as string);
-    }
-    return ids;
-  }, [highlightMode, visibleEdges]);
+    return edgePresentation?.hasFocus ? edgePresentation.highlightedNodeIds : undefined;
+  }, [edgePresentation]);
 
   const summaryByNode = useMemo(() => {
     return new Map((nodeSummaries ?? []).map((summary) => [summary.nodeId, summary]));
@@ -443,9 +449,10 @@ export function useCanvasSync({
       return;
     }
 
-    prevEdgeCountRef.current = visibleEdges.length;
-    setRfEdges(visibleEdges.map((edge) => convexEdgeToRf(edge, highlightMode)));
-  }, [visibleEdges, highlightMode, setRfEdges]);
+    const presentedEdges = edgePresentation?.edges ?? visibleEdges;
+    prevEdgeCountRef.current = presentedEdges.length;
+    setRfEdges(presentedEdges.map((edge) => convexEdgeToRf(edge, highlightMode)));
+  }, [edgePresentation, visibleEdges, highlightMode, setRfEdges]);
 
   useEffect(() => {
     return () => {

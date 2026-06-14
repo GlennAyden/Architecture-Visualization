@@ -10,6 +10,7 @@ export const LAYER_PADDING_X = 30;
 export const LAYER_HEADER_HEIGHT = 72;
 export const LAYER_NODE_TOP = 120;
 export const LAYER_NODE_SPACING = 150;
+export const LAYER_PARENT_GAP_Y = 92;
 export const LAYER_FEATURE_OFFSET_X = 42;
 export const LAYER_FEATURE_OFFSET_Y = 66;
 export const LAYER_FEATURE_GAP_X = 22;
@@ -67,6 +68,18 @@ export function getNextNodePosition<TLayer extends LayerLike, TNode extends Node
     positionX: Math.round(getLayerNodeX(layerIndex)),
     positionY: Math.round(LAYER_NODE_TOP + siblingCount * LAYER_NODE_SPACING),
   };
+}
+
+function estimateClusterHeight(childCount: number) {
+  if (childCount <= 0) return LAYER_NODE_SPACING;
+  const columns = 2;
+  const rows = Math.ceil(childCount / columns);
+  return (
+    LAYER_FEATURE_OFFSET_Y +
+    rows * FEATURE_NODE_DEFAULT_HEIGHT +
+    Math.max(0, rows - 1) * LAYER_FEATURE_GAP_Y +
+    LAYER_PARENT_GAP_Y
+  );
 }
 
 export function getNextFeaturePosition<TNode extends NodeLike>({
@@ -131,7 +144,14 @@ export function computeLayerLayout<TLayer extends LayerLike, TNode extends NodeL
       positionY: Math.round(nextY),
     };
     placed.set(node._id, position);
-    nextYByLayer.set(layer._id, nextY + LAYER_NODE_SPACING);
+    nextYByLayer.set(
+      layer._id,
+      nextY +
+        Math.max(
+          LAYER_NODE_SPACING,
+          estimateClusterHeight(childrenByParent.get(node._id)?.length ?? 0),
+        ),
+    );
   }
 
   for (const [parentId, children] of childrenByParent.entries()) {

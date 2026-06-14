@@ -394,6 +394,76 @@ describe('codebase suggestions', () => {
     expect(rejectedRows.map((s) => s.filePath)).toContain('src/reject.ts');
   });
 
+  test('push stores architecture flow suggestions for canvas review', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, rawToken, projectId, layers } = await seedTokenForUser(t);
+    const surface = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[0]!._id,
+      type: 'page',
+      name: 'Login Surface',
+      positionX: 0,
+      positionY: 0,
+    });
+    const apiNode = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[2]!._id,
+      type: 'page',
+      name: 'Auth API',
+      positionX: 300,
+      positionY: 0,
+    });
+
+    const res = await t.fetch('/api/mcp/codebase_suggestions/push', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${rawToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        flowSuggestions: [
+          {
+            title: 'Login review flow',
+            description: 'The login surface calls the auth API.',
+            kind: 'user_journey',
+            nodeIds: [surface, apiNode],
+            edgeRefs: [{ sourceNodeId: surface, targetNodeId: apiNode, type: 'data_flow' }],
+            steps: [
+              {
+                title: 'Submit credentials',
+                description: 'The surface sends credentials to the API.',
+                nodeIds: [surface, apiNode],
+              },
+            ],
+            confidence: 0.72,
+            reason: 'Hermes found a reviewable login journey.',
+            evidence: ['Login Surface -> Auth API'],
+          },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ accepted: 1, flowPending: 1, flowApplied: 0 });
+
+    const pending = await asUser.query(api.architectureFlows.listByProject, {
+      projectId,
+      status: 'pending',
+    });
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({
+      title: 'Login review flow',
+      kind: 'user_journey',
+      confidence: 0.72,
+      source: 'hermes',
+    });
+    expect(pending[0]!.nodeNames[surface]).toBe('Login Surface');
+
+    await asUser.mutation(api.architectureFlows.apply, { id: pending[0]!._id });
+    const applied = await asUser.query(api.architectureFlows.listByProject, {
+      projectId,
+      status: 'applied',
+    });
+    expect(applied.map((flow) => flow.title)).toContain('Login review flow');
+  });
+
   test('mapping run complete route verifies submit token and stores suggestions', async () => {
     const t = convexTest(schema, modules);
     const { asUser, projectId, layers } = await seedTokenForUser(t);
@@ -444,6 +514,128 @@ describe('codebase suggestions', () => {
       suggestedCount: 1,
       pendingCount: 1,
     });
+  });
+
+  test('mapping run completion auto-applies high-confidence architecture flows', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, layers } = await seedTokenForUser(t);
+    const surface = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[0]!._id,
+      type: 'page',
+      name: 'Web Surface',
+      positionX: 0,
+      positionY: 0,
+    });
+    const backend = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[2]!._id,
+      type: 'page',
+      name: 'Backend API',
+      positionX: 300,
+      positionY: 0,
+    });
+    const submitToken = 'flow-submit-token-flow-submit-token';
+    const run = await asUser.mutation(api.hermesMappingRuns.start, {
+      projectId,
+      source: 'canvas',
+      scope: 'project',
+      submitTokenHash: await hashSubmitToken(submitToken),
+    });
+
+    const valid = await t.fetch('/api/hermes/mapping-runs/complete', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        runId: run.runId,
+        submitToken,
+        status: 'completed',
+        flowSuggestions: [
+          {
+            title: 'Surface to backend flow',
+            description: 'The UI invokes backend behavior.',
+            kind: 'system_process',
+            nodeIds: [surface, backend],
+            steps: [
+              {
+                title: 'Invoke backend',
+                description: 'The surface sends work to the backend.',
+                nodeIds: [surface, backend],
+              },
+            ],
+            confidence: 0.93,
+            reason: 'High-confidence node chain should become an applied flow.',
+          },
+        ],
+      }),
+    });
+
+    expect(valid.status).toBe(200);
+    await expect(valid.json()).resolves.toMatchObject({ applied: 1 });
+
+    const applied = await asUser.query(api.architectureFlows.listByProject, {
+      projectId,
+      status: 'applied',
+    });
+    expect(applied.map((flow) => flow.title)).toEqual(['Surface to backend flow']);
+
+    const runs = await asUser.query(api.hermesMappingRuns.latestByProject, { projectId });
+    expect(runs[0]).toMatchObject({ suggestedCount: 1, appliedCount: 1 });
+  });
+
+  test('mapping run completion rejects architecture flows with foreign nodes', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, layers } = await seedTokenForUser(t);
+    const localNode = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[0]!._id,
+      type: 'page',
+      name: 'Local',
+      positionX: 0,
+      positionY: 0,
+    });
+    const otherProjectId = await asUser.mutation(api.projects.create, { name: 'Foreign' });
+    const otherLayers = await asUser.query(api.projectLayers.listByProject, {
+      projectId: otherProjectId,
+    });
+    const foreignNode = await asUser.mutation(api.nodes.create, {
+      projectId: otherProjectId,
+      layerId: otherLayers[0]!._id,
+      type: 'page',
+      name: 'Foreign',
+      positionX: 0,
+      positionY: 0,
+    });
+    const submitToken = 'foreign-flow-submit-token-foreign';
+    const run = await asUser.mutation(api.hermesMappingRuns.start, {
+      projectId,
+      source: 'canvas',
+      scope: 'project',
+      submitTokenHash: await hashSubmitToken(submitToken),
+    });
+
+    const res = await t.fetch('/api/hermes/mapping-runs/complete', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        runId: run.runId,
+        submitToken,
+        status: 'completed',
+        flowSuggestions: [
+          {
+            title: 'Cross project flow',
+            description: 'This should be rejected.',
+            kind: 'integration',
+            nodeIds: [localNode, foreignNode],
+            steps: [{ title: 'Invalid', description: 'Foreign node ref.' }],
+            confidence: 0.93,
+            reason: 'Foreign node is outside project boundary.',
+          },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(400);
   });
 
   test('bulk apply resolves pending suggestions above their action threshold', async () => {

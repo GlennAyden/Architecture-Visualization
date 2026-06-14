@@ -7,6 +7,7 @@ import {
   type HermesMappingContext,
   type HermesRelationshipSuggestion,
   type HermesMappingSuggestion,
+  type HermesArchitectureFlowSuggestion,
 } from './hermes-mapper.js';
 import { signLocalConvexToken } from './jwt.js';
 
@@ -115,6 +116,7 @@ async function submitMappingRunCompletion(
     errorMessage?: string;
     suggestions?: HermesMappingSuggestion[];
     relationshipSuggestions?: HermesRelationshipSuggestion[];
+    flowSuggestions?: HermesArchitectureFlowSuggestion[];
   },
 ) {
   const url = new URL('/api/hermes/mapping-runs/complete', job.convexSiteUrl);
@@ -128,6 +130,7 @@ async function submitMappingRunCompletion(
       errorMessage: payload.errorMessage,
       suggestions: payload.suggestions ?? [],
       relationshipSuggestions: payload.relationshipSuggestions ?? [],
+      flowSuggestions: payload.flowSuggestions ?? [],
     }),
   });
   if (!response.ok) throw new Error(`Convex mapping submit failed (${response.status})`);
@@ -147,10 +150,14 @@ export async function runHermesMappingJob(options: VpsApiOptions, job: HermesMap
     ) {
       throw new Error('Hermes mapper returned malformed relationship suggestions');
     }
+    if (result.flowSuggestions !== undefined && !Array.isArray(result.flowSuggestions)) {
+      throw new Error('Hermes mapper returned malformed flow suggestions');
+    }
     await submitMappingRunCompletion(fetchImpl, job, {
       status: 'completed',
       suggestions: result.suggestions,
       relationshipSuggestions: result.relationshipSuggestions ?? [],
+      flowSuggestions: result.flowSuggestions ?? [],
     });
   } catch (error) {
     await submitMappingRunCompletion(fetchImpl, job, {

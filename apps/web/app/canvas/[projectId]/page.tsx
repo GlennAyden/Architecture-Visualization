@@ -25,13 +25,10 @@ import { AutoLayoutButton } from '@/components/canvas/auto-layout-button';
 import { CommandPalette } from '@/components/canvas/command-palette';
 import { ExportProjectButton } from '@/components/canvas/export-project-button';
 import { LayerLanes } from '@/components/canvas/layer-lanes';
-import {
-  FLOW_EDGE_TYPES,
-  FlowSidebar,
-  type ArchitectureFlowId,
-} from '@/components/canvas/flow-sidebar';
+import { FlowSidebar } from '@/components/canvas/flow-sidebar';
 import { NodeModal } from '@/components/node-modal/node-modal';
 import { useCanvasSync, type ArchNode } from '@/hooks/use-canvas-sync';
+import type { CanvasEdgeMode } from '@/lib/canvas-edge-presentation';
 import { useModalStore } from '@/store/modal-store';
 import { useDrillStore } from '@/store/drill-store';
 
@@ -52,6 +49,10 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
   const nodeSummaries = useQuery(api.nodeFiles.summaryByProject, { projectId });
   const orphanSnapshot = useQuery(api.scans.getLatestByKind, { projectId, kind: 'orphans' });
   const driftSnapshot = useQuery(api.scans.getLatestByKind, { projectId, kind: 'drift' });
+  const architectureFlows = useQuery(api.architectureFlows.listByProject, {
+    projectId,
+    status: 'applied',
+  });
   const pendingSuggestions = useQuery(api.codebaseSuggestions.listByProject, {
     projectId,
     status: 'pending',
@@ -63,9 +64,8 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
   const ensureDefaultLayers = useMutation(api.projectLayers.ensureDefaults);
   const openModal = useModalStore((s) => s.open);
   const selectedNodeId = useModalStore((s) => s.selectedNodeId);
-  const [selectedFlow, setSelectedFlow] = useState<ArchitectureFlowId | null>(
-    'agent-updates-canvas',
-  );
+  const [edgeMode, setEdgeMode] = useState<CanvasEdgeMode>('overview');
+  const [selectedFlowId, setSelectedFlowId] = useState<Id<'architectureFlows'> | null>(null);
   const [inspectedNodeId, setInspectedNodeId] = useState<Id<'nodes'> | null>(null);
 
   const drillNodeId = useDrillStore((s) => s.drillNodeId);
@@ -78,7 +78,10 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
       nodes,
       edges,
       nodeSummaries,
-      highlightedEdgeTypes: selectedFlow ? FLOW_EDGE_TYPES[selectedFlow] : undefined,
+      edgeMode,
+      selectedFlow:
+        architectureFlows?.find((flow) => flow._id === selectedFlowId) ??
+        (selectedFlowId ? null : undefined),
     });
 
   const rf = useReactFlow();
@@ -423,8 +426,11 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
           inspectedNodeId={inspectedNodeId}
           onInspectedNodeChange={setInspectedNodeId}
           health={health}
-          selectedFlow={selectedFlow}
-          onSelectedFlowChange={setSelectedFlow}
+          flows={architectureFlows}
+          selectedFlowId={selectedFlowId}
+          onSelectedFlowChange={setSelectedFlowId}
+          edgeMode={edgeMode}
+          onEdgeModeChange={setEdgeMode}
           selectedNodeName={selectedNodeName}
           nodeCount={nodes?.length ?? 0}
           edgeCount={edges?.length ?? 0}

@@ -10,6 +10,7 @@
 
 import type * as activity from "../activity.js";
 import type * as apiTokens from "../apiTokens.js";
+import type * as architectureFlows from "../architectureFlows.js";
 import type * as codebaseSuggestions from "../codebaseSuggestions.js";
 import type * as crons from "../crons.js";
 import type * as exports from "../exports.js";
@@ -17,6 +18,7 @@ import type * as hermesMappingRuns from "../hermesMappingRuns.js";
 import type * as http from "../http.js";
 import type * as kanban from "../kanban.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_architectureFlows from "../lib/architectureFlows.js";
 import type * as lib_cascade from "../lib/cascade.js";
 import type * as lib_codebaseSuggestions from "../lib/codebaseSuggestions.js";
 import type * as lib_edges from "../lib/edges.js";
@@ -56,6 +58,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   activity: typeof activity;
   apiTokens: typeof apiTokens;
+  architectureFlows: typeof architectureFlows;
   codebaseSuggestions: typeof codebaseSuggestions;
   crons: typeof crons;
   exports: typeof exports;
@@ -63,6 +66,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   kanban: typeof kanban;
   "lib/auth": typeof lib_auth;
+  "lib/architectureFlows": typeof lib_architectureFlows;
   "lib/cascade": typeof lib_cascade;
   "lib/codebaseSuggestions": typeof lib_codebaseSuggestions;
   "lib/edges": typeof lib_edges;

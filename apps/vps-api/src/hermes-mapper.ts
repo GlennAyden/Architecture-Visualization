@@ -51,6 +51,7 @@ export interface HermesFileFact {
   path: string;
   kind?: string;
   imports?: string[];
+  resolvedImports?: string[];
   exports?: string[];
   routeHint?: string;
   apiHint?: string;
@@ -80,6 +81,22 @@ export interface HermesExistingRelationshipSuggestion {
   confidence: number;
 }
 
+export type HermesArchitectureFlowKind =
+  | 'user_journey'
+  | 'system_process'
+  | 'data_flow'
+  | 'agent_workflow'
+  | 'build_deploy'
+  | 'integration';
+
+export interface HermesExistingArchitectureFlow {
+  title: string;
+  kind: HermesArchitectureFlowKind;
+  status: 'pending' | 'applied' | 'rejected' | 'ignored';
+  nodeIds: string[];
+  confidence: number;
+}
+
 export interface HermesMappingContext {
   runId: string;
   project: { _id: string; name: string };
@@ -89,6 +106,7 @@ export interface HermesMappingContext {
   latestScan: { data?: unknown } | null;
   suggestions: HermesExistingSuggestion[];
   relationshipSuggestions?: HermesExistingRelationshipSuggestion[];
+  flows?: HermesExistingArchitectureFlow[];
 }
 
 export interface HermesMappingSuggestion {
@@ -117,9 +135,36 @@ export interface HermesRelationshipSuggestion {
   source: string;
 }
 
+export interface HermesFlowEdgeRef {
+  edgeId?: string;
+  sourceNodeId?: string;
+  targetNodeId?: string;
+  type?: HermesRelationshipSuggestionType;
+}
+
+export interface HermesFlowStep {
+  title: string;
+  description: string;
+  nodeIds?: string[];
+}
+
+export interface HermesArchitectureFlowSuggestion {
+  title: string;
+  description: string;
+  kind: HermesArchitectureFlowKind;
+  nodeIds: string[];
+  edgeRefs?: HermesFlowEdgeRef[];
+  steps: HermesFlowStep[];
+  confidence: number;
+  reason: string;
+  evidence?: string[];
+  source: string;
+}
+
 export interface HermesMappingResult {
   suggestions: HermesMappingSuggestion[];
   relationshipSuggestions?: HermesRelationshipSuggestion[];
+  flowSuggestions?: HermesArchitectureFlowSuggestion[];
 }
 
 export type HermesMapper = (context: HermesMappingContext) => Promise<HermesMappingResult>;
@@ -355,7 +400,7 @@ function relationshipSuggestionsFromImports(
   for (const fact of sortedFacts) {
     const sourceNode = nodeByFile.get(normalized(fact.path));
     if (!sourceNode) continue;
-    for (const imported of fact.imports ?? []) {
+    for (const imported of fact.resolvedImports ?? fact.imports ?? []) {
       const targetNode = nodeByFile.get(normalized(imported));
       if (!targetNode || targetNode._id === sourceNode._id) continue;
       const key = existingRelationshipKey(sourceNode._id, targetNode._id, 'dependency');
@@ -376,6 +421,217 @@ function relationshipSuggestionsFromImports(
   }
 
   return suggestions;
+}
+
+type FlowEdgeCandidate = {
+  edgeId?: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  type: HermesRelationshipSuggestionType;
+  label?: string;
+  confidence?: number;
+  source?: string;
+  evidence?: string[];
+};
+
+function nodeLayerName(context: HermesMappingContext, node: HermesNodeContext) {
+  const layer = context.layers.find((candidate) => candidate._id === node.layerId);
+  return layer?.name.toLowerCase() ?? '';
+}
+
+function nodeMatches(node: HermesNodeContext, context: HermesMappingContext, terms: string[]) {
+  const haystack =
+    `${node.name} ${node.semanticKind ?? ''} ${nodeLayerName(context, node)}`.toLowerCase();
+  return terms.some((term) => haystack.includes(term));
+}
+
+function buildFlowEdges(
+  context: HermesMappingContext,
+  relationshipSuggestions: HermesRelationshipSuggestion[],
+): FlowEdgeCandidate[] {
+  return [
+    ...(context.edges ?? []).map(
+      (edge): FlowEdgeCandidate => ({
+        edgeId: edge._id,
+        sourceNodeId: edge.sourceNodeId,
+        targetNodeId: edge.targetNodeId,
+        type: edge.type,
+        label: edge.label,
+        confidence: edge.confidence,
+        source: edge.source,
+        evidence: edge.evidence,
+      }),
+    ),
+    ...relationshipSuggestions.map(
+      (edge): FlowEdgeCandidate => ({
+        sourceNodeId: edge.sourceNodeId,
+        targetNodeId: edge.targetNodeId,
+        type: edge.type,
+        label: edge.label,
+        confidence: edge.confidence,
+        source: edge.source,
+        evidence: edge.evidence,
+      }),
+    ),
+  ].filter((edge) => edge.sourceNodeId !== edge.targetNodeId);
+}
+
+function makeFlowSuggestion({
+  title,
+  kind,
+  edge,
+  sourceNode,
+  targetNode,
+  reason,
+  evidence,
+}: {
+  title: string;
+  kind: HermesArchitectureFlowKind;
+  edge: FlowEdgeCandidate;
+  sourceNode: HermesNodeContext;
+  targetNode: HermesNodeContext;
+  reason: string;
+  evidence: string[];
+}): HermesArchitectureFlowSuggestion {
+  const confidence = Math.min(0.94, Math.max(0.88, edge.confidence ?? 0.91));
+  return {
+    title,
+    description: `${sourceNode.name} connects to ${targetNode.name}.`,
+    kind,
+    nodeIds: [sourceNode._id, targetNode._id],
+    edgeRefs: [
+      edge.edgeId
+        ? { edgeId: edge.edgeId }
+        : {
+            sourceNodeId: edge.sourceNodeId,
+            targetNodeId: edge.targetNodeId,
+            type: edge.type,
+          },
+    ],
+    steps: [
+      {
+        title: sourceNode.name,
+        description: `Start from ${sourceNode.semanticKind ?? 'mapped'} node.`,
+        nodeIds: [sourceNode._id],
+      },
+      {
+        title: targetNode.name,
+        description: `Continue through ${edge.label ?? edge.type.replace(/_/g, ' ')}.`,
+        nodeIds: [targetNode._id],
+      },
+    ],
+    confidence,
+    reason,
+    evidence,
+    source: 'hermes',
+  };
+}
+
+function architectureFlowSuggestionsFromContext(
+  context: HermesMappingContext,
+  relationshipSuggestions: HermesRelationshipSuggestion[],
+) {
+  const nodeById = new Map(context.nodes.map((node) => [node._id, node]));
+  const existingTitles = new Set(
+    (context.flows ?? [])
+      .filter((flow) => flow.status === 'applied' || flow.status === 'ignored')
+      .map((flow) => flow.title.toLowerCase()),
+  );
+  const seen = new Set<string>();
+  const flows: HermesArchitectureFlowSuggestion[] = [];
+  const edges = buildFlowEdges(context, relationshipSuggestions);
+
+  const add = (flow: HermesArchitectureFlowSuggestion) => {
+    const titleKey = flow.title.toLowerCase();
+    const pairKey = `${flow.kind}|${flow.nodeIds.join('|')}`;
+    if (existingTitles.has(titleKey) || seen.has(pairKey)) return;
+    seen.add(pairKey);
+    flows.push(flow);
+  };
+
+  for (const edge of edges) {
+    const sourceNode = nodeById.get(edge.sourceNodeId);
+    const targetNode = nodeById.get(edge.targetNodeId);
+    if (!sourceNode || !targetNode) continue;
+    const evidence = [
+      ...(edge.evidence ?? []),
+      `${sourceNode.name} -> ${targetNode.name} (${edge.label ?? edge.type})`,
+    ].slice(0, 8);
+
+    if (
+      nodeMatches(sourceNode, context, ['surface', 'frontend', 'page', 'ui']) &&
+      nodeMatches(targetNode, context, ['api', 'backend', 'data', 'storage', 'convex'])
+    ) {
+      add(
+        makeFlowSuggestion({
+          title: `${sourceNode.name} reaches ${targetNode.name}`,
+          kind: edge.type === 'data_flow' ? 'data_flow' : 'user_journey',
+          edge,
+          sourceNode,
+          targetNode,
+          reason:
+            'A surface node connects into backend or data ownership, so this is a readable user-facing architecture flow.',
+          evidence,
+        }),
+      );
+    }
+
+    if (
+      nodeMatches(sourceNode, context, ['agent', 'mcp', 'hermes', 'worker']) ||
+      nodeMatches(targetNode, context, ['agent', 'mcp', 'hermes', 'worker'])
+    ) {
+      add(
+        makeFlowSuggestion({
+          title: `${sourceNode.name} updates ${targetNode.name}`,
+          kind: 'agent_workflow',
+          edge,
+          sourceNode,
+          targetNode,
+          reason:
+            'At least one side of this relationship is an agent or worker node, so it should be reviewed as an agent workflow.',
+          evidence,
+        }),
+      );
+    }
+
+    if (
+      edge.type === 'data_flow' ||
+      nodeMatches(targetNode, context, ['data', 'storage', 'database', 'convex'])
+    ) {
+      add(
+        makeFlowSuggestion({
+          title: `${sourceNode.name} writes through ${targetNode.name}`,
+          kind: 'data_flow',
+          edge,
+          sourceNode,
+          targetNode,
+          reason: 'The relationship points at data ownership or is explicitly marked as data flow.',
+          evidence,
+        }),
+      );
+    }
+
+    if (
+      nodeMatches(sourceNode, context, ['build', 'deploy', 'infra', 'config']) ||
+      nodeMatches(targetNode, context, ['build', 'deploy', 'infra', 'config'])
+    ) {
+      add(
+        makeFlowSuggestion({
+          title: `${sourceNode.name} supports ${targetNode.name}`,
+          kind: 'build_deploy',
+          edge,
+          sourceNode,
+          targetNode,
+          reason: 'This relationship touches infrastructure, config, build, or deploy concerns.',
+          evidence,
+        }),
+      );
+    }
+
+    if (flows.length >= 5) break;
+  }
+
+  return flows;
 }
 
 export async function heuristicHermesMapper(
@@ -482,8 +738,11 @@ export async function heuristicHermesMapper(
     });
   }
 
+  const relationshipSuggestions = relationshipSuggestionsFromImports(context, factByPath);
+
   return {
     suggestions,
-    relationshipSuggestions: relationshipSuggestionsFromImports(context, factByPath),
+    relationshipSuggestions,
+    flowSuggestions: architectureFlowSuggestionsFromContext(context, relationshipSuggestions),
   };
 }

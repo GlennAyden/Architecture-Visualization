@@ -100,6 +100,49 @@ describe('readSuggestionsPayload', () => {
     });
   });
 
+  test('accepts architecture flow suggestions for Hermes flow review', () => {
+    const root = tempRepo();
+    const file = join(root, 'flow-suggestions.json');
+    writeFileSync(
+      file,
+      JSON.stringify({
+        flowSuggestions: [
+          {
+            title: 'User login reaches data layer',
+            description: 'Login surface calls the API and persists user state.',
+            kind: 'user_journey',
+            nodeIds: ['nodes:surface', 'nodes:api', 'nodes:data'],
+            steps: [
+              {
+                title: 'Submit credentials',
+                nodeIds: ['nodes:surface'],
+                description: 'The browser sends the login form.',
+              },
+              {
+                title: 'Validate user',
+                nodeIds: ['nodes:api'],
+                description: 'The backend validates and writes the session.',
+              },
+            ],
+            confidence: 0.91,
+            reason: 'The files and edges describe a real login path.',
+          },
+        ],
+      }),
+    );
+
+    expect(readSuggestionsPayload(file)).toMatchObject({
+      suggestions: [],
+      flowSuggestions: [
+        {
+          title: 'User login reaches data layer',
+          kind: 'user_journey',
+          source: 'hermes',
+        },
+      ],
+    });
+  });
+
   test('fails loudly on malformed JSON', () => {
     const root = tempRepo();
     const file = join(root, 'bad.json');
@@ -155,6 +198,7 @@ describe('runPushSuggestions', () => {
             },
           ],
           relationshipSuggestions: [],
+          flowSuggestions: [],
         },
       },
     ]);

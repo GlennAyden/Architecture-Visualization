@@ -170,6 +170,62 @@ describe('pushCodebaseSuggestionsInput', () => {
     expect(parsed.relationshipSuggestions).toHaveLength(1);
   });
 
+  test('accepts flow-only payloads for semantic architecture review', () => {
+    const parsed = pushCodebaseSuggestionsInput.parse({
+      flowSuggestions: [
+        {
+          title: 'User login flow',
+          description: 'Browser submits credentials and the backend creates a session.',
+          kind: 'user_journey',
+          nodeIds: ['nodes:surface', 'nodes:api'],
+          edgeRefs: [
+            {
+              sourceNodeId: 'nodes:surface',
+              targetNodeId: 'nodes:api',
+              type: 'data_flow',
+            },
+          ],
+          steps: [
+            {
+              title: 'Submit credentials',
+              description: 'The login surface calls the auth API.',
+              nodeIds: ['nodes:surface', 'nodes:api'],
+            },
+          ],
+          confidence: 0.91,
+          reason: 'The selected nodes and edge form a reviewable user journey.',
+          evidence: ['Login node sends data to API node'],
+        },
+      ],
+    });
+
+    expect(parsed.suggestions).toEqual([]);
+    expect(parsed.relationshipSuggestions).toEqual([]);
+    expect(parsed.flowSuggestions[0]).toMatchObject({
+      title: 'User login flow',
+      kind: 'user_journey',
+      source: 'hermes',
+    });
+  });
+
+  test('rejects flows without at least two nodes', () => {
+    expect(() =>
+      pushCodebaseSuggestionsInput.parse({
+        flowSuggestions: [
+          {
+            title: 'Too small',
+            description: 'Not enough context.',
+            kind: 'system_process',
+            nodeIds: ['nodes:only'],
+            steps: [{ title: 'One node', description: 'Cannot form a flow.' }],
+            confidence: 0.8,
+            reason: 'Needs more than one node.',
+          },
+        ],
+      }),
+    ).toThrow();
+  });
+
   test('accepts V2 action suggestions for link, group, and ignore', () => {
     const parsed = pushCodebaseSuggestionsInput.parse({
       runId: 'runs:abc',
@@ -293,10 +349,22 @@ describe('hermesMappingRunCompleteInput', () => {
           reason: 'Static import resolves to the target node.',
         },
       ],
+      flowSuggestions: [
+        {
+          title: 'Auth proxy flow',
+          description: 'Web auth route talks to the VPS backend.',
+          kind: 'integration',
+          nodeIds: ['nodes:a', 'nodes:b'],
+          steps: [{ title: 'Proxy request', description: 'The route forwards to the backend.' }],
+          confidence: 0.9,
+          reason: 'A data-flow relationship connects both nodes.',
+        },
+      ],
     });
 
     expect(parsed.suggestions[0]!.action).toBe('ignore');
     expect(parsed.relationshipSuggestions[0]!.type).toBe('dependency');
+    expect(parsed.flowSuggestions[0]!.kind).toBe('integration');
   });
 
   test('requires a safe error message for failed run completion', () => {

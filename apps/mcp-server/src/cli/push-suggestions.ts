@@ -16,6 +16,8 @@ interface PushSuggestionsResponse {
   ignored?: number;
   relationshipPending?: number;
   relationshipApplied?: number;
+  flowPending?: number;
+  flowApplied?: number;
   skipped: Array<{ filePath: string; reason: string }>;
 }
 
@@ -109,16 +111,71 @@ const relationshipSuggestionSchema = z
     message: 'sourceNodeId and targetNodeId must differ',
   });
 
+const flowEdgeRefSchema = z
+  .object({
+    edgeId: z.string().trim().min(1).optional(),
+    sourceNodeId: z.string().trim().min(1).optional(),
+    targetNodeId: z.string().trim().min(1).optional(),
+    type: z.enum(['hierarchy', 'dependency', 'navigation', 'data_flow']).optional(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      Boolean(value.edgeId) || Boolean(value.sourceNodeId && value.targetNodeId && value.type),
+    { message: 'edgeRef requires edgeId or sourceNodeId/targetNodeId/type' },
+  )
+  .refine(
+    (value) =>
+      !value.sourceNodeId || !value.targetNodeId || value.sourceNodeId !== value.targetNodeId,
+    { message: 'edgeRef sourceNodeId and targetNodeId must differ' },
+  );
+
+const flowStepSchema = z
+  .object({
+    title: z.string().trim().min(1).max(120),
+    description: z.string().trim().max(600),
+    nodeIds: z.array(z.string().trim().min(1)).max(12).optional(),
+    edgeRefs: z.array(flowEdgeRefSchema).max(20).optional(),
+  })
+  .strict();
+
+const flowSuggestionSchema = z
+  .object({
+    title: z.string().trim().min(1).max(120),
+    description: z.string().trim().max(1000),
+    kind: z.enum([
+      'user_journey',
+      'system_process',
+      'data_flow',
+      'agent_workflow',
+      'build_deploy',
+      'integration',
+    ]),
+    nodeIds: z.array(z.string().trim().min(1)).min(2).max(40),
+    edgeRefs: z.array(flowEdgeRefSchema).max(100).optional(),
+    steps: z.array(flowStepSchema).min(1).max(12),
+    confidence: z.number().min(0).max(1),
+    reason: z.string().trim().min(1).max(1000),
+    evidence: z.array(z.string().trim().min(1).max(240)).max(8).optional(),
+    source: z.string().trim().min(1).max(80).default('hermes'),
+  })
+  .strict();
+
 const pushSuggestionsSchema = z
   .object({
     runId: z.string().trim().min(1).optional(),
     suggestions: z.array(suggestionSchema).max(500).default([]),
     relationshipSuggestions: z.array(relationshipSuggestionSchema).max(500).default([]),
+    flowSuggestions: z.array(flowSuggestionSchema).max(100).default([]),
   })
   .strict()
-  .refine((value) => value.suggestions.length > 0 || value.relationshipSuggestions.length > 0, {
-    message: 'At least one suggestion is required',
-  });
+  .refine(
+    (value) =>
+      value.suggestions.length > 0 ||
+      value.relationshipSuggestions.length > 0 ||
+      value.flowSuggestions.length > 0,
+    { message: 'At least one suggestion is required' },
+  );
 
 export function parsePushSuggestionsArgs(argv: string[]): PushSuggestionsArgs {
   const fromJsonIndex = argv.indexOf('--from-json');
@@ -164,7 +221,7 @@ export async function runPushSuggestions(
 
   progress(`[push-suggestions] project=${config.projectId}`);
   progress(
-    `[push-suggestions] suggestions=${payload.suggestions.length}, relationships=${payload.relationshipSuggestions.length}`,
+    `[push-suggestions] suggestions=${payload.suggestions.length}, relationships=${payload.relationshipSuggestions.length}, flows=${payload.flowSuggestions.length}`,
   );
 
   const result = await client.post('/api/mcp/codebase_suggestions/push', payload);
@@ -173,6 +230,8 @@ export async function runPushSuggestions(
       `pending ${result.pending}, ignored ${result.ignored ?? 0}, ` +
       `relationship applied ${result.relationshipApplied ?? 0}, ` +
       `relationship pending ${result.relationshipPending ?? 0}, ` +
+      `flow applied ${result.flowApplied ?? 0}, ` +
+      `flow pending ${result.flowPending ?? 0}, ` +
       `skipped ${result.skipped.length}.`,
   );
   return 0;

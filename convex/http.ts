@@ -469,6 +469,34 @@ http.route({
           evidence: suggestion.evidence,
           source: suggestion.source,
         })),
+        flowSuggestions: input.flowSuggestions.map((flow) => ({
+          runId: input.runId as Id<'hermesMappingRuns'> | undefined,
+          title: flow.title,
+          description: flow.description,
+          kind: flow.kind,
+          nodeIds: flow.nodeIds.map((nodeId) => nodeId as Id<'nodes'>),
+          edgeRefs: flow.edgeRefs?.map((ref) => ({
+            edgeId: ref.edgeId as Id<'nodeEdges'> | undefined,
+            sourceNodeId: ref.sourceNodeId as Id<'nodes'> | undefined,
+            targetNodeId: ref.targetNodeId as Id<'nodes'> | undefined,
+            type: ref.type,
+          })),
+          steps: flow.steps.map((step) => ({
+            title: step.title,
+            description: step.description,
+            nodeIds: step.nodeIds?.map((nodeId) => nodeId as Id<'nodes'>),
+            edgeRefs: step.edgeRefs?.map((ref) => ({
+              edgeId: ref.edgeId as Id<'nodeEdges'> | undefined,
+              sourceNodeId: ref.sourceNodeId as Id<'nodes'> | undefined,
+              targetNodeId: ref.targetNodeId as Id<'nodes'> | undefined,
+              type: ref.type,
+            })),
+          })),
+          confidence: flow.confidence,
+          reason: flow.reason,
+          evidence: flow.evidence,
+          source: flow.source,
+        })),
       }),
   }),
 });
@@ -535,6 +563,33 @@ http.route({
           reason: suggestion.reason,
           evidence: suggestion.evidence,
           source: suggestion.source,
+        })),
+        flowSuggestions: parsed.data.flowSuggestions.map((flow) => ({
+          title: flow.title,
+          description: flow.description,
+          kind: flow.kind,
+          nodeIds: flow.nodeIds.map((nodeId) => nodeId as Id<'nodes'>),
+          edgeRefs: flow.edgeRefs?.map((ref) => ({
+            edgeId: ref.edgeId as Id<'nodeEdges'> | undefined,
+            sourceNodeId: ref.sourceNodeId as Id<'nodes'> | undefined,
+            targetNodeId: ref.targetNodeId as Id<'nodes'> | undefined,
+            type: ref.type,
+          })),
+          steps: flow.steps.map((step) => ({
+            title: step.title,
+            description: step.description,
+            nodeIds: step.nodeIds?.map((nodeId) => nodeId as Id<'nodes'>),
+            edgeRefs: step.edgeRefs?.map((ref) => ({
+              edgeId: ref.edgeId as Id<'nodeEdges'> | undefined,
+              sourceNodeId: ref.sourceNodeId as Id<'nodes'> | undefined,
+              targetNodeId: ref.targetNodeId as Id<'nodes'> | undefined,
+              type: ref.type,
+            })),
+          })),
+          confidence: flow.confidence,
+          reason: flow.reason,
+          evidence: flow.evidence,
+          source: flow.source,
         })),
       });
       return jsonResponse(result);
