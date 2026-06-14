@@ -56,6 +56,16 @@ export function stripPrivateAuthFields(data: BackendAuthResponse) {
   return publicData;
 }
 
+function resolveBackendUrl(baseUrl: string, path: string): URL {
+  const base = new URL(baseUrl);
+  const basePath = base.pathname.replace(/\/$/, '');
+  const endpointPath = path.startsWith('/') ? path : `/${path}`;
+  base.pathname = `${basePath}${endpointPath}`;
+  base.search = '';
+  base.hash = '';
+  return base;
+}
+
 export async function callAuthBackend(
   path: string,
   body: object = {},
@@ -70,7 +80,7 @@ export async function callAuthBackend(
   }
 
   try {
-    const url = new URL(path, baseUrl);
+    const url = resolveBackendUrl(baseUrl, path);
     const response = await fetch(url, {
       method: 'POST',
       headers: {

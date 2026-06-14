@@ -62,4 +62,21 @@ describe('web auth proxy', () => {
       },
     );
   });
+
+  test('preserves a backend base path for relay deployments', async () => {
+    process.env.ARCHVIZ_AUTH_BACKEND_URL = 'https://auth.archviz.example/__archviz-relay';
+    process.env.ARCHVIZ_AUTH_BACKEND_TOKEN = 'proxy-secret';
+    const fetchMock = vi.fn(async () => Response.json({ ok: true }));
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    await expect(callAuthBackend('/auth/me')).resolves.toEqual({
+      status: 200,
+      data: { ok: true },
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL('https://auth.archviz.example/__archviz-relay/auth/me'),
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
 });
