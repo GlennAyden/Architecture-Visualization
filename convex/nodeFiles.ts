@@ -1,6 +1,7 @@
 import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
-import { getNodeIfAccessible, requireProjectAccess } from './lib/auth';
+import { getNodeIfAccessible, getProjectIfAccessible, requireProjectAccess } from './lib/auth';
+import { linkedFileRoleValidator } from './lib/semantic';
 
 export const listByNode = query({
   args: { nodeId: v.id('nodes') },
@@ -15,8 +16,8 @@ export const listByNode = query({
 });
 
 export const add = mutation({
-  args: { nodeId: v.id('nodes'), path: v.string() },
-  handler: async (ctx, { nodeId, path }) => {
+  args: { nodeId: v.id('nodes'), path: v.string(), role: v.optional(linkedFileRoleValidator) },
+  handler: async (ctx, { nodeId, path, role }) => {
     const trimmed = path.trim();
     if (trimmed.length === 0) throw new Error('File path is required');
     if (trimmed.length > 500) throw new Error('File path must be 500 characters or fewer');
@@ -30,9 +31,44 @@ export const add = mutation({
       .withIndex('by_node', (q) => q.eq('nodeId', nodeId))
       .collect();
     const dupe = existing.find((f) => f.path === trimmed);
-    if (dupe) return dupe._id;
+    if (dupe) {
+      if (role && dupe.role !== role) await ctx.db.patch(dupe._id, { role });
+      return dupe._id;
+    }
 
-    return await ctx.db.insert('nodeFiles', { nodeId, path: trimmed });
+    return await ctx.db.insert('nodeFiles', { nodeId, path: trimmed, role });
+  },
+});
+
+export const summaryByProject = query({
+  args: { projectId: v.id('projects') },
+  handler: async (ctx, { projectId }) => {
+    const project = await getProjectIfAccessible(ctx, projectId);
+    if (!project) return [];
+
+    const nodes = await ctx.db
+      .query('nodes')
+      .withIndex('by_project', (q) => q.eq('projectId', projectId))
+      .collect();
+    const summaries = [];
+    for (const node of nodes) {
+      const files = await ctx.db
+        .query('nodeFiles')
+        .withIndex('by_node', (q) => q.eq('nodeId', node._id))
+        .collect();
+      const active = files.filter((file) => !file.archived);
+      summaries.push({
+        nodeId: node._id,
+        fileCount: active.length,
+        verifiedCount: active.filter((file) => file.verifiedAt).length,
+        roles: active.reduce<Record<string, number>>((acc, file) => {
+          const role = file.role ?? 'support';
+          acc[role] = (acc[role] ?? 0) + 1;
+          return acc;
+        }, {}),
+      });
+    }
+    return summaries;
   },
 });
 

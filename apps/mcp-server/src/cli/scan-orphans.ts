@@ -24,6 +24,9 @@ export interface ScanFileFact {
   exports: string[];
   routeHint?: string;
   apiHint?: string;
+  featureHint?: string;
+  pathGroup?: string;
+  testTargetHint?: string;
 }
 
 /**
@@ -140,6 +143,46 @@ function routeHintFor(path: string): string | undefined {
   return route.length === 0 ? '/' : `/${route}`;
 }
 
+function featureHintFor(path: string): string | undefined {
+  const normalized = path.replace(/\\/g, '/');
+  const route = routeHintFor(normalized);
+  if (route) return route === '/' ? 'home' : route.split('/').filter(Boolean).at(-1);
+  const parts = normalized.split('/');
+  const componentIndex = parts.findIndex((part) => part === 'components');
+  if (componentIndex >= 0 && parts[componentIndex + 1]) return parts[componentIndex + 1];
+  const appIndex = parts.findIndex((part) => part === 'app');
+  if (appIndex >= 0 && parts[appIndex + 1]) return parts[appIndex + 1];
+  const convexIndex = parts.findIndex((part) => part === 'convex');
+  if (convexIndex >= 0 && parts[convexIndex + 1]) {
+    return parts[convexIndex + 1]!.replace(/\.[^.]+$/, '');
+  }
+  const srcIndex = parts.findIndex((part) => part === 'src');
+  if (srcIndex >= 0 && parts[srcIndex + 1]) return parts[srcIndex + 1];
+  return parts.at(-1)?.replace(/\.[^.]+$/, '');
+}
+
+function pathGroupFor(path: string): string | undefined {
+  const normalized = path.replace(/\\/g, '/');
+  const parts = normalized.split('/');
+  if (normalized.startsWith('apps/web/app/api/')) return 'web-api';
+  if (normalized.startsWith('apps/web/app/')) return 'web-app';
+  if (normalized.startsWith('apps/web/components/')) return 'web-components';
+  if (normalized.startsWith('apps/vps-api/')) return 'vps-api';
+  if (normalized.startsWith('apps/mcp-server/')) return 'mcp-server';
+  if (normalized.startsWith('packages/shared/')) return 'shared-contracts';
+  if (normalized.startsWith('convex/')) return 'convex';
+  return parts.slice(0, 2).join('/') || undefined;
+}
+
+function testTargetHintFor(path: string): string | undefined {
+  const normalized = path.replace(/\\/g, '/');
+  if (!/\.(test|spec)\.[cm]?[tj]sx?$/.test(normalized.toLowerCase())) return undefined;
+  return normalized
+    .replace(/(^|\/)__tests__\//g, '$1')
+    .replace(/\/tests\//g, '/')
+    .replace(/\.(test|spec)(\.[cm]?[tj]sx?)$/, '$2');
+}
+
 export function buildFileFacts(rootDir: string, files: ReadonlyArray<string>): ScanFileFact[] {
   return files.map((path) => {
     let text = '';
@@ -168,8 +211,14 @@ export function buildFileFacts(rootDir: string, files: ReadonlyArray<string>): S
     const routeHint = routeHintFor(path);
     const kind = classifyFile(path);
     const fact: ScanFileFact = { path, kind, imports, exports };
+    const featureHint = featureHintFor(path);
+    const pathGroup = pathGroupFor(path);
+    const testTargetHint = testTargetHintFor(path);
     if (routeHint) fact.routeHint = routeHint;
     if (kind === 'api' && routeHint) fact.apiHint = routeHint;
+    if (featureHint) fact.featureHint = featureHint;
+    if (pathGroup) fact.pathGroup = pathGroup;
+    if (testTargetHint) fact.testTargetHint = testTargetHint;
     return fact;
   });
 }

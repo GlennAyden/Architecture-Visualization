@@ -24,12 +24,7 @@ export async function ensureEdge(
   const existing = await ctx.db
     .query('nodeEdges')
     .withIndex('by_source', (q) => q.eq('sourceNodeId', sourceNodeId))
-    .filter((q) =>
-      q.and(
-        q.eq(q.field('targetNodeId'), targetNodeId),
-        q.eq(q.field('type'), type),
-      ),
-    )
+    .filter((q) => q.and(q.eq(q.field('targetNodeId'), targetNodeId), q.eq(q.field('type'), type)))
     .first();
 
   if (existing) {
@@ -47,6 +42,39 @@ export async function ensureEdge(
     type,
     source,
   });
+}
+
+export async function upsertManualEdge(
+  ctx: MutationCtx,
+  args: {
+    projectId: Id<'projects'>;
+    sourceNodeId: Id<'nodes'>;
+    targetNodeId: Id<'nodes'>;
+    type: Exclude<EdgeType, 'hierarchy'>;
+    label?: string;
+    confidence?: number;
+    reason?: string;
+    evidence?: string[];
+    sourceRunId?: Id<'hermesMappingRuns'>;
+  },
+): Promise<Id<'nodeEdges'>> {
+  const edgeId = await ensureEdge(
+    ctx,
+    args.projectId,
+    args.sourceNodeId,
+    args.targetNodeId,
+    args.type,
+    'manual',
+  );
+  await ctx.db.patch(edgeId, {
+    source: 'manual',
+    label: args.label,
+    confidence: args.confidence,
+    reason: args.reason,
+    evidence: args.evidence,
+    sourceRunId: args.sourceRunId,
+  });
+  return edgeId;
 }
 
 /**

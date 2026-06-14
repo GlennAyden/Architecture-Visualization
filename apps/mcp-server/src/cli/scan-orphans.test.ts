@@ -116,6 +116,12 @@ describe('buildFileFacts', () => {
       exports: ['POST'],
       routeHint: '/api/auth/login',
       apiHint: '/api/auth/login',
+      featureHint: 'login',
+      pathGroup: 'web-api',
+    });
+    expect(facts[3]).toMatchObject({
+      testTargetHint: 'convex/codebaseSuggestions.ts',
+      pathGroup: 'convex',
     });
   });
 });

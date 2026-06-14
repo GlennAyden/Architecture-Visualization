@@ -4,6 +4,12 @@ import { internalMutation, mutation, query, type MutationCtx } from './_generate
 import { getProfile, getProjectIfAccessible, requireProjectAccess } from './lib/auth';
 import { hashToken } from './lib/tokens';
 import { upsertSuggestion } from './lib/codebaseSuggestions';
+import { upsertRelationshipSuggestion } from './lib/relationshipSuggestions';
+import {
+  linkedFileRoleValidator,
+  manualEdgeTypeValidator,
+  nodeSemanticKindValidator,
+} from './lib/semantic';
 
 const mappingRunSource = v.union(v.literal('canvas'), v.literal('discord'), v.literal('cli'));
 const mappingRunScope = v.union(v.literal('orphans'), v.literal('project'));
@@ -22,6 +28,19 @@ const suggestionValidator = v.object({
   targetNodeId: v.optional(v.id('nodes')),
   groupKey: v.optional(v.string()),
   suggestedNodeName: v.optional(v.string()),
+  confidence: v.number(),
+  reason: v.string(),
+  evidence: v.optional(v.array(v.string())),
+  semanticKind: v.optional(nodeSemanticKindValidator),
+  fileRole: v.optional(linkedFileRoleValidator),
+  source: v.string(),
+});
+
+const relationshipSuggestionValidator = v.object({
+  sourceNodeId: v.id('nodes'),
+  targetNodeId: v.id('nodes'),
+  type: manualEdgeTypeValidator,
+  label: v.optional(v.string()),
   confidence: v.number(),
   reason: v.string(),
   evidence: v.optional(v.array(v.string())),
@@ -124,10 +143,29 @@ export const buildContext = query({
           type: node.type,
           layerId: node.layerId,
           parentId: node.parentId,
+          semanticKind: node.semanticKind,
+          mappingStatus: node.mappingStatus,
+          mappingConfidence: node.mappingConfidence,
           files: files.filter((file) => !file.archived).map((file) => file.path),
+          linkedFiles: files
+            .filter((file) => !file.archived)
+            .map((file) => ({
+              path: file.path,
+              role: file.role,
+              source: file.source,
+              confidence: file.confidence,
+              reason: file.reason,
+              evidence: file.evidence,
+              verifiedAt: file.verifiedAt,
+            })),
         };
       }),
     );
+
+    const edges = await ctx.db
+      .query('nodeEdges')
+      .withIndex('by_project', (q) => q.eq('projectId', projectId))
+      .take(1000);
 
     const snapshots = await ctx.db
       .query('scanSnapshots')
@@ -136,6 +174,7 @@ export const buildContext = query({
 
     const statuses = ['pending', 'applied', 'rejected', 'ignored'] as const;
     const suggestions = [];
+    const relationshipSuggestions = [];
     for (const status of statuses) {
       const rows = await ctx.db
         .query('codebaseSuggestions')
@@ -152,19 +191,52 @@ export const buildContext = query({
           confidence: row.confidence,
         })),
       );
+
+      const relationshipRows = await ctx.db
+        .query('relationshipSuggestions')
+        .withIndex('by_project_status', (q) => q.eq('projectId', projectId).eq('status', status))
+        .take(100);
+      relationshipSuggestions.push(
+        ...relationshipRows.map((row) => ({
+          sourceNodeId: row.sourceNodeId,
+          targetNodeId: row.targetNodeId,
+          type: row.type,
+          label: row.label,
+          status: row.status,
+          confidence: row.confidence,
+        })),
+      );
     }
 
     return {
       runId,
       project: { _id: project._id, name: project.name },
       layers: layers
-        .map((layer) => ({ _id: layer._id, name: layer.name, position: layer.position }))
+        .map((layer) => ({
+          _id: layer._id,
+          name: layer.name,
+          position: layer.position,
+          purpose: layer.purpose,
+          description: layer.description,
+        }))
         .sort((a, b) => a.position - b.position),
       nodes: nodesWithFiles,
+      edges: edges.map((edge) => ({
+        _id: edge._id,
+        sourceNodeId: edge.sourceNodeId,
+        targetNodeId: edge.targetNodeId,
+        type: edge.type,
+        source: edge.source,
+        label: edge.label,
+        confidence: edge.confidence,
+        reason: edge.reason,
+        evidence: edge.evidence,
+      })),
       latestScan: snapshots[0]
         ? { id: snapshots[0]._id, createdAt: snapshots[0]._creationTime, data: snapshots[0].data }
         : null,
       suggestions,
+      relationshipSuggestions,
     };
   },
 });
@@ -212,6 +284,13 @@ async function countRunSuggestions(
       .take(500);
     counts[status] = rows.filter((row) => row.runId === runId).length;
   }
+  for (const status of statuses) {
+    const rows = await ctx.db
+      .query('relationshipSuggestions')
+      .withIndex('by_project_status', (q) => q.eq('projectId', projectId).eq('status', status))
+      .take(500);
+    counts[status] += rows.filter((row) => row.runId === runId).length;
+  }
   return counts;
 }
 
@@ -222,6 +301,7 @@ export const complete = internalMutation({
     status: v.union(v.literal('completed'), v.literal('failed')),
     errorMessage: v.optional(v.string()),
     suggestions: v.array(suggestionValidator),
+    relationshipSuggestions: v.optional(v.array(relationshipSuggestionValidator)),
   },
   handler: async (ctx, args) => {
     const run = await ctx.db.get(args.runId);
@@ -246,10 +326,17 @@ export const complete = internalMutation({
       });
     }
 
+    for (const suggestion of args.relationshipSuggestions ?? []) {
+      await upsertRelationshipSuggestion(ctx, run.projectId, {
+        ...suggestion,
+        runId: args.runId,
+      });
+    }
+
     const counts = await countRunSuggestions(ctx, run.projectId, args.runId);
     await ctx.db.patch(args.runId, {
       status: 'completed',
-      suggestedCount: args.suggestions.length,
+      suggestedCount: args.suggestions.length + (args.relationshipSuggestions ?? []).length,
       appliedCount: counts.applied,
       pendingCount: counts.pending,
       ignoredCount: counts.ignored,

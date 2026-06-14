@@ -24,9 +24,65 @@ export interface PageNodeData extends Record<string, unknown> {
   containerHeight?: number;
   highlighted?: boolean;
   dimmed?: boolean;
+  semanticKind?: string;
+  mappingStatus?: string;
+  mappingConfidence?: number;
+  fileCount?: number;
+  verifiedCount?: number;
+  edgeCount?: number;
 }
 
 export type PageNodeType = Node<PageNodeData, 'page-node'>;
+
+function formatLabel(value: string | undefined) {
+  return (value ?? 'unknown').replace(/_/g, ' ');
+}
+
+function StatusBadge({
+  status,
+  confidence,
+}: {
+  status: string | undefined;
+  confidence: number | undefined;
+}) {
+  const tone =
+    status === 'verified'
+      ? { bg: 'rgba(52, 211, 153, 0.14)', color: '#a7f3d0' }
+      : status === 'auto_mapped'
+        ? { bg: 'rgba(34, 211, 238, 0.14)', color: '#a5f3fc' }
+        : status === 'suggested'
+          ? { bg: 'rgba(250, 204, 21, 0.14)', color: '#fde68a' }
+          : { bg: 'rgba(255,255,255,0.07)', color: '#a1a1aa' };
+  const suffix = confidence !== undefined ? ` ${Math.round(confidence * 100)}%` : '';
+  return (
+    <span
+      style={{
+        maxWidth: '96px',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        borderRadius: '999px',
+        background: tone.bg,
+        color: tone.color,
+        padding: '2px 6px',
+        fontSize: '10px',
+        fontWeight: 600,
+        lineHeight: 1.2,
+      }}
+    >
+      {formatLabel(status)}
+      {suffix}
+    </span>
+  );
+}
+
+function NodeStats({ files, edges }: { files: number | undefined; edges: number | undefined }) {
+  return (
+    <span style={{ color: '#a1a1aa', fontSize: '10px', lineHeight: 1.2 }}>
+      {files ?? 0} files / {edges ?? 0} rel
+    </span>
+  );
+}
 
 export function PageNode({ id, data }: NodeProps<PageNodeType>) {
   // Edge endpoints attach to invisible handles on every side; React Flow
@@ -75,6 +131,8 @@ export function PageNode({ id, data }: NodeProps<PageNodeType>) {
           style={{
             display: 'flex',
             alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '8px',
             height: '40px',
             padding: '0 14px',
             borderBottom: '1px solid rgba(255,255,255,0.1)',
@@ -87,7 +145,10 @@ export function PageNode({ id, data }: NodeProps<PageNodeType>) {
             borderTopRightRadius: '10px',
           }}
         >
-          {data.name}
+          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {data.name}
+          </span>
+          <StatusBadge status={data.mappingStatus} confidence={data.mappingConfidence} />
         </div>
       </div>
     );
@@ -102,8 +163,10 @@ export function PageNode({ id, data }: NodeProps<PageNodeType>) {
         width: PAGE_NODE_DEFAULT_WIDTH,
         height: PAGE_NODE_DEFAULT_HEIGHT,
         display: 'flex',
-        alignItems: 'center',
+        flexDirection: 'column',
+        alignItems: 'stretch',
         justifyContent: 'center',
+        gap: '8px',
         padding: '12px',
         borderRadius: '8px',
         border: data.highlighted ? '1.5px solid #facc15' : '1px solid rgba(255,255,255,0.12)',
@@ -126,7 +189,45 @@ export function PageNode({ id, data }: NodeProps<PageNodeType>) {
       <Handle type="source" position={Position.Bottom} style={handleStyle} id="b" />
       <Handle type="target" position={Position.Left} style={handleStyle} id="l" />
       <Handle type="source" position={Position.Right} style={handleStyle} id="r" />
-      <span>{data.name}</span>
+      <span
+        style={{
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          textAlign: 'center',
+        }}
+      >
+        {data.name}
+      </span>
+      <span
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '6px',
+          minWidth: 0,
+        }}
+      >
+        <span
+          style={{
+            maxWidth: '86px',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            borderRadius: '999px',
+            background: 'rgba(34, 211, 238, 0.12)',
+            color: '#a5f3fc',
+            padding: '2px 6px',
+            fontSize: '10px',
+            fontWeight: 600,
+            lineHeight: 1.2,
+          }}
+        >
+          {formatLabel(data.semanticKind)}
+        </span>
+        <StatusBadge status={data.mappingStatus} confidence={data.mappingConfidence} />
+      </span>
+      <NodeStats files={data.fileCount} edges={data.edgeCount} />
     </div>
   );
 }

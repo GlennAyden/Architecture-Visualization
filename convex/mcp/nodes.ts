@@ -3,6 +3,11 @@ import { internalMutation, internalQuery } from '../_generated/server';
 import { deleteNodeCascade } from '../lib/cascade';
 import { ensureHierarchyEdge } from '../lib/edges';
 import { defaultNodePosition, resolveNodeLayer } from '../lib/layers';
+import {
+  linkedFileRoleValidator,
+  mappingStatusValidator,
+  nodeSemanticKindValidator,
+} from '../lib/semantic';
 import { ForbiddenError, requireNodeOwnership, requireOwnership } from './lib';
 
 export const getProjectSummary = internalQuery({
@@ -34,6 +39,9 @@ export const listForProject = internalQuery({
       positionX: n.positionX,
       positionY: n.positionY,
       layerId: n.layerId ?? null,
+      semanticKind: n.semanticKind ?? null,
+      mappingStatus: n.mappingStatus ?? null,
+      mappingConfidence: n.mappingConfidence ?? null,
     }));
   },
 });
@@ -70,7 +78,19 @@ export const getDetail = internalQuery({
       // navigation / data-flow walkers can build a route→node and
       // apiPath→node lookup from a single `nodes/get` pass per node.
       metadata: (node.metadata ?? null) as Record<string, unknown> | null,
-      files: files.map((f) => ({ id: f._id, path: f.path })),
+      semanticKind: node.semanticKind ?? null,
+      mappingStatus: node.mappingStatus ?? null,
+      mappingConfidence: node.mappingConfidence ?? null,
+      files: files.map((f) => ({
+        id: f._id,
+        path: f.path,
+        role: f.role ?? null,
+        source: f.source ?? null,
+        confidence: f.confidence ?? null,
+        reason: f.reason ?? null,
+        evidence: f.evidence ?? null,
+        verifiedAt: f.verifiedAt ?? null,
+      })),
       kanbanTasks: tasks
         .sort((a, b) => a.position - b.position)
         .map((t) => ({
@@ -96,6 +116,10 @@ export const createForProject = internalMutation({
     files: v.optional(v.array(v.string())),
     positionX: v.optional(v.number()),
     positionY: v.optional(v.number()),
+    semanticKind: v.optional(nodeSemanticKindValidator),
+    mappingStatus: v.optional(mappingStatusValidator),
+    mappingConfidence: v.optional(v.number()),
+    fileRole: v.optional(linkedFileRoleValidator),
   },
   handler: async (ctx, args) => {
     await requireOwnership(ctx, args.userId, args.scopeProjectId);
@@ -147,6 +171,9 @@ export const createForProject = internalMutation({
       description: args.description?.trim() || undefined,
       positionX,
       positionY,
+      semanticKind: args.semanticKind,
+      mappingStatus: args.mappingStatus ?? 'manual',
+      mappingConfidence: args.mappingConfidence,
     });
 
     if (args.files && args.files.length > 0) {
@@ -156,7 +183,7 @@ export const createForProject = internalMutation({
         if (p.length === 0 || p.length > 500) continue;
         if (seen.has(p)) continue;
         seen.add(p);
-        await ctx.db.insert('nodeFiles', { nodeId, path: p });
+        await ctx.db.insert('nodeFiles', { nodeId, path: p, role: args.fileRole });
       }
     }
 
@@ -180,6 +207,9 @@ export const updateForProject = internalMutation({
     // Free-form JSON. Sprint 3 reads `metadata.route` and `metadata.apiPaths`
     // from this when running the navigation / data-flow heuristic walkers.
     metadata: v.optional(v.any()),
+    semanticKind: v.optional(nodeSemanticKindValidator),
+    mappingStatus: v.optional(mappingStatusValidator),
+    mappingConfidence: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const node = await ctx.db.get(args.nodeId);
@@ -199,6 +229,9 @@ export const updateForProject = internalMutation({
     if (args.description !== undefined) patch.description = args.description.trim() || undefined;
     if (args.positionX !== undefined) patch.positionX = args.positionX;
     if (args.positionY !== undefined) patch.positionY = args.positionY;
+    if (args.semanticKind !== undefined) patch.semanticKind = args.semanticKind;
+    if (args.mappingStatus !== undefined) patch.mappingStatus = args.mappingStatus;
+    if (args.mappingConfidence !== undefined) patch.mappingConfidence = args.mappingConfidence;
     if (args.metadata !== undefined) {
       // Merge over existing metadata so a partial update doesn't wipe other
       // heuristic fields. Pass an empty object to clear, or set specific

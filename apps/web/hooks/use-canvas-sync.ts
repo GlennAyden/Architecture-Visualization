@@ -29,6 +29,12 @@ import {
 export type ArchNode = PageNodeType | FeatureNodeType;
 
 type EdgeType = Doc<'nodeEdges'>['type'];
+export type NodeSummary = {
+  nodeId: string;
+  fileCount: number;
+  verifiedCount: number;
+  roles: Record<string, number>;
+};
 type HighlightMode = {
   edgeTypes: ReadonlyArray<EdgeType>;
 };
@@ -111,6 +117,8 @@ function convexEdgeToRf(edge: Doc<'nodeEdges'>, highlightMode: HighlightMode | u
 function buildRfNodes(
   visibleNodes: Doc<'nodes'>[],
   highlightedNodeIds: ReadonlySet<string> | undefined,
+  nodeSummaries: ReadonlyMap<string, NodeSummary>,
+  edgeCounts: ReadonlyMap<string, number>,
 ): ArchNode[] {
   if (visibleNodes.length === 0) return [];
   const hasHighlight = highlightedNodeIds !== undefined;
@@ -160,6 +168,15 @@ function buildRfNodes(
     const parentName = parent?.name ?? null;
     const highlighted = highlightedNodeIds?.has(id) ?? false;
     const dimmed = hasHighlight && !highlighted;
+    const summary = nodeSummaries.get(id);
+    const commonData = {
+      semanticKind: n.semanticKind ?? 'unknown',
+      mappingStatus: n.mappingStatus ?? 'manual',
+      mappingConfidence: n.mappingConfidence,
+      fileCount: summary?.fileCount ?? 0,
+      verifiedCount: summary?.verifiedCount ?? 0,
+      edgeCount: edgeCounts.get(id) ?? 0,
+    };
 
     if (n.type === 'feature') {
       // A feature with no in-scope parent (e.g. drilled into the feature
@@ -170,7 +187,14 @@ function buildRfNodes(
           id,
           type: 'feature-node',
           position: { x: n.positionX, y: n.positionY },
-          data: { name: n.name, parentName: null, insideCluster: false, highlighted, dimmed },
+          data: {
+            name: n.name,
+            parentName: null,
+            insideCluster: false,
+            highlighted,
+            dimmed,
+            ...commonData,
+          },
         } satisfies FeatureNodeType;
       }
       // Inside a visible parent cluster the subtitle is redundant — the
@@ -185,7 +209,7 @@ function buildRfNodes(
           x: n.positionX - parent.positionX,
           y: n.positionY - parent.positionY,
         },
-        data: { name: n.name, parentName, insideCluster: true, highlighted, dimmed },
+        data: { name: n.name, parentName, insideCluster: true, highlighted, dimmed, ...commonData },
       } satisfies FeatureNodeType;
     }
 
@@ -209,6 +233,7 @@ function buildRfNodes(
           containerHeight: size.h,
           highlighted,
           dimmed,
+          ...commonData,
         },
       } satisfies PageNodeType;
     }
@@ -217,7 +242,7 @@ function buildRfNodes(
       id,
       type: 'page-node',
       position: { x: n.positionX, y: n.positionY },
-      data: { name: n.name, hasChildren: false, highlighted, dimmed },
+      data: { name: n.name, hasChildren: false, highlighted, dimmed, ...commonData },
     } satisfies PageNodeType;
   });
 }
@@ -254,6 +279,7 @@ function filterToDescendants(nodes: Doc<'nodes'>[], drillNodeId: Id<'nodes'>): D
 interface Args {
   nodes: Doc<'nodes'>[] | undefined;
   edges: Doc<'nodeEdges'>[] | undefined;
+  nodeSummaries?: NodeSummary[] | undefined;
   highlightedEdgeTypes?: ReadonlyArray<EdgeType>;
 }
 
@@ -273,7 +299,12 @@ interface SyncResult {
 // so an auth-recovered tick can restore content first.
 const SUSPICIOUS_EMPTY_GRACE_MS = 1500;
 
-export function useCanvasSync({ nodes, edges, highlightedEdgeTypes }: Args): SyncResult {
+export function useCanvasSync({
+  nodes,
+  edges,
+  nodeSummaries,
+  highlightedEdgeTypes,
+}: Args): SyncResult {
   const updateMutation = useMutation(api.nodes.update);
   const removeEdgeMutation = useMutation(api.nodeEdges.remove);
 
@@ -331,6 +362,21 @@ export function useCanvasSync({ nodes, edges, highlightedEdgeTypes }: Args): Syn
     return ids;
   }, [highlightMode, visibleEdges]);
 
+  const summaryByNode = useMemo(() => {
+    return new Map((nodeSummaries ?? []).map((summary) => [summary.nodeId, summary]));
+  }, [nodeSummaries]);
+
+  const edgeCountByNode = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const edge of edges ?? []) {
+      const source = edge.sourceNodeId as string;
+      const target = edge.targetNodeId as string;
+      counts.set(source, (counts.get(source) ?? 0) + 1);
+      counts.set(target, (counts.get(target) ?? 0) + 1);
+    }
+    return counts;
+  }, [edges]);
+
   const [rfNodes, setRfNodes, onNodesChangeInternal] = useNodesState<ArchNode>([]);
   const [rfEdges, setRfEdges, onEdgesChangeInternal] = useEdgesState<Edge>([]);
 
@@ -373,8 +419,8 @@ export function useCanvasSync({ nodes, edges, highlightedEdgeTypes }: Args): Syn
     }
 
     prevNodeCountRef.current = visibleNodes.length;
-    setRfNodes(buildRfNodes(visibleNodes, highlightedNodeIds));
-  }, [visibleNodes, highlightedNodeIds, setRfNodes]);
+    setRfNodes(buildRfNodes(visibleNodes, highlightedNodeIds, summaryByNode, edgeCountByNode));
+  }, [visibleNodes, highlightedNodeIds, summaryByNode, edgeCountByNode, setRfNodes]);
 
   useEffect(() => {
     if (!visibleEdges) return;

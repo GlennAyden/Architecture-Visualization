@@ -154,6 +154,7 @@ describe('runPushSuggestions', () => {
               source: 'hermes',
             },
           ],
+          relationshipSuggestions: [],
         },
       },
     ]);

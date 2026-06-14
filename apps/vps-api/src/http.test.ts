@@ -183,6 +183,20 @@ describe('VPS auth API', () => {
               action: 'ignore',
               confidence: 0.96,
               reason: 'Generated file.',
+              semanticKind: 'unknown',
+              fileRole: 'support',
+              source: 'hermes',
+            },
+          ],
+          relationshipSuggestions: [
+            {
+              sourceNodeId: 'nodes:web',
+              targetNodeId: 'nodes:backend',
+              type: 'dependency',
+              label: 'imports',
+              confidence: 0.91,
+              reason: 'The web node imports backend code.',
+              evidence: ['apps/web/page.tsx imports apps/api/router.ts'],
               source: 'hermes',
             },
           ],
@@ -198,7 +212,21 @@ describe('VPS auth API', () => {
       runId: 'runs:abc',
       submitToken: 'submit-token-submit-token-submit-token',
       status: 'completed',
-      suggestions: [{ filePath: 'convex/_generated/api.js', action: 'ignore' }],
+      suggestions: [
+        {
+          filePath: 'convex/_generated/api.js',
+          action: 'ignore',
+          semanticKind: 'unknown',
+          fileRole: 'support',
+        },
+      ],
+      relationshipSuggestions: [
+        {
+          sourceNodeId: 'nodes:web',
+          targetNodeId: 'nodes:backend',
+          type: 'dependency',
+        },
+      ],
     });
   });
 

@@ -20,9 +20,19 @@ export interface FeatureNodeData extends Record<string, unknown> {
   readOnly?: boolean;
   highlighted?: boolean;
   dimmed?: boolean;
+  semanticKind?: string;
+  mappingStatus?: string;
+  mappingConfidence?: number;
+  fileCount?: number;
+  verifiedCount?: number;
+  edgeCount?: number;
 }
 
 export type FeatureNodeType = Node<FeatureNodeData, 'feature-node'>;
+
+function formatLabel(value: string | undefined) {
+  return (value ?? 'unknown').replace(/_/g, ' ');
+}
 
 export function FeatureNode({ id, data }: NodeProps<FeatureNodeType>) {
   const handleStyle = { opacity: 0, pointerEvents: 'none' as const };
@@ -52,7 +62,7 @@ export function FeatureNode({ id, data }: NodeProps<FeatureNodeType>) {
         // mode); otherwise top-align so the subtitle has room below.
         justifyContent: showSubtitle ? 'center' : 'center',
         gap: '2px',
-        padding: '8px 12px',
+        padding: '7px 10px',
         borderRadius: '6px',
         border: data.highlighted ? '1.5px solid #facc15' : '1px solid oklch(0.72 0.16 220 / 0.35)',
         background: data.highlighted
@@ -83,6 +93,25 @@ export function FeatureNode({ id, data }: NodeProps<FeatureNodeType>) {
         }}
       >
         {data.name}
+      </span>
+      <span
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '6px',
+          minWidth: 0,
+          color: data.highlighted ? '#fde68a' : 'oklch(0.72 0.16 220)',
+          fontSize: '9.5px',
+          lineHeight: 1.1,
+        }}
+      >
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {formatLabel(data.semanticKind)}
+        </span>
+        <span style={{ color: '#a1a1aa' }}>
+          {data.fileCount ?? 0}f/{data.edgeCount ?? 0}r
+        </span>
       </span>
       {showSubtitle && (
         <span

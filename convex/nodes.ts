@@ -4,6 +4,7 @@ import { getNodeIfAccessible, getProjectIfAccessible, requireProjectAccess } fro
 import { deleteNodeCascade } from './lib/cascade';
 import { ensureHierarchyEdge } from './lib/edges';
 import { resolveNodeLayer } from './lib/layers';
+import { mappingStatusValidator, nodeSemanticKindValidator } from './lib/semantic';
 
 export const listByProject = query({
   args: { projectId: v.id('projects') },
@@ -33,6 +34,9 @@ export const create = mutation({
     parentId: v.optional(v.id('nodes')),
     positionX: v.number(),
     positionY: v.number(),
+    semanticKind: v.optional(nodeSemanticKindValidator),
+    mappingStatus: v.optional(mappingStatusValidator),
+    mappingConfidence: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const trimmed = args.name.trim();
@@ -63,6 +67,9 @@ export const create = mutation({
       name: trimmed,
       positionX: args.positionX,
       positionY: args.positionY,
+      semanticKind: args.semanticKind,
+      mappingStatus: args.mappingStatus ?? 'manual',
+      mappingConfidence: args.mappingConfidence,
     });
 
     if (args.parentId) {
@@ -80,6 +87,9 @@ export const update = mutation({
     positionX: v.optional(v.number()),
     positionY: v.optional(v.number()),
     description: v.optional(v.string()),
+    semanticKind: v.optional(nodeSemanticKindValidator),
+    mappingStatus: v.optional(mappingStatusValidator),
+    mappingConfidence: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const node = await ctx.db.get(args.id);
@@ -99,9 +109,35 @@ export const update = mutation({
     if (args.positionX !== undefined) patch.positionX = args.positionX;
     if (args.positionY !== undefined) patch.positionY = args.positionY;
     if (args.description !== undefined) patch.description = args.description;
+    if (args.semanticKind !== undefined) patch.semanticKind = args.semanticKind;
+    if (args.mappingStatus !== undefined) patch.mappingStatus = args.mappingStatus;
+    if (args.mappingConfidence !== undefined) patch.mappingConfidence = args.mappingConfidence;
 
     if (Object.keys(patch).length > 0) {
       await ctx.db.patch(args.id, patch);
+    }
+  },
+});
+
+export const markVerified = mutation({
+  args: { id: v.id('nodes') },
+  handler: async (ctx, { id }) => {
+    const node = await ctx.db.get(id);
+    if (!node) return;
+    await requireProjectAccess(ctx, node.projectId);
+    await ctx.db.patch(id, {
+      mappingStatus: 'verified',
+      mappingConfidence: 1,
+    });
+
+    const files = await ctx.db
+      .query('nodeFiles')
+      .withIndex('by_node', (q) => q.eq('nodeId', id))
+      .collect();
+    const now = Date.now();
+    for (const file of files) {
+      if (file.archived) continue;
+      await ctx.db.patch(file._id, { verifiedAt: now });
     }
   },
 });

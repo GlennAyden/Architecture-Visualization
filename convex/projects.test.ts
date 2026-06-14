@@ -72,13 +72,23 @@ describe('projects.create', () => {
     const layers = await asUser.query(api.projectLayers.listByProject, { projectId });
     expect(layers.map((layer) => layer.name)).toEqual([
       'Surfaces',
-      'Features',
-      'Convex',
-      'MCP / Agents',
+      'Application',
+      'Backend',
+      'Data',
+      'Agents',
       'Infra',
       'External',
     ]);
-    expect(layers.map((layer) => layer.position)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(layers.map((layer) => layer.position)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(layers.map((layer) => layer.purpose)).toEqual([
+      'surfaces',
+      'application',
+      'backend',
+      'data',
+      'agents',
+      'infra',
+      'external',
+    ]);
   });
 
   test('creates a custom layer after seeded layers so manual architecture sections keep order', async () => {
@@ -90,7 +100,7 @@ describe('projects.create', () => {
 
     const layers = await asUser.query(api.projectLayers.listByProject, { projectId });
     expect(layers.at(-1)?.name).toEqual('Integrations');
-    expect(layers.at(-1)?.position).toEqual(6);
+    expect(layers.at(-1)?.position).toEqual(7);
   });
 
   test('appends -2 when the slug is already used by the same user', async () => {

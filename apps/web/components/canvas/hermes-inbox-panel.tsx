@@ -28,6 +28,46 @@ const ACTION_OPTIONS: SuggestionAction[] = [
   'ignore',
 ];
 
+const SEMANTIC_KIND_OPTIONS = [
+  'surface',
+  'capability',
+  'api',
+  'data_logic',
+  'agent',
+  'worker',
+  'storage',
+  'external_service',
+  'config',
+  'test_harness',
+  'unknown',
+] as const;
+
+const FILE_ROLE_OPTIONS = [
+  'primary',
+  'ui',
+  'route',
+  'api',
+  'schema',
+  'query',
+  'mutation',
+  'worker',
+  'config',
+  'test',
+  'support',
+] as const;
+
+type SemanticKind = (typeof SEMANTIC_KIND_OPTIONS)[number];
+type FileRole = (typeof FILE_ROLE_OPTIONS)[number];
+type ReviewDraft = {
+  action: SuggestionAction;
+  layerId: string;
+  targetNodeId: string;
+  groupKey: string;
+  suggestedNodeName: string;
+  semanticKind: SemanticKind | '';
+  fileRole: FileRole | '';
+};
+
 function isHighConfidence(action: SuggestionAction, confidence: number) {
   return action === 'link_existing_node' || action === 'ignore'
     ? confidence >= 0.9
@@ -54,6 +94,18 @@ export function HermesInboxPanel({ projectId }: Props) {
     projectId,
     status: 'ignored',
   });
+  const pendingRelationships = useQuery(api.relationshipSuggestions.listByProject, {
+    projectId,
+    status: 'pending',
+  });
+  const appliedRelationships = useQuery(api.relationshipSuggestions.listByProject, {
+    projectId,
+    status: 'applied',
+  });
+  const ignoredRelationships = useQuery(api.relationshipSuggestions.listByProject, {
+    projectId,
+    status: 'ignored',
+  });
   const runs = useQuery(api.hermesMappingRuns.latestByProject, { projectId });
   const layers = useQuery(api.projectLayers.listByProject, { projectId });
   const nodes = useQuery(api.nodes.listByProject, { projectId });
@@ -62,29 +114,39 @@ export function HermesInboxPanel({ projectId }: Props) {
   const ignore = useMutation(api.codebaseSuggestions.ignore);
   const updateReview = useMutation(api.codebaseSuggestions.updateReview);
   const bulkApply = useMutation(api.codebaseSuggestions.applyHighConfidence);
+  const applyRelationship = useMutation(api.relationshipSuggestions.apply);
+  const rejectRelationship = useMutation(api.relationshipSuggestions.reject);
+  const ignoreRelationship = useMutation(api.relationshipSuggestions.ignore);
+  const bulkApplyRelationships = useMutation(api.relationshipSuggestions.applyHighConfidence);
 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<Id<'codebaseSuggestions'> | null>(null);
-  const [draft, setDraft] = useState({
-    action: 'create_node' as SuggestionAction,
+  const [draft, setDraft] = useState<ReviewDraft>({
+    action: 'create_node',
     layerId: '',
     targetNodeId: '',
     groupKey: '',
     suggestedNodeName: '',
+    semanticKind: '',
+    fileRole: '',
   });
 
   const visiblePending = pending?.slice(0, 5) ?? [];
+  const visibleRelationshipPending = pendingRelationships?.slice(0, 4) ?? [];
   const visibleApplied = applied?.slice(0, 3) ?? [];
   const visibleIgnored = ignored?.slice(0, 3) ?? [];
+  const visibleRelationshipApplied = appliedRelationships?.slice(0, 2) ?? [];
+  const visibleRelationshipIgnored = ignoredRelationships?.slice(0, 2) ?? [];
   const latestRun = runs?.[0];
   const highConfidenceCount = useMemo(
     () =>
       (pending ?? []).filter((suggestion) =>
         isHighConfidence(suggestion.action as SuggestionAction, suggestion.confidence),
-      ).length,
-    [pending],
+      ).length +
+      (pendingRelationships ?? []).filter((suggestion) => suggestion.confidence >= 0.9).length,
+    [pending, pendingRelationships],
   );
 
   const handleStartRun = async () => {
@@ -140,6 +202,8 @@ export function HermesInboxPanel({ projectId }: Props) {
       targetNodeId: suggestion.targetNodeId ?? '',
       groupKey: suggestion.groupKey ?? '',
       suggestedNodeName: suggestion.suggestedNodeName,
+      semanticKind: suggestion.semanticKind ?? '',
+      fileRole: suggestion.fileRole ?? '',
     });
   };
 
@@ -153,6 +217,8 @@ export function HermesInboxPanel({ projectId }: Props) {
         targetNodeId: draft.targetNodeId ? (draft.targetNodeId as Id<'nodes'>) : undefined,
         groupKey: draft.groupKey.trim() || undefined,
         suggestedNodeName: draft.suggestedNodeName.trim() || undefined,
+        semanticKind: draft.semanticKind || undefined,
+        fileRole: draft.fileRole || undefined,
       });
       setEditingId(null);
     } finally {
@@ -164,6 +230,34 @@ export function HermesInboxPanel({ projectId }: Props) {
     setBusyId('bulk');
     try {
       await bulkApply({ projectId });
+      await bulkApplyRelationships({ projectId });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleRelationshipApply = async (id: Id<'relationshipSuggestions'>) => {
+    setBusyId(id);
+    try {
+      await applyRelationship({ id });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleRelationshipReject = async (id: Id<'relationshipSuggestions'>) => {
+    setBusyId(id);
+    try {
+      await rejectRelationship({ id });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleRelationshipIgnore = async (id: Id<'relationshipSuggestions'>) => {
+    setBusyId(id);
+    try {
+      await ignoreRelationship({ id });
     } finally {
       setBusyId(null);
     }
@@ -303,6 +397,40 @@ export function HermesInboxPanel({ projectId }: Props) {
                         ))}
                       </select>
                     )}
+                    <select
+                      value={draft.semanticKind}
+                      onChange={(event) =>
+                        setDraft((prev) => ({
+                          ...prev,
+                          semanticKind: event.target.value as SemanticKind | '',
+                        }))
+                      }
+                      className="h-8 w-full rounded border border-white/10 bg-zinc-950 px-2 text-xs text-zinc-100 outline-none"
+                    >
+                      <option value="">Semantic kind</option>
+                      {SEMANTIC_KIND_OPTIONS.map((kind) => (
+                        <option key={kind} value={kind}>
+                          {kind.replace(/_/g, ' ')}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={draft.fileRole}
+                      onChange={(event) =>
+                        setDraft((prev) => ({
+                          ...prev,
+                          fileRole: event.target.value as FileRole | '',
+                        }))
+                      }
+                      className="h-8 w-full rounded border border-white/10 bg-zinc-950 px-2 text-xs text-zinc-100 outline-none"
+                    >
+                      <option value="">File role</option>
+                      {FILE_ROLE_OPTIONS.map((role) => (
+                        <option key={role} value={role}>
+                          {role}
+                        </option>
+                      ))}
+                    </select>
                     {draft.action === 'link_existing_node' && (
                       <select
                         value={draft.targetNodeId}
@@ -358,6 +486,16 @@ export function HermesInboxPanel({ projectId }: Props) {
                         </span>
                         <span className="truncate text-zinc-500">
                           {suggestion.targetNodeName ?? suggestion.layerName ?? 'No target'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2 text-[11px]">
+                        <span className="truncate text-zinc-500">
+                          {suggestion.semanticKind
+                            ? suggestion.semanticKind.replace(/_/g, ' ')
+                            : 'semantic unknown'}
+                        </span>
+                        <span className="shrink-0 rounded bg-white/[0.06] px-1.5 py-0.5 text-zinc-400">
+                          {suggestion.fileRole ?? 'support'}
                         </span>
                       </div>
                       <p className="line-clamp-2 text-zinc-400">{suggestion.reason}</p>
@@ -416,7 +554,77 @@ export function HermesInboxPanel({ projectId }: Props) {
         </div>
       )}
 
-      {(visibleApplied.length > 0 || visibleIgnored.length > 0) && (
+      {pendingRelationships !== undefined && visibleRelationshipPending.length > 0 && (
+        <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+            Relationship review
+          </p>
+          {visibleRelationshipPending.map((suggestion) => (
+            <div
+              key={suggestion._id}
+              className="rounded-md border border-violet-400/20 bg-violet-400/5 p-3"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-zinc-100">
+                    {suggestion.sourceNodeName ?? 'Source'} {'->'}{' '}
+                    {suggestion.targetNodeName ?? 'Target'}
+                  </p>
+                  <p className="mt-1 text-xs text-violet-200">
+                    {suggestion.type.replace(/_/g, ' ')}
+                    {suggestion.label ? ` · ${suggestion.label}` : ''}
+                  </p>
+                </div>
+                <span className="shrink-0 rounded bg-violet-400/15 px-1.5 py-0.5 text-[10px] font-semibold text-violet-200">
+                  {Math.round(suggestion.confidence * 100)}%
+                </span>
+              </div>
+              <p className="mt-2 line-clamp-2 text-xs text-zinc-400">{suggestion.reason}</p>
+              {suggestion.evidence && suggestion.evidence.length > 0 && (
+                <p className="mt-1 truncate text-[11px] text-zinc-500">
+                  {suggestion.evidence.slice(0, 3).join(' · ')}
+                </p>
+              )}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 border border-emerald-400/30 bg-emerald-400/10 text-emerald-200 hover:bg-emerald-400/20"
+                  disabled={busyId !== null}
+                  onClick={() => void handleRelationshipApply(suggestion._id)}
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  Apply
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 border border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.07] hover:text-zinc-50"
+                  disabled={busyId !== null}
+                  onClick={() => void handleRelationshipIgnore(suggestion._id)}
+                >
+                  Ignore
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 border border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.07] hover:text-zinc-50"
+                  disabled={busyId !== null}
+                  onClick={() => void handleRelationshipReject(suggestion._id)}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Reject
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {(visibleApplied.length > 0 ||
+        visibleIgnored.length > 0 ||
+        visibleRelationshipApplied.length > 0 ||
+        visibleRelationshipIgnored.length > 0) && (
         <div className="mt-3 border-t border-white/10 pt-3">
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
             Auto-applied / ignored
@@ -440,6 +648,30 @@ export function HermesInboxPanel({ projectId }: Props) {
               >
                 <span className="truncate text-xs text-zinc-300">{suggestion.filePath}</span>
                 <span className="shrink-0 text-[11px] text-zinc-500">ignored</span>
+              </div>
+            ))}
+            {visibleRelationshipApplied.map((suggestion) => (
+              <div
+                key={suggestion._id}
+                className="flex items-center justify-between gap-2 rounded-md bg-white/[0.03] px-2 py-1.5"
+              >
+                <span className="truncate text-xs text-zinc-300">
+                  {suggestion.sourceNodeName ?? 'Source'} {'->'}{' '}
+                  {suggestion.targetNodeName ?? 'Target'}
+                </span>
+                <span className="shrink-0 text-[11px] text-violet-300">edge</span>
+              </div>
+            ))}
+            {visibleRelationshipIgnored.map((suggestion) => (
+              <div
+                key={suggestion._id}
+                className="flex items-center justify-between gap-2 rounded-md bg-white/[0.03] px-2 py-1.5"
+              >
+                <span className="truncate text-xs text-zinc-300">
+                  {suggestion.sourceNodeName ?? 'Source'} {'->'}{' '}
+                  {suggestion.targetNodeName ?? 'Target'}
+                </span>
+                <span className="shrink-0 text-[11px] text-zinc-500">ignored edge</span>
               </div>
             ))}
           </div>

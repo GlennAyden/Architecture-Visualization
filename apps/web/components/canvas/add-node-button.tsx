@@ -33,6 +33,32 @@ interface Props {
 }
 
 type NodeKind = 'page' | 'feature';
+type SemanticKind =
+  | 'surface'
+  | 'capability'
+  | 'api'
+  | 'data_logic'
+  | 'agent'
+  | 'worker'
+  | 'storage'
+  | 'external_service'
+  | 'config'
+  | 'test_harness'
+  | 'unknown';
+
+const SEMANTIC_KIND_OPTIONS: SemanticKind[] = [
+  'surface',
+  'capability',
+  'api',
+  'data_logic',
+  'agent',
+  'worker',
+  'storage',
+  'external_service',
+  'config',
+  'test_harness',
+  'unknown',
+];
 
 export function AddNodeButton({ projectId, nodes, layers }: Props) {
   const create = useMutation(api.nodes.create);
@@ -42,6 +68,7 @@ export function AddNodeButton({ projectId, nodes, layers }: Props) {
   const [name, setName] = useState('');
   const [layerId, setLayerId] = useState<string>('');
   const [parentId, setParentId] = useState<string>('');
+  const [semanticKind, setSemanticKind] = useState<SemanticKind>('capability');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -56,6 +83,7 @@ export function AddNodeButton({ projectId, nodes, layers }: Props) {
     setName('');
     setLayerId(sortedLayers[0]?._id ?? '');
     setParentId('');
+    setSemanticKind('capability');
     setError(null);
   }, [open, sortedLayers]);
 
@@ -96,6 +124,8 @@ export function AddNodeButton({ projectId, nodes, layers }: Props) {
           name: trimmed,
           layerId: layerId as Id<'projectLayers'>,
           parentId: parent._id,
+          semanticKind,
+          mappingStatus: 'manual',
           ...getNextFeaturePosition({ nodes: nodes ?? [], parent }),
         });
       } else {
@@ -110,6 +140,8 @@ export function AddNodeButton({ projectId, nodes, layers }: Props) {
           type: 'page',
           name: trimmed,
           layerId: layerId as Id<'projectLayers'>,
+          semanticKind,
+          mappingStatus: 'manual',
           ...position,
         });
       }
@@ -198,6 +230,25 @@ export function AddNodeButton({ projectId, nodes, layers }: Props) {
                 )}
               </div>
             )}
+
+            <div className="grid gap-2">
+              <Label htmlFor="node-semantic-kind">Semantic kind</Label>
+              <Select
+                value={semanticKind}
+                onValueChange={(value) => setSemanticKind(value as SemanticKind)}
+              >
+                <SelectTrigger id="node-semantic-kind" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SEMANTIC_KIND_OPTIONS.map((kind) => (
+                    <SelectItem key={kind} value={kind}>
+                      {kind.replace(/_/g, ' ')}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
             <div className="grid gap-2">
               <Label htmlFor="node-name">Name</Label>

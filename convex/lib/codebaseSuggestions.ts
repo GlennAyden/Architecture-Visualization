@@ -22,6 +22,8 @@ export interface CodebaseSuggestionInput {
   confidence: number;
   reason: string;
   evidence?: string[];
+  semanticKind?: Doc<'nodes'>['semanticKind'];
+  fileRole?: Doc<'nodeFiles'>['role'];
   source: string;
 }
 
@@ -97,14 +99,36 @@ async function ensureTargetNodeInProject(
   return node;
 }
 
-async function linkFileToNode(ctx: MutationCtx, nodeId: Id<'nodes'>, filePath: string) {
+async function linkFileToNode(
+  ctx: MutationCtx,
+  nodeId: Id<'nodes'>,
+  filePath: string,
+  suggestion?: Pick<
+    Doc<'codebaseSuggestions'>,
+    'fileRole' | 'source' | 'confidence' | 'reason' | 'evidence'
+  >,
+) {
   const existing = await ctx.db
     .query('nodeFiles')
     .withIndex('by_node', (q) => q.eq('nodeId', nodeId))
     .collect();
   const duplicate = existing.find((file) => file.path === filePath);
-  if (duplicate) return duplicate._id;
-  return await ctx.db.insert('nodeFiles', { nodeId, path: filePath });
+  const patch = suggestion
+    ? {
+        role: suggestion.fileRole,
+        source: suggestion.source,
+        confidence: suggestion.confidence,
+        reason: suggestion.reason,
+        evidence: suggestion.evidence,
+      }
+    : {};
+  if (duplicate) {
+    if (Object.values(patch).some((value) => value !== undefined)) {
+      await ctx.db.patch(duplicate._id, patch);
+    }
+    return duplicate._id;
+  }
+  return await ctx.db.insert('nodeFiles', { nodeId, path: filePath, ...patch });
 }
 
 async function createPageNodeForSuggestion(
@@ -133,18 +157,36 @@ async function createPageNodeForSuggestion(
     name: trimmedName,
     positionX: position.x,
     positionY: position.y,
+    semanticKind: suggestion.semanticKind,
+    mappingStatus: shouldAutoApplySuggestionDoc(suggestion) ? 'auto_mapped' : 'suggested',
+    mappingConfidence: suggestion.confidence,
   });
 }
 
 async function applyToExistingNode(ctx: MutationCtx, suggestion: Doc<'codebaseSuggestions'>) {
   const node = await ensureTargetNodeInProject(ctx, suggestion.projectId, suggestion.targetNodeId);
-  await linkFileToNode(ctx, node._id, suggestion.filePath);
+  await linkFileToNode(ctx, node._id, suggestion.filePath, suggestion);
+  await patchNodeMappingFromSuggestion(ctx, node._id, suggestion);
   await ctx.db.patch(suggestion._id, {
     status: 'applied',
     appliedNodeId: node._id,
     updatedAt: Date.now(),
   });
   return node._id;
+}
+
+async function patchNodeMappingFromSuggestion(
+  ctx: MutationCtx,
+  nodeId: Id<'nodes'>,
+  suggestion: Doc<'codebaseSuggestions'>,
+) {
+  const patch: Partial<Doc<'nodes'>> = {};
+  if (suggestion.semanticKind) patch.semanticKind = suggestion.semanticKind;
+  if (suggestion.confidence !== undefined) patch.mappingConfidence = suggestion.confidence;
+  if (suggestion.status !== 'applied') {
+    patch.mappingStatus = shouldAutoApplySuggestionDoc(suggestion) ? 'auto_mapped' : 'suggested';
+  }
+  if (Object.keys(patch).length > 0) await ctx.db.patch(nodeId, patch);
 }
 
 async function findAppliedGroupNode(ctx: MutationCtx, projectId: Id<'projects'>, groupKey: string) {
@@ -185,7 +227,8 @@ async function applyGroupedSuggestion(ctx: MutationCtx, suggestion: Doc<'codebas
   for (const row of groupRows) {
     const linkedNode = await findLinkedNodeForPath(ctx, row.projectId, row.filePath);
     const targetNodeId = linkedNode?._id ?? nodeId;
-    await linkFileToNode(ctx, targetNodeId, row.filePath);
+    await linkFileToNode(ctx, targetNodeId, row.filePath, row);
+    await patchNodeMappingFromSuggestion(ctx, targetNodeId, row);
     await ctx.db.patch(row._id, {
       status: 'applied',
       appliedNodeId: targetNodeId,
@@ -211,6 +254,7 @@ export async function applySuggestionToNode(
 
   const existingNode = await findLinkedNodeForPath(ctx, suggestion.projectId, suggestion.filePath);
   if (existingNode) {
+    await patchNodeMappingFromSuggestion(ctx, existingNode._id, suggestion);
     await ctx.db.patch(suggestion._id, {
       status: 'applied',
       appliedNodeId: existingNode._id,
@@ -223,7 +267,7 @@ export async function applySuggestionToNode(
   if (action === 'group_into_node') return await applyGroupedSuggestion(ctx, suggestion);
 
   const nodeId = await createPageNodeForSuggestion(ctx, suggestion);
-  await linkFileToNode(ctx, nodeId, suggestion.filePath);
+  await linkFileToNode(ctx, nodeId, suggestion.filePath, suggestion);
   await ctx.db.patch(suggestion._id, {
     status: 'applied',
     appliedNodeId: nodeId,
@@ -290,6 +334,8 @@ export async function upsertSuggestion(
     confidence: input.confidence,
     reason: input.reason.trim(),
     evidence: input.evidence,
+    semanticKind: input.semanticKind,
+    fileRole: input.fileRole,
     source: input.source.trim() || 'hermes',
     status: 'pending' as const,
     appliedNodeId: undefined,

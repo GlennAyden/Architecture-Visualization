@@ -54,7 +54,10 @@ export async function resolveNodeLayer(
   if (requestedLayer) return requestedLayer._id;
 
   const surfaceLayer = layers.find((layer) => layer.name === 'Surfaces') ?? layers[0];
-  const featureLayer = layers.find((layer) => layer.name === 'Features') ?? surfaceLayer;
+  const featureLayer =
+    layers.find((layer) => layer.name === 'Application') ??
+    layers.find((layer) => layer.name === 'Features') ??
+    surfaceLayer;
   return (args.type === 'feature' ? featureLayer : surfaceLayer)?._id;
 }
 

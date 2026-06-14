@@ -71,7 +71,7 @@ function registerListNodes(server: McpServer, client: ConvexMcpClient) {
     'list_nodes',
     {
       description:
-        'List every node in the project this MCP instance is scoped to. Returns id, type, name, layerId, parentId, description, positionX, positionY for each node. Call this first when starting work to understand the current canvas state.',
+        'List every node in the project this MCP instance is scoped to. Returns id, type, name, layerId, parentId, description, positionX, positionY, semanticKind, mappingStatus, and mappingConfidence for each node. Call this first when starting work to understand the current canvas state.',
       inputSchema: {},
     },
     async () => run(() => client.post('/api/mcp/nodes/list', {})),
@@ -98,7 +98,7 @@ function registerCreateNode(server: McpServer, client: ConvexMcpClient) {
     'create_node',
     {
       description:
-        'Create a new page or feature node in the canvas. Use `parentId` to nest a feature under an existing page. Optional `layerId` places a page in a section; features inherit their parent layer and reject mismatches. Position is optional and defaults deterministically within the section. Optional `files` attaches file paths in one call.',
+        'Create a new page or feature node in the canvas. Use `parentId` to nest a feature under an existing page. Optional `layerId` places a page in a section; features inherit their parent layer and reject mismatches. Position is optional and defaults deterministically within the section. Optional `files` attaches file paths in one call; optional semantic fields classify the function represented by the node.',
       inputSchema: {
         type: z
           .enum(['page', 'feature'])
@@ -118,6 +118,40 @@ function registerCreateNode(server: McpServer, client: ConvexMcpClient) {
           .describe('File paths to link to the new node in one call.'),
         positionX: z.number().optional(),
         positionY: z.number().optional(),
+        semanticKind: z
+          .enum([
+            'surface',
+            'capability',
+            'api',
+            'data_logic',
+            'agent',
+            'worker',
+            'storage',
+            'external_service',
+            'config',
+            'test_harness',
+            'unknown',
+          ])
+          .optional(),
+        mappingStatus: z
+          .enum(['manual', 'suggested', 'auto_mapped', 'verified', 'ignored', 'drifted'])
+          .optional(),
+        mappingConfidence: z.number().min(0).max(1).optional(),
+        fileRole: z
+          .enum([
+            'primary',
+            'ui',
+            'route',
+            'api',
+            'schema',
+            'query',
+            'mutation',
+            'worker',
+            'config',
+            'test',
+            'support',
+          ])
+          .optional(),
       },
     },
     async (args) => run(() => client.post('/api/mcp/nodes/create', args)),
@@ -131,7 +165,7 @@ function registerUpdateNode(server: McpServer, client: ConvexMcpClient) {
     'update_node',
     {
       description:
-        'Partially update a node. At least one field must be provided. `metadata` is a free-form JSON object; set `metadata.route` (e.g. "/dashboard") so navigation arrows can target this node, and `metadata.apiPaths` (e.g. ["api.auth.login"]) so data-flow arrows resolve to it.',
+        'Partially update a node. At least one field must be provided. `metadata` is a free-form JSON object; set `metadata.route` (e.g. "/dashboard") so navigation arrows can target this node, and `metadata.apiPaths` (e.g. ["api.auth.login"]) so data-flow arrows resolve to it. Semantic fields classify the function represented by the node.',
       inputSchema: {
         nodeId: z.string(),
         name: z.string().optional(),
@@ -142,6 +176,25 @@ function registerUpdateNode(server: McpServer, client: ConvexMcpClient) {
           .record(z.unknown())
           .optional()
           .describe('Free-form JSON. Merged over existing metadata, not replaced.'),
+        semanticKind: z
+          .enum([
+            'surface',
+            'capability',
+            'api',
+            'data_logic',
+            'agent',
+            'worker',
+            'storage',
+            'external_service',
+            'config',
+            'test_harness',
+            'unknown',
+          ])
+          .optional(),
+        mappingStatus: z
+          .enum(['manual', 'suggested', 'auto_mapped', 'verified', 'ignored', 'drifted'])
+          .optional(),
+        mappingConfidence: z.number().min(0).max(1).optional(),
       },
     },
     async (args) => run(() => client.post('/api/mcp/nodes/update', args)),

@@ -121,6 +121,19 @@ describe('pushCodebaseSuggestionsInput', () => {
           suggestedNodeName: 'Home page',
           confidence: 0.9,
           reason: 'App route belongs in the surface layer.',
+          semanticKind: 'surface',
+          fileRole: 'route',
+        },
+      ],
+      relationshipSuggestions: [
+        {
+          sourceNodeId: 'nodes:web',
+          targetNodeId: 'nodes:api',
+          type: 'data_flow',
+          label: 'calls login endpoint',
+          confidence: 0.92,
+          reason: 'The UI route submits credentials to the API route.',
+          evidence: ['fetch /api/auth/login'],
         },
       ],
     });
@@ -130,7 +143,31 @@ describe('pushCodebaseSuggestionsInput', () => {
       action: 'create_node',
       source: 'hermes',
       confidence: 0.9,
+      semanticKind: 'surface',
+      fileRole: 'route',
     });
+    expect(parsed.relationshipSuggestions[0]).toMatchObject({
+      type: 'data_flow',
+      source: 'hermes',
+      confidence: 0.92,
+    });
+  });
+
+  test('accepts relationship-only payloads for existing nodes', () => {
+    const parsed = pushCodebaseSuggestionsInput.parse({
+      relationshipSuggestions: [
+        {
+          sourceNodeId: 'nodes:web',
+          targetNodeId: 'nodes:vps',
+          type: 'data_flow',
+          confidence: 0.93,
+          reason: 'Auth proxy calls the VPS backend.',
+        },
+      ],
+    });
+
+    expect(parsed.suggestions).toEqual([]);
+    expect(parsed.relationshipSuggestions).toHaveLength(1);
   });
 
   test('accepts V2 action suggestions for link, group, and ignore', () => {
@@ -243,11 +280,23 @@ describe('hermesMappingRunCompleteInput', () => {
           action: 'ignore',
           confidence: 0.95,
           reason: 'Generated/test-only file.',
+          semanticKind: 'test_harness',
+          fileRole: 'test',
+        },
+      ],
+      relationshipSuggestions: [
+        {
+          sourceNodeId: 'nodes:a',
+          targetNodeId: 'nodes:b',
+          type: 'dependency',
+          confidence: 0.91,
+          reason: 'Static import resolves to the target node.',
         },
       ],
     });
 
     expect(parsed.suggestions[0]!.action).toBe('ignore');
+    expect(parsed.relationshipSuggestions[0]!.type).toBe('dependency');
   });
 
   test('requires a safe error message for failed run completion', () => {

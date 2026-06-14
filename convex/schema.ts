@@ -1,5 +1,13 @@
 import { defineSchema, defineTable } from 'convex/server';
 import { v } from 'convex/values';
+import {
+  layerPurposeValidator,
+  linkedFileRoleValidator,
+  manualEdgeTypeValidator,
+  mappingStatusValidator,
+  nodeSemanticKindValidator,
+  relationshipSuggestionStatusValidator,
+} from './lib/semantic';
 
 export default defineSchema({
   profiles: defineTable({
@@ -21,6 +29,8 @@ export default defineSchema({
     projectId: v.id('projects'),
     name: v.string(),
     position: v.number(),
+    purpose: v.optional(layerPurposeValidator),
+    description: v.optional(v.string()),
   }).index('by_project', ['projectId']),
 
   nodes: defineTable({
@@ -33,6 +43,9 @@ export default defineSchema({
     positionX: v.number(),
     positionY: v.number(),
     metadata: v.optional(v.any()),
+    semanticKind: v.optional(nodeSemanticKindValidator),
+    mappingStatus: v.optional(mappingStatusValidator),
+    mappingConfidence: v.optional(v.number()),
   })
     .index('by_project', ['projectId'])
     .index('by_project_layer', ['projectId', 'layerId'])
@@ -45,6 +58,12 @@ export default defineSchema({
     // exists on disk) without deleting the link, so it stays as historical
     // breadcrumb but never resurfaces in future drift scans. Absent = false.
     archived: v.optional(v.boolean()),
+    role: v.optional(linkedFileRoleValidator),
+    source: v.optional(v.string()),
+    confidence: v.optional(v.number()),
+    reason: v.optional(v.string()),
+    evidence: v.optional(v.array(v.string())),
+    verifiedAt: v.optional(v.number()),
   })
     .index('by_node', ['nodeId'])
     .index('by_path', ['path']),
@@ -101,6 +120,11 @@ export default defineSchema({
       v.literal('data_flow'),
     ),
     source: v.optional(v.union(v.literal('auto'), v.literal('manual'))),
+    label: v.optional(v.string()),
+    confidence: v.optional(v.number()),
+    reason: v.optional(v.string()),
+    evidence: v.optional(v.array(v.string())),
+    sourceRunId: v.optional(v.id('hermesMappingRuns')),
   })
     .index('by_project', ['projectId'])
     .index('by_source', ['sourceNodeId'])
@@ -136,6 +160,8 @@ export default defineSchema({
     confidence: v.number(),
     reason: v.string(),
     evidence: v.optional(v.array(v.string())),
+    semanticKind: v.optional(nodeSemanticKindValidator),
+    fileRole: v.optional(linkedFileRoleValidator),
     source: v.string(),
     status: v.union(
       v.literal('pending'),
@@ -149,6 +175,25 @@ export default defineSchema({
   })
     .index('by_project_status', ['projectId', 'status'])
     .index('by_project_file', ['projectId', 'filePath']),
+
+  relationshipSuggestions: defineTable({
+    projectId: v.id('projects'),
+    runId: v.optional(v.id('hermesMappingRuns')),
+    sourceNodeId: v.id('nodes'),
+    targetNodeId: v.id('nodes'),
+    type: manualEdgeTypeValidator,
+    label: v.optional(v.string()),
+    confidence: v.number(),
+    reason: v.string(),
+    evidence: v.optional(v.array(v.string())),
+    source: v.string(),
+    status: relationshipSuggestionStatusValidator,
+    appliedEdgeId: v.optional(v.id('nodeEdges')),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index('by_project_status', ['projectId', 'status'])
+    .index('by_project_nodes_type', ['projectId', 'sourceNodeId', 'targetNodeId', 'type']),
 
   hermesMappingRuns: defineTable({
     projectId: v.id('projects'),

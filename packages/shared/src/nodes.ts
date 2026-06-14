@@ -11,6 +11,58 @@ export type NodeName = z.infer<typeof nodeNameSchema>;
 export const nodeTypeSchema = z.union([z.literal('page'), z.literal('feature')]);
 export type NodeType = z.infer<typeof nodeTypeSchema>;
 
+export const layerPurposeSchema = z.enum([
+  'surfaces',
+  'application',
+  'backend',
+  'data',
+  'agents',
+  'infra',
+  'external',
+  'custom',
+]);
+export type LayerPurpose = z.infer<typeof layerPurposeSchema>;
+
+export const nodeSemanticKindSchema = z.enum([
+  'surface',
+  'capability',
+  'api',
+  'data_logic',
+  'agent',
+  'worker',
+  'storage',
+  'external_service',
+  'config',
+  'test_harness',
+  'unknown',
+]);
+export type NodeSemanticKind = z.infer<typeof nodeSemanticKindSchema>;
+
+export const linkedFileRoleSchema = z.enum([
+  'primary',
+  'ui',
+  'route',
+  'api',
+  'schema',
+  'query',
+  'mutation',
+  'worker',
+  'config',
+  'test',
+  'support',
+]);
+export type LinkedFileRole = z.infer<typeof linkedFileRoleSchema>;
+
+export const mappingStatusSchema = z.enum([
+  'manual',
+  'suggested',
+  'auto_mapped',
+  'verified',
+  'ignored',
+  'drifted',
+]);
+export type MappingStatus = z.infer<typeof mappingStatusSchema>;
+
 export const PAGE_NODE_DEFAULT_WIDTH = 220;
 export const PAGE_NODE_DEFAULT_HEIGHT = 96;
 

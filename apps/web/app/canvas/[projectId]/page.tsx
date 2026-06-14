@@ -49,12 +49,24 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
   const nodes = useQuery(api.nodes.listByProject, { projectId });
   const edges = useQuery(api.nodeEdges.listByProject, { projectId });
   const layers = useQuery(api.projectLayers.listByProject, { projectId });
+  const nodeSummaries = useQuery(api.nodeFiles.summaryByProject, { projectId });
+  const orphanSnapshot = useQuery(api.scans.getLatestByKind, { projectId, kind: 'orphans' });
+  const driftSnapshot = useQuery(api.scans.getLatestByKind, { projectId, kind: 'drift' });
+  const pendingSuggestions = useQuery(api.codebaseSuggestions.listByProject, {
+    projectId,
+    status: 'pending',
+  });
+  const pendingRelationshipSuggestions = useQuery(api.relationshipSuggestions.listByProject, {
+    projectId,
+    status: 'pending',
+  });
   const ensureDefaultLayers = useMutation(api.projectLayers.ensureDefaults);
   const openModal = useModalStore((s) => s.open);
   const selectedNodeId = useModalStore((s) => s.selectedNodeId);
   const [selectedFlow, setSelectedFlow] = useState<ArchitectureFlowId | null>(
     'agent-updates-canvas',
   );
+  const [inspectedNodeId, setInspectedNodeId] = useState<Id<'nodes'> | null>(null);
 
   const drillNodeId = useDrillStore((s) => s.drillNodeId);
   const setChildren = useDrillStore((s) => s.setChildren);
@@ -65,6 +77,7 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
     useCanvasSync({
       nodes,
       edges,
+      nodeSummaries,
       highlightedEdgeTypes: selectedFlow ? FLOW_EDGE_TYPES[selectedFlow] : undefined,
     });
 
@@ -167,6 +180,28 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
     return nodes.find((n) => n._id === selectedNodeId)?.name ?? null;
   }, [nodes, selectedNodeId]);
 
+  const health = useMemo(() => {
+    const orphanData = orphanSnapshot?.data as
+      | { repoFiles?: string[]; orphans?: string[]; scannedAt?: number }
+      | undefined;
+    const driftData = driftSnapshot?.data as { drift?: unknown[]; scannedAt?: number } | undefined;
+    return {
+      totalFiles: orphanData?.repoFiles?.length ?? 0,
+      mappedFiles: (nodeSummaries ?? []).reduce((sum, row) => sum + row.fileCount, 0),
+      orphanFiles: orphanData?.orphans?.length ?? 0,
+      pendingSuggestions:
+        (pendingSuggestions?.length ?? 0) + (pendingRelationshipSuggestions?.length ?? 0),
+      driftCount: driftData?.drift?.length ?? 0,
+      lastScanAt: orphanData?.scannedAt ?? orphanSnapshot?.createdAt ?? null,
+    };
+  }, [
+    driftSnapshot,
+    nodeSummaries,
+    orphanSnapshot,
+    pendingRelationshipSuggestions,
+    pendingSuggestions,
+  ]);
+
   // Redirect when the project is gone (e.g. cascade-deleted in another tab).
   useEffect(() => {
     if (project === null) router.replace('/projects');
@@ -222,6 +257,17 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
             <p className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">
               Architecture Flows
             </p>
+          </div>
+          <div className="hidden items-center gap-2 text-[11px] text-zinc-500 2xl:flex">
+            <span className="rounded border border-white/10 bg-white/[0.03] px-2 py-1">
+              {health.mappedFiles}/{health.totalFiles} mapped
+            </span>
+            <span className="rounded border border-amber-400/20 bg-amber-400/10 px-2 py-1 text-amber-200">
+              {health.orphanFiles} orphan
+            </span>
+            <span className="rounded border border-cyan-400/20 bg-cyan-400/10 px-2 py-1 text-cyan-200">
+              {health.pendingSuggestions} review
+            </span>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -342,6 +388,7 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onNodeDragStop={onNodeDragStop}
+            onNodeClick={(_, node) => setInspectedNodeId(node.id as Id<'nodes'>)}
             onConnect={onConnect}
             nodesDraggable={false}
             nodesConnectable={false}
@@ -370,6 +417,12 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
         <FlowSidebar
           projectId={projectId}
           layers={layers}
+          nodes={nodes}
+          edges={edges}
+          nodeSummaries={nodeSummaries}
+          inspectedNodeId={inspectedNodeId}
+          onInspectedNodeChange={setInspectedNodeId}
+          health={health}
           selectedFlow={selectedFlow}
           onSelectedFlowChange={setSelectedFlow}
           selectedNodeName={selectedNodeName}

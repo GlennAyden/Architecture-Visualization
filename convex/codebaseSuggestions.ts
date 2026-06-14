@@ -3,6 +3,7 @@ import { Id } from './_generated/dataModel';
 import { mutation, query } from './_generated/server';
 import { getProjectIfAccessible, requireProjectAccess } from './lib/auth';
 import { applySuggestionToNode, shouldAutoApplySuggestionDoc } from './lib/codebaseSuggestions';
+import { linkedFileRoleValidator, nodeSemanticKindValidator } from './lib/semantic';
 
 const suggestionStatus = v.union(
   v.literal('pending'),
@@ -108,6 +109,8 @@ export const updateReview = mutation({
     targetNodeId: v.optional(v.id('nodes')),
     groupKey: v.optional(v.string()),
     suggestedNodeName: v.optional(v.string()),
+    semanticKind: v.optional(nodeSemanticKindValidator),
+    fileRole: v.optional(linkedFileRoleValidator),
   },
   handler: async (ctx, args) => {
     const suggestion = await ctx.db.get(args.id);
@@ -154,6 +157,8 @@ export const updateReview = mutation({
         args.suggestedNodeName !== undefined
           ? args.suggestedNodeName.trim()
           : suggestion.suggestedNodeName,
+      semanticKind: args.semanticKind ?? suggestion.semanticKind,
+      fileRole: args.fileRole ?? suggestion.fileRole,
       status: 'pending',
       updatedAt: Date.now(),
     });

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { kanbanStatusSchema } from './kanban';
+import { linkedFileRoleSchema, mappingStatusSchema, nodeSemanticKindSchema } from './nodes';
 
 const nodeIdSchema = z.string().min(1);
 const taskIdSchema = z.string().min(1);
@@ -24,6 +25,10 @@ export const createNodeInput = z
     files: z.array(pathPattern).optional(),
     positionX: z.number().optional(),
     positionY: z.number().optional(),
+    semanticKind: nodeSemanticKindSchema.optional(),
+    mappingStatus: mappingStatusSchema.optional(),
+    mappingConfidence: z.number().min(0).max(1).optional(),
+    fileRole: linkedFileRoleSchema.optional(),
   })
   .strict();
 
@@ -39,6 +44,9 @@ export const updateNodeInput = z
     positionX: z.number().optional(),
     positionY: z.number().optional(),
     metadata: z.record(z.unknown()).optional(),
+    semanticKind: nodeSemanticKindSchema.optional(),
+    mappingStatus: mappingStatusSchema.optional(),
+    mappingConfidence: z.number().min(0).max(1).optional(),
   })
   .strict()
   .refine(
@@ -47,7 +55,10 @@ export const updateNodeInput = z
       v.description !== undefined ||
       v.positionX !== undefined ||
       v.positionY !== undefined ||
-      v.metadata !== undefined,
+      v.metadata !== undefined ||
+      v.semanticKind !== undefined ||
+      v.mappingStatus !== undefined ||
+      v.mappingConfidence !== undefined,
     { message: 'At least one field must be updated' },
   );
 
@@ -151,6 +162,8 @@ export const codebaseSuggestionActionSchema = z.enum([
   'ignore',
 ]);
 
+export const relationshipSuggestionTypeSchema = z.enum(['dependency', 'navigation', 'data_flow']);
+
 const codebaseSuggestionSchema = z
   .object({
     filePath: pathPattern,
@@ -162,6 +175,8 @@ const codebaseSuggestionSchema = z
     confidence: z.number().min(0).max(1),
     reason: z.string().trim().min(1, 'reason is required').max(1000),
     evidence: evidenceSchema.optional(),
+    semanticKind: nodeSemanticKindSchema.optional(),
+    fileRole: linkedFileRoleSchema.optional(),
     source: z.string().trim().min(1).max(80).default('hermes'),
   })
   .strict()
@@ -189,12 +204,32 @@ const codebaseSuggestionSchema = z
     }
   });
 
+const relationshipSuggestionSchema = z
+  .object({
+    sourceNodeId: nodeIdSchema,
+    targetNodeId: nodeIdSchema,
+    type: relationshipSuggestionTypeSchema,
+    label: z.string().trim().min(1).max(120).optional(),
+    confidence: z.number().min(0).max(1),
+    reason: z.string().trim().min(1, 'reason is required').max(1000),
+    evidence: evidenceSchema.optional(),
+    source: z.string().trim().min(1).max(80).default('hermes'),
+  })
+  .strict()
+  .refine((value) => value.sourceNodeId !== value.targetNodeId, {
+    message: 'sourceNodeId and targetNodeId must differ',
+  });
+
 export const pushCodebaseSuggestionsInput = z
   .object({
     runId: z.string().trim().min(1).optional(),
-    suggestions: z.array(codebaseSuggestionSchema).min(1).max(500),
+    suggestions: z.array(codebaseSuggestionSchema).max(500).default([]),
+    relationshipSuggestions: z.array(relationshipSuggestionSchema).max(500).default([]),
   })
-  .strict();
+  .strict()
+  .refine((value) => value.suggestions.length > 0 || value.relationshipSuggestions.length > 0, {
+    message: 'At least one suggestion is required',
+  });
 
 export const hermesMappingRunCompleteInput = z
   .object({
@@ -203,6 +238,7 @@ export const hermesMappingRunCompleteInput = z
     status: z.enum(['completed', 'failed']),
     errorMessage: z.string().trim().min(1).max(1000).optional(),
     suggestions: z.array(codebaseSuggestionSchema).max(500).default([]),
+    relationshipSuggestions: z.array(relationshipSuggestionSchema).max(500).default([]),
   })
   .strict()
   .superRefine((value, ctx) => {
