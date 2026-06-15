@@ -158,6 +158,25 @@ function buildRfNodes(
   const hasHighlight = highlightedNodeIds !== undefined;
 
   const byId = new Map(visibleNodes.map((n) => [n._id as string, n]));
+  const originalIndex = new Map(visibleNodes.map((n, index) => [n._id as string, index]));
+  const depthById = new Map<string, number>();
+  const getParentDepth = (node: Doc<'nodes'>): number => {
+    const nodeId = node._id as string;
+    const cached = depthById.get(nodeId);
+    if (cached !== undefined) return cached;
+    const seen = new Set<string>([nodeId]);
+    let depth = 0;
+    let parentId = node.parentId as string | undefined;
+    while (parentId && !seen.has(parentId)) {
+      const parent = byId.get(parentId);
+      if (!parent) break;
+      seen.add(parentId);
+      depth += 1;
+      parentId = parent.parentId as string | undefined;
+    }
+    depthById.set(nodeId, depth);
+    return depth;
+  };
   const childrenByParent = new Map<string, Doc<'nodes'>[]>();
   for (const n of visibleNodes) {
     if (!n.parentId) continue;
@@ -196,7 +215,13 @@ function buildRfNodes(
   }
 
   // Pass 2: emit RF nodes.
-  return visibleNodes.map((n): ArchNode => {
+  const orderedNodes = [...visibleNodes].sort((a, b) => {
+    const byDepth = getParentDepth(a) - getParentDepth(b);
+    if (byDepth !== 0) return byDepth;
+    return (originalIndex.get(a._id as string) ?? 0) - (originalIndex.get(b._id as string) ?? 0);
+  });
+
+  return orderedNodes.map((n): ArchNode => {
     const id = n._id as string;
     const parentInVisibleSet =
       n.parentId && (n.parentId as string) !== id && byId.has(n.parentId as string);

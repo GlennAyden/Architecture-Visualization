@@ -116,6 +116,24 @@ function buildRfNodesFromShare(shareNodes: ShareNode[]): ArchNode[] {
   if (shareNodes.length === 0) return [];
 
   const byId = new Map(shareNodes.map((n) => [n._id, n]));
+  const originalIndex = new Map(shareNodes.map((n, index) => [n._id, index]));
+  const depthById = new Map<string, number>();
+  const getParentDepth = (node: ShareNode): number => {
+    const cached = depthById.get(node._id);
+    if (cached !== undefined) return cached;
+    const seen = new Set<string>([node._id]);
+    let depth = 0;
+    let parentId = node.parentId ?? undefined;
+    while (parentId && !seen.has(parentId)) {
+      const parent = byId.get(parentId);
+      if (!parent) break;
+      seen.add(parentId);
+      depth += 1;
+      parentId = parent.parentId ?? undefined;
+    }
+    depthById.set(node._id, depth);
+    return depth;
+  };
   const childrenByParent = new Map<string, ShareNode[]>();
   for (const n of shareNodes) {
     if (!n.parentId) continue;
@@ -147,7 +165,13 @@ function buildRfNodesFromShare(shareNodes: ShareNode[]): ArchNode[] {
     });
   }
 
-  return shareNodes.map((n): ArchNode => {
+  const orderedNodes = [...shareNodes].sort((a, b) => {
+    const byDepth = getParentDepth(a) - getParentDepth(b);
+    if (byDepth !== 0) return byDepth;
+    return (originalIndex.get(a._id) ?? 0) - (originalIndex.get(b._id) ?? 0);
+  });
+
+  return orderedNodes.map((n): ArchNode => {
     const parent = n.parentId && n.parentId !== n._id ? byId.get(n.parentId) : undefined;
     const parentName = parent?.name ?? null;
 
