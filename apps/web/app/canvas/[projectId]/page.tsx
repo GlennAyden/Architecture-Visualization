@@ -407,7 +407,7 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
             minZoom={0.1}
             maxZoom={2}
           >
-            <LayerLanes layers={layers} />
+            <LayerLanes layers={layers} nodes={nodes} />
             <Background gap={22} color="rgba(255,255,255,0.06)" />
             <Controls
               showInteractive={false}

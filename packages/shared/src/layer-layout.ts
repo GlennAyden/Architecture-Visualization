@@ -5,6 +5,7 @@ import {
 } from './nodes';
 
 export const ARCH_LAYER_WIDTH = 280;
+export const ARCH_LAYER_COMPACT_WIDTH = 112;
 export const ARCH_LAYER_GAP = 28;
 export const ARCH_LAYER_PADDING_X = 30;
 export const ARCH_LAYER_HEADER_HEIGHT = 72;
@@ -18,6 +19,22 @@ export const ARCH_LAYER_FEATURE_GAP_Y = 18;
 export type ArchLayerLike = {
   _id: string;
   position: number;
+};
+
+export type ArchLayerUsage = {
+  nodeCount: number;
+  topLevelCount: number;
+  semanticKinds: string[];
+  isEmpty: boolean;
+};
+
+export type ArchLayerGeometry<TLayer extends ArchLayerLike = ArchLayerLike> = {
+  layer: TLayer;
+  index: number;
+  left: number;
+  width: number;
+  nodeCount: number;
+  isCompact: boolean;
 };
 
 export type ArchLayoutNodeLike = {
@@ -40,6 +57,86 @@ export function getArchLayerX(index: number) {
 
 export function getArchLayerNodeX(index: number) {
   return getArchLayerX(index) + ARCH_LAYER_PADDING_X;
+}
+
+export function computeArchLayerUsage<
+  TLayer extends ArchLayerLike,
+  TNode extends ArchLayoutNodeLike & { semanticKind?: string },
+>(layers: readonly TLayer[] | undefined, nodes: readonly TNode[] | undefined) {
+  const sortedLayers = sortArchLayers(layers);
+  const usage = new Map<string, ArchLayerUsage>();
+  for (const layer of sortedLayers) {
+    usage.set(layer._id, {
+      nodeCount: 0,
+      topLevelCount: 0,
+      semanticKinds: [],
+      isEmpty: true,
+    });
+  }
+  if (sortedLayers.length === 0) return usage;
+
+  const semanticKindsByLayer = new Map<string, Set<string>>();
+  for (const node of nodes ?? []) {
+    const layerIndex = getArchLayerIndex(sortedLayers, node.layerId);
+    const layer = sortedLayers[layerIndex] ?? sortedLayers[0]!;
+    const row = usage.get(layer._id);
+    if (!row) continue;
+    row.nodeCount += 1;
+    if (!node.parentId) row.topLevelCount += 1;
+    if (node.semanticKind) {
+      const kinds = semanticKindsByLayer.get(layer._id) ?? new Set<string>();
+      kinds.add(node.semanticKind);
+      semanticKindsByLayer.set(layer._id, kinds);
+    }
+  }
+
+  for (const [layerId, row] of usage.entries()) {
+    row.semanticKinds = [...(semanticKindsByLayer.get(layerId) ?? [])].sort();
+    row.isEmpty = row.nodeCount === 0;
+  }
+
+  return usage;
+}
+
+export function computeArchLayerGeometry<TLayer extends ArchLayerLike>({
+  layers,
+  usage,
+  compactEmpty = false,
+}: {
+  layers: readonly TLayer[] | undefined;
+  usage?: ReadonlyMap<string, Pick<ArchLayerUsage, 'nodeCount' | 'isEmpty'>>;
+  compactEmpty?: boolean;
+}) {
+  const sortedLayers = sortArchLayers(layers);
+  const geometry: ArchLayerGeometry<TLayer>[] = [];
+  let left = 0;
+
+  sortedLayers.forEach((layer, index) => {
+    const row = usage?.get(layer._id);
+    const nodeCount = row?.nodeCount ?? 0;
+    const isEmpty = row?.isEmpty ?? nodeCount === 0;
+    const isCompact = compactEmpty && isEmpty;
+    const width = isCompact ? ARCH_LAYER_COMPACT_WIDTH : ARCH_LAYER_WIDTH;
+    geometry.push({
+      layer,
+      index,
+      left,
+      width,
+      nodeCount,
+      isCompact,
+    });
+    left += width + ARCH_LAYER_GAP;
+  });
+
+  return geometry;
+}
+
+export function getArchLayerCanvasWidth<TLayer extends ArchLayerLike>(
+  geometry: readonly ArchLayerGeometry<TLayer>[],
+) {
+  if (geometry.length === 0) return 0;
+  const last = geometry[geometry.length - 1]!;
+  return last.left + last.width;
 }
 
 export function getArchLayerIndex<T extends ArchLayerLike>(
@@ -79,32 +176,40 @@ export function estimateLayerClusterHeight(childCount: number) {
 
 export function getLayerNodePosition<
   TLayer extends ArchLayerLike,
-  TNode extends ArchLayoutNodeLike,
+  TNode extends ArchLayoutNodeLike & { semanticKind?: string },
 >({
   layers,
   nodes,
   layerId,
+  compactEmpty = true,
 }: {
   layers: readonly TLayer[];
   nodes: readonly TNode[];
   layerId: string;
+  compactEmpty?: boolean;
 }) {
   const sortedLayers = sortArchLayers(layers);
   const layerIndex = getArchLayerIndex(sortedLayers, layerId);
   const siblingCount = nodes.filter((node) => !node.parentId && node.layerId === layerId).length;
+  const usage = computeArchLayerUsage(sortedLayers, nodes);
+  const geometry = computeArchLayerGeometry({ layers: sortedLayers, usage, compactEmpty });
+  const layerLeft = geometry[layerIndex]?.left ?? getArchLayerX(layerIndex);
 
   return {
-    positionX: Math.round(getArchLayerNodeX(layerIndex)),
+    positionX: Math.round(layerLeft + ARCH_LAYER_PADDING_X),
     positionY: Math.round(ARCH_LAYER_NODE_TOP + siblingCount * ARCH_LAYER_NODE_SPACING),
   };
 }
 
 export function computeArchLayerLayout<
   TLayer extends ArchLayerLike,
-  TNode extends ArchLayoutNodeLike,
->(layers: readonly TLayer[], nodes: readonly TNode[]) {
+  TNode extends ArchLayoutNodeLike & { semanticKind?: string },
+>(layers: readonly TLayer[], nodes: readonly TNode[], options?: { compactEmpty?: boolean }) {
   const sortedLayers = sortArchLayers(layers);
   if (sortedLayers.length === 0) return [];
+  const compactEmpty = options?.compactEmpty ?? true;
+  const usage = computeArchLayerUsage(sortedLayers, nodes);
+  const geometry = computeArchLayerGeometry({ layers: sortedLayers, usage, compactEmpty });
 
   const parentById = new Map(nodes.map((node) => [node._id, node]));
   const childrenByParent = new Map<string, TNode[]>();
@@ -131,8 +236,9 @@ export function computeArchLayerLayout<
     const layerIndex = getArchLayerIndex(sortedLayers, node.layerId);
     const layer = sortedLayers[layerIndex] ?? sortedLayers[0]!;
     const nextY = nextYByLayer.get(layer._id) ?? ARCH_LAYER_NODE_TOP;
+    const layerLeft = geometry[layerIndex]?.left ?? getArchLayerX(layerIndex);
     const position = {
-      positionX: Math.round(getArchLayerNodeX(layerIndex)),
+      positionX: Math.round(layerLeft + ARCH_LAYER_PADDING_X),
       positionY: Math.round(nextY),
     };
     placed.set(node._id, position);

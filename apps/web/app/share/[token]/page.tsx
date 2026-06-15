@@ -94,7 +94,7 @@ function ShareCanvas({ rawToken }: { rawToken: string }) {
           minZoom={0.1}
           maxZoom={2}
         >
-          <LayerLanes layers={data.layers} />
+          <LayerLanes layers={data.layers} nodes={data.nodes} />
           <Background gap={20} color="rgba(255,255,255,0.06)" />
           <MiniMap pannable zoomable className="!bg-zinc-950/90" />
         </ReactFlow>

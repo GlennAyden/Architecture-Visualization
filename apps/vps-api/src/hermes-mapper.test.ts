@@ -234,6 +234,60 @@ describe('heuristicHermesMapper architecture flows', () => {
     );
   });
 
+  test('keeps UI block suggestions pending when route ownership is unknown', async () => {
+    const context: HermesMappingContext = {
+      runId: 'runs:pending-ui',
+      project: { _id: 'projects:expandly', name: 'Expandly' },
+      layers: [
+        { _id: 'layers:surfaces', name: 'Surfaces', position: 0 },
+        { _id: 'layers:ui', name: 'UI Modules', position: 1 },
+        { _id: 'layers:capabilities', name: 'Product Capabilities', position: 2 },
+      ],
+      nodes: [],
+      edges: [],
+      latestScan: {
+        data: {
+          orphans: [],
+          fileFacts: [
+            {
+              path: 'src/components/dashboard/content/home-content.tsx',
+              kind: 'component',
+              productArea: 'user',
+              capabilityHints: ['onboarding'],
+              uiBlocks: [
+                {
+                  key: 'onboarding',
+                  name: 'Onboarding',
+                  kind: 'panel',
+                  labels: ['Welcome back'],
+                  evidence: ['onboarding card detected'],
+                },
+              ],
+            },
+          ],
+        },
+      },
+      suggestions: [],
+      relationshipSuggestions: [],
+      flows: [],
+    };
+
+    const result = await heuristicHermesMapper(context);
+
+    expect(result.semanticNodeSuggestions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceFilePath: 'src/components/dashboard/content/home-content.tsx',
+          semanticKey: 'ui:src/components/dashboard/content/home-content-tsx:onboarding',
+          semanticKind: 'ui_module',
+          layerId: 'layers:ui',
+          confidence: 0.86,
+        }),
+      ]),
+    );
+    expect(result.semanticNodeSuggestions?.[0]?.parentNodeId).toBeUndefined();
+  });
+
   test('suggests semantic contains and uses edges for existing product nodes', async () => {
     const context: HermesMappingContext = {
       runId: 'runs:semantic-edges',

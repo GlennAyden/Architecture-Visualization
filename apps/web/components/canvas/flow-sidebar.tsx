@@ -21,7 +21,7 @@ import type { Doc, Id } from '../../../../convex/_generated/dataModel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { sortLayers } from '@/lib/architecture-layers';
+import { computeLayerUsage, sortLayers } from '@/lib/architecture-layers';
 import type { CanvasEdgeMode } from '@/lib/canvas-edge-presentation';
 import { HermesInboxPanel } from './hermes-inbox-panel';
 
@@ -125,6 +125,15 @@ export function FlowSidebar({
   const [productAreaFilter, setProductAreaFilter] = useState<ProductAreaFilter>('all');
   const [verifying, setVerifying] = useState(false);
   const sortedLayers = sortLayers(layers);
+  const layerUsage = useMemo(() => computeLayerUsage(layers, nodes), [layers, nodes]);
+  const emptySemanticLayers = useMemo(
+    () =>
+      sortedLayers.filter((layer) => {
+        const usage = layerUsage.get(layer._id);
+        return isProductSemanticLayer(layer) && (usage?.isEmpty ?? true);
+      }),
+    [layerUsage, sortedLayers],
+  );
   const displayedFlows = useMemo(() => {
     const all = flows ?? [];
     const byView = flowView === 'featured' ? all.filter((flow) => flow.isCurated !== false) : all;
@@ -240,25 +249,51 @@ export function FlowSidebar({
           <div className="space-y-3">
             <PanelTitle icon={Layers3} title="Layers" />
             <div className="space-y-1.5">
-              {sortedLayers.map((layer, index) => (
-                <div
-                  key={layer._id}
-                  className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-2"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded bg-cyan-400/15 text-[10px] font-semibold text-cyan-200">
-                      {index + 1}
-                    </span>
-                    <span className="truncate text-sm text-zinc-200">{layer.name}</span>
+              {sortedLayers.map((layer, index) => {
+                const usage = layerUsage.get(layer._id);
+                const nodeCount = usage?.nodeCount ?? 0;
+                const needsSemanticScan = isProductSemanticLayer(layer) && nodeCount === 0;
+                return (
+                  <div
+                    key={layer._id}
+                    className={cn(
+                      'rounded-md border px-2 py-2',
+                      needsSemanticScan
+                        ? 'border-amber-400/20 bg-amber-400/[0.04]'
+                        : 'border-white/10 bg-white/[0.03]',
+                    )}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded bg-cyan-400/15 text-[10px] font-semibold text-cyan-200">
+                        {index + 1}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-sm text-zinc-200">
+                        {layer.name}
+                      </span>
+                      <span className="shrink-0 rounded border border-white/10 bg-black/20 px-1.5 py-0.5 text-[10px] text-zinc-400">
+                        {nodeCount} nodes
+                      </span>
+                    </div>
+                    {layer.description && (
+                      <p className="mt-1 line-clamp-2 pl-7 text-xs text-zinc-500">
+                        {layer.description}
+                      </p>
+                    )}
+                    {needsSemanticScan && (
+                      <p className="mt-2 pl-7 text-[11px] font-medium text-amber-200">
+                        Needs semantic scan
+                      </p>
+                    )}
                   </div>
-                  {layer.description && (
-                    <p className="mt-1 line-clamp-2 pl-7 text-xs text-zinc-500">
-                      {layer.description}
-                    </p>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
+            {emptySemanticLayers.length > 0 && (
+              <div className="rounded-md border border-cyan-400/20 bg-cyan-400/[0.06] p-3 text-xs leading-5 text-cyan-100/80">
+                Empty product layers stay compact until semantic scan and Hermes mapping add UI
+                modules or capabilities.
+              </div>
+            )}
             <div className="flex gap-2">
               <Input
                 value={newLayerName}
@@ -687,6 +722,14 @@ function InspectorBlock({
 
 function formatToken(value: string) {
   return value.replace(/_/g, ' ');
+}
+
+function isProductSemanticLayer(layer: { name: string; purpose?: string }) {
+  return (
+    layer.purpose === 'ui_modules' ||
+    layer.purpose === 'capabilities' ||
+    ['ui modules', 'product capabilities'].includes(layer.name.toLowerCase())
+  );
 }
 
 function formatRelativeTime(time: number) {

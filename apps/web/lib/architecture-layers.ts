@@ -1,6 +1,7 @@
 import {
   ARCH_LAYER_CANVAS_HEIGHT,
   ARCH_LAYER_CANVAS_TOP,
+  ARCH_LAYER_COMPACT_WIDTH,
   ARCH_LAYER_CONTENT_WIDTH,
   ARCH_LAYER_FEATURE_GAP_Y,
   ARCH_LAYER_FEATURE_OFFSET_X,
@@ -13,18 +14,23 @@ import {
   ARCH_LAYER_PARENT_GAP_Y,
   ARCH_LAYER_WIDTH,
   computeArchLayerLayout,
+  computeArchLayerGeometry,
+  computeArchLayerUsage,
   estimateLayerClusterHeight,
+  getArchLayerCanvasWidth,
   getArchLayerIndex,
   getArchLayerNodeX,
   getArchLayerX,
   getLayerFeaturePosition,
   getLayerNodePosition,
   sortArchLayers,
+  type ArchLayerGeometry,
   type ArchLayerLike,
   type ArchLayoutNodeLike,
 } from '@arch-viz/shared';
 
 export const LAYER_WIDTH = ARCH_LAYER_WIDTH;
+export const LAYER_COMPACT_WIDTH = ARCH_LAYER_COMPACT_WIDTH;
 export const LAYER_GAP = ARCH_LAYER_GAP;
 export const LAYER_PADDING_X = ARCH_LAYER_PADDING_X;
 export const LAYER_HEADER_HEIGHT = ARCH_LAYER_HEADER_HEIGHT;
@@ -39,7 +45,7 @@ export const LAYER_CANVAS_TOP = ARCH_LAYER_CANVAS_TOP;
 export const LAYER_CONTENT_WIDTH = ARCH_LAYER_CONTENT_WIDTH;
 
 type LayerLike = ArchLayerLike;
-type NodeLike = ArchLayoutNodeLike;
+type NodeLike = ArchLayoutNodeLike & { semanticKind?: string };
 
 export function sortLayers<T extends LayerLike>(layers: readonly T[] | undefined): T[] {
   return sortArchLayers(layers);
@@ -66,6 +72,27 @@ export function getNextNodePosition<TLayer extends LayerLike, TNode extends Node
   layerId: string;
 }) {
   return getLayerNodePosition(args);
+}
+
+export function computeLayerUsage<TLayer extends LayerLike, TNode extends NodeLike>(
+  layers: readonly TLayer[] | undefined,
+  nodes: readonly TNode[] | undefined,
+) {
+  return computeArchLayerUsage(layers, nodes);
+}
+
+export function computeLayerGeometry<TLayer extends LayerLike, TNode extends NodeLike>(
+  layers: readonly TLayer[] | undefined,
+  nodes: readonly TNode[] | undefined,
+) {
+  const usage = computeLayerUsage(layers, nodes);
+  return computeArchLayerGeometry({ layers, usage, compactEmpty: true });
+}
+
+export function getLayerCanvasWidth<TLayer extends LayerLike>(
+  geometry: readonly ArchLayerGeometry<TLayer>[],
+) {
+  return getArchLayerCanvasWidth(geometry);
 }
 
 export function getNextFeaturePosition<TNode extends NodeLike>({
