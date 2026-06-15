@@ -1,6 +1,6 @@
 import { v } from 'convex/values';
-import { Id } from './_generated/dataModel';
-import { internalMutation, mutation, query, type MutationCtx } from './_generated/server';
+import { internal } from './_generated/api';
+import { internalMutation, mutation, query } from './_generated/server';
 import { getProfile, getProjectIfAccessible, requireProjectAccess } from './lib/auth';
 import { hashToken } from './lib/tokens';
 import { upsertSuggestion } from './lib/codebaseSuggestions';
@@ -103,6 +103,21 @@ const flowSuggestionValidator = v.object({
   productArea: v.optional(productAreaValidator),
   source: v.string(),
 });
+
+const completionProgressValidator = v.object({
+  suggestedCount: v.number(),
+  appliedCount: v.number(),
+  pendingCount: v.number(),
+  ignoredCount: v.number(),
+  failedCount: v.number(),
+});
+
+const COMPLETION_BATCH_SIZES = {
+  suggestions: 20,
+  semanticNodeSuggestions: 20,
+  relationshipSuggestions: 20,
+  flowSuggestions: 4,
+};
 
 function latestOrphanCount(data: unknown): number {
   if (!data || typeof data !== 'object') return 0;
@@ -369,40 +384,33 @@ export const markFailed = mutation({
   },
 });
 
-async function countRunSuggestions(
-  ctx: MutationCtx,
-  projectId: Id<'projects'>,
-  runId: Id<'hermesMappingRuns'>,
+function initialCompletionProgress(args: {
+  suggestions: unknown[];
+  semanticNodeSuggestions?: unknown[];
+  relationshipSuggestions?: unknown[];
+  flowSuggestions?: unknown[];
+}) {
+  return {
+    suggestedCount:
+      args.suggestions.length +
+      (args.semanticNodeSuggestions ?? []).length +
+      (args.relationshipSuggestions ?? []).length +
+      (args.flowSuggestions ?? []).length,
+    appliedCount: 0,
+    pendingCount: 0,
+    ignoredCount: 0,
+    failedCount: 0,
+  };
+}
+
+function addCompletionStatus(
+  progress: ReturnType<typeof initialCompletionProgress>,
+  status: 'applied' | 'pending' | 'ignored' | 'skipped' | 'failed',
 ) {
-  const statuses = ['pending', 'applied', 'ignored'] as const;
-  const counts = { pending: 0, applied: 0, ignored: 0 };
-  for (const status of statuses) {
-    const rows = await ctx.db
-      .query('codebaseSuggestions')
-      .withIndex('by_project_status', (q) => q.eq('projectId', projectId).eq('status', status))
-      .take(500);
-    counts[status] = rows.filter((row) => row.runId === runId).length;
-
-    const semanticRows = await ctx.db
-      .query('semanticNodeSuggestions')
-      .withIndex('by_project_status', (q) => q.eq('projectId', projectId).eq('status', status))
-      .take(500);
-    counts[status] += semanticRows.filter((row) => row.runId === runId).length;
-  }
-  for (const status of statuses) {
-    const rows = await ctx.db
-      .query('relationshipSuggestions')
-      .withIndex('by_project_status', (q) => q.eq('projectId', projectId).eq('status', status))
-      .take(500);
-    counts[status] += rows.filter((row) => row.runId === runId).length;
-
-    const flowRows = await ctx.db
-      .query('architectureFlows')
-      .withIndex('by_project_status', (q) => q.eq('projectId', projectId).eq('status', status))
-      .take(500);
-    counts[status] += flowRows.filter((row) => row.runId === runId).length;
-  }
-  return counts;
+  if (status === 'applied') progress.appliedCount++;
+  if (status === 'pending') progress.pendingCount++;
+  if (status === 'ignored') progress.ignoredCount++;
+  if (status === 'failed') progress.failedCount++;
 }
 
 export const complete = internalMutation({
@@ -415,6 +423,7 @@ export const complete = internalMutation({
     semanticNodeSuggestions: v.optional(v.array(semanticNodeSuggestionValidator)),
     relationshipSuggestions: v.optional(v.array(relationshipSuggestionValidator)),
     flowSuggestions: v.optional(v.array(flowSuggestionValidator)),
+    progress: v.optional(completionProgressValidator),
   },
   handler: async (ctx, args) => {
     const run = await ctx.db.get(args.runId);
@@ -432,51 +441,106 @@ export const complete = internalMutation({
       return { ok: true };
     }
 
-    for (const suggestion of args.suggestions) {
-      await upsertSuggestion(ctx, run.projectId, {
+    const progress = args.progress ?? initialCompletionProgress(args);
+    const suggestionBatch = args.suggestions.slice(0, COMPLETION_BATCH_SIZES.suggestions);
+    const semanticBatch = (args.semanticNodeSuggestions ?? []).slice(
+      0,
+      COMPLETION_BATCH_SIZES.semanticNodeSuggestions,
+    );
+    const relationshipBatch = (args.relationshipSuggestions ?? []).slice(
+      0,
+      COMPLETION_BATCH_SIZES.relationshipSuggestions,
+    );
+    const flowBatch = (args.flowSuggestions ?? []).slice(0, COMPLETION_BATCH_SIZES.flowSuggestions);
+
+    for (const suggestion of suggestionBatch) {
+      const result = await upsertSuggestion(ctx, run.projectId, {
         ...suggestion,
         runId: args.runId,
       });
+      addCompletionStatus(progress, result.status);
     }
 
-    for (const suggestion of args.semanticNodeSuggestions ?? []) {
-      await upsertSemanticNodeSuggestion(ctx, run.projectId, {
+    for (const suggestion of semanticBatch) {
+      const result = await upsertSemanticNodeSuggestion(ctx, run.projectId, {
         ...suggestion,
         runId: args.runId,
       });
+      addCompletionStatus(progress, result.status);
     }
 
-    for (const suggestion of args.relationshipSuggestions ?? []) {
-      await upsertRelationshipSuggestion(ctx, run.projectId, {
+    for (const suggestion of relationshipBatch) {
+      const result = await upsertRelationshipSuggestion(ctx, run.projectId, {
         ...suggestion,
         runId: args.runId,
       });
+      addCompletionStatus(progress, result.status);
     }
 
-    for (const flow of args.flowSuggestions ?? []) {
-      await upsertArchitectureFlow(ctx, run.projectId, {
+    for (const flow of flowBatch) {
+      const result = await upsertArchitectureFlow(ctx, run.projectId, {
         ...flow,
         runId: args.runId,
       });
+      addCompletionStatus(progress, result.status);
+    }
+
+    const remainingSuggestions = args.suggestions.slice(COMPLETION_BATCH_SIZES.suggestions);
+    const remainingSemanticNodeSuggestions = (args.semanticNodeSuggestions ?? []).slice(
+      COMPLETION_BATCH_SIZES.semanticNodeSuggestions,
+    );
+    const remainingRelationshipSuggestions = (args.relationshipSuggestions ?? []).slice(
+      COMPLETION_BATCH_SIZES.relationshipSuggestions,
+    );
+    const remainingFlowSuggestions = (args.flowSuggestions ?? []).slice(
+      COMPLETION_BATCH_SIZES.flowSuggestions,
+    );
+    if (
+      remainingSuggestions.length > 0 ||
+      remainingSemanticNodeSuggestions.length > 0 ||
+      remainingRelationshipSuggestions.length > 0 ||
+      remainingFlowSuggestions.length > 0
+    ) {
+      await ctx.scheduler.runAfter(0, internal.hermesMappingRuns.complete, {
+        runId: args.runId,
+        submitToken: args.submitToken,
+        status: 'completed',
+        suggestions: remainingSuggestions,
+        semanticNodeSuggestions: remainingSemanticNodeSuggestions,
+        relationshipSuggestions: remainingRelationshipSuggestions,
+        flowSuggestions: remainingFlowSuggestions,
+        progress,
+      });
+      return {
+        ok: true,
+        processing: true,
+        pending: progress.pendingCount,
+        applied: progress.appliedCount,
+        ignored: progress.ignoredCount,
+        failed: progress.failedCount,
+        ...progress,
+      };
     }
 
     await upsertProductSurfaceFlows(ctx, run.projectId, args.runId);
 
-    const counts = await countRunSuggestions(ctx, run.projectId, args.runId);
     await ctx.db.patch(args.runId, {
       status: 'completed',
-      suggestedCount:
-        args.suggestions.length +
-        (args.semanticNodeSuggestions ?? []).length +
-        (args.relationshipSuggestions ?? []).length +
-        (args.flowSuggestions ?? []).length,
-      appliedCount: counts.applied,
-      pendingCount: counts.pending,
-      ignoredCount: counts.ignored,
+      suggestedCount: progress.suggestedCount,
+      appliedCount: progress.appliedCount,
+      pendingCount: progress.pendingCount,
+      ignoredCount: progress.ignoredCount,
       errorMessage: undefined,
       completedAt: Date.now(),
     });
 
-    return { ok: true, ...counts };
+    return {
+      ok: true,
+      pending: progress.pendingCount,
+      applied: progress.appliedCount,
+      ignored: progress.ignoredCount,
+      failed: progress.failedCount,
+      ...progress,
+    };
   },
 });
