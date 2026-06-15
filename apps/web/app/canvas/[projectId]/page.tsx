@@ -264,8 +264,15 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
   ]);
 
   // Redirect when the project is gone (e.g. cascade-deleted in another tab).
+  // On a direct canvas load the Convex auth token can lag behind the route
+  // render, briefly making a valid project look missing. Give auth/query
+  // state a short recovery window before sending the user back to Projects.
   useEffect(() => {
-    if (project === null) router.replace('/projects');
+    if (project !== null) return;
+    const id = setTimeout(() => {
+      router.replace('/projects');
+    }, 10000);
+    return () => clearTimeout(id);
   }, [project, router]);
 
   // Allow deep-linking from the activity feed: `?node=<id>` opens the modal
