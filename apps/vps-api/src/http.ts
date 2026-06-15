@@ -1,4 +1,7 @@
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { resolve } from 'node:path';
 
 import { createLocalAuthStore, type LocalAuthStore, type LocalSession } from './auth-store.js';
 import {
@@ -27,6 +30,7 @@ export interface VpsApiOptions {
   jwtIssuer: string;
   jwtAudience: string;
   hermesMapper?: HermesMapper;
+  scanCommandRunner?: ScanCommandRunner;
   fetchImpl?: typeof fetch;
 }
 
@@ -45,6 +49,47 @@ interface HermesMappingStartBody {
   convexSiteUrl: string;
   context: HermesMappingContext;
 }
+
+export type RescanJobStatus = 'queued' | 'running' | 'completed' | 'failed';
+export type RescanStepName =
+  | 'scan-orphans-initial'
+  | 'scan-imports'
+  | 'scan-orphans-final'
+  | 'scan-drift';
+
+interface RescanBody {
+  projectId: string;
+}
+
+interface RescanStepResult {
+  name: RescanStepName;
+  status: 'completed' | 'failed';
+  exitCode: number | null;
+  durationMs: number;
+  output?: string;
+}
+
+interface RescanJobState {
+  jobId: string;
+  projectId: string;
+  status: RescanJobStatus;
+  startedAt: number;
+  updatedAt: number;
+  completedAt?: number;
+  errorMessage?: string;
+  steps: RescanStepResult[];
+}
+
+export type ScanCommandRunner = (
+  step: RescanStepName,
+  command: string,
+  args: string[],
+  options: {
+    cwd: string;
+    env: NodeJS.ProcessEnv;
+    timeoutMs: number;
+  },
+) => Promise<RescanStepResult>;
 
 function publicUser(session: LocalSession): PublicUser {
   return {
@@ -101,12 +146,122 @@ function hermesMappingStartFromBody(body: Record<string, unknown>): HermesMappin
   return { runId, submitToken, convexSiteUrl, context: context as HermesMappingContext };
 }
 
+function rescanBodyFromBody(body: Record<string, unknown>): RescanBody {
+  const projectId = typeof body.projectId === 'string' ? body.projectId.trim() : '';
+  if (!projectId) throw new Error('projectId is required');
+  return { projectId };
+}
+
 function safeErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return message
     .replace(/archv_[A-Za-z0-9_-]+/g, '[redacted-token]')
     .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [redacted]')
     .slice(0, 1000);
+}
+
+function safeCommandOutput(value: string) {
+  return safeErrorMessage(value).replace(/\s+/g, ' ').trim().slice(0, 800);
+}
+
+function resolveRescanRepoPath(env: NodeJS.ProcessEnv): string {
+  const raw = env.ARCHITECTURE_REPO_PATH ?? env.ARCHVIZ_RESCAN_REPO_PATH;
+  if (!raw?.trim()) {
+    throw new Error('ARCHITECTURE_REPO_PATH is required before running a VPS rescan');
+  }
+  return resolve(raw.trim());
+}
+
+function assertRescanProjectScope(projectId: string, env: NodeJS.ProcessEnv) {
+  const configuredProjectId = env.ARCHITECTURE_PROJECT_ID?.trim();
+  if (!configuredProjectId) {
+    throw new Error('ARCHITECTURE_PROJECT_ID is required before running a VPS rescan');
+  }
+  if (configuredProjectId !== projectId) {
+    throw new Error('Rescan project does not match the configured VPS project guard');
+  }
+}
+
+function resolveMcpInvocation(step: RescanStepName, env: NodeJS.ProcessEnv) {
+  const subcommand =
+    step === 'scan-imports'
+      ? 'scan-imports'
+      : step === 'scan-drift'
+        ? 'scan-drift'
+        : 'scan-orphans';
+  const configuredBin = env.ARCHVIZ_MCP_BIN?.trim();
+  if (configuredBin) {
+    if (configuredBin.endsWith('.js')) {
+      return { command: process.execPath, args: [configuredBin, subcommand] };
+    }
+    return { command: configuredBin, args: [subcommand] };
+  }
+
+  const localBin = resolve(process.cwd(), 'apps/mcp-server/dist/index.js');
+  return { command: process.execPath, args: [localBin, subcommand] };
+}
+
+async function defaultScanCommandRunner(
+  step: RescanStepName,
+  command: string,
+  args: string[],
+  options: {
+    cwd: string;
+    env: NodeJS.ProcessEnv;
+    timeoutMs: number;
+  },
+): Promise<RescanStepResult> {
+  const startedAt = Date.now();
+  if (!existsSync(options.cwd)) {
+    throw new Error(`Rescan repo path does not exist: ${options.cwd}`);
+  }
+
+  return await new Promise((resolvePromise) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env,
+      windowsHide: true,
+      shell: false,
+    });
+    let output = '';
+    const append = (chunk: Buffer | string) => {
+      output += chunk.toString();
+      if (output.length > 4000) output = output.slice(output.length - 4000);
+    };
+    child.stdout?.on('data', append);
+    child.stderr?.on('data', append);
+
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+    }, options.timeoutMs);
+
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      resolvePromise({
+        name: step,
+        status: 'failed',
+        exitCode: null,
+        durationMs: Date.now() - startedAt,
+        output: safeCommandOutput(error.message),
+      });
+    });
+
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      const failed = timedOut || code !== 0;
+      resolvePromise({
+        name: step,
+        status: failed ? 'failed' : 'completed',
+        exitCode: code,
+        durationMs: Date.now() - startedAt,
+        output: safeCommandOutput(
+          timedOut ? `Timed out after ${options.timeoutMs}ms. ${output}` : output,
+        ),
+      });
+    });
+  });
 }
 
 function summarizeMappingPayload(payload: {
@@ -222,6 +377,67 @@ export async function runHermesMappingJob(options: VpsApiOptions, job: HermesMap
   }
 }
 
+async function runRescanJob(
+  options: VpsApiOptions,
+  job: RescanJobState,
+  onUpdate: (next: RescanJobState) => void,
+) {
+  const runner = options.scanCommandRunner ?? defaultScanCommandRunner;
+  const env = process.env;
+  const timeoutMs = Number.parseInt(env.ARCHVIZ_RESCAN_STEP_TIMEOUT_MS ?? '', 10) || 15 * 60_000;
+  const repoPath = resolveRescanRepoPath(env);
+  const steps: RescanStepName[] = [
+    'scan-orphans-initial',
+    'scan-imports',
+    'scan-orphans-final',
+    'scan-drift',
+  ];
+
+  onUpdate({ ...job, status: 'running', updatedAt: Date.now() });
+
+  for (const step of steps) {
+    const invocation = resolveMcpInvocation(step, env);
+    let result: RescanStepResult;
+    try {
+      result = await runner(step, invocation.command, invocation.args, {
+        cwd: repoPath,
+        env,
+        timeoutMs,
+      });
+    } catch (error) {
+      result = {
+        name: step,
+        status: 'failed',
+        exitCode: null,
+        durationMs: 0,
+        output: safeErrorMessage(error),
+      };
+    }
+    const next: RescanJobState = {
+      ...job,
+      status: result.status === 'failed' ? 'failed' : 'running',
+      steps: [...job.steps, result],
+      updatedAt: Date.now(),
+      ...(result.status === 'failed'
+        ? {
+            completedAt: Date.now(),
+            errorMessage: `${step} failed${result.output ? `: ${result.output}` : ''}`,
+          }
+        : {}),
+    };
+    job = next;
+    onUpdate(next);
+    if (result.status === 'failed') return;
+  }
+
+  onUpdate({
+    ...job,
+    status: 'completed',
+    updatedAt: Date.now(),
+    completedAt: Date.now(),
+  });
+}
+
 function resolveStoreFromEnv(): LocalAuthStore {
   const dbPath = process.env.AUTH_SQLITE_PATH ?? '.data/auth.sqlite';
   const parsedSessionDays = Number(process.env.AUTH_SESSION_DAYS ?? DEFAULT_SESSION_DAYS);
@@ -234,6 +450,7 @@ function resolveStoreFromEnv(): LocalAuthStore {
 
 export function createVpsApiHandler(options: VpsApiOptions) {
   const store = options.store ?? resolveStoreFromEnv();
+  const rescanJobs = new Map<string, RescanJobState>();
 
   return async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
@@ -348,6 +565,37 @@ export function createVpsApiHandler(options: VpsApiOptions) {
         const job = hermesMappingStartFromBody(body);
         void runHermesMappingJob(options, job);
         sendJson(res, 202, { ok: true, status: 'queued', runId: job.runId });
+        return;
+      }
+
+      if (url.pathname === '/scans/rescan') {
+        const input = rescanBodyFromBody(body);
+        assertRescanProjectScope(input.projectId, process.env);
+        resolveRescanRepoPath(process.env);
+
+        const existing = rescanJobs.get(input.projectId);
+        if (existing?.status === 'queued' || existing?.status === 'running') {
+          sendJson(res, 202, { ok: true, job: existing });
+          return;
+        }
+
+        const job: RescanJobState = {
+          jobId: `rescan_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+          projectId: input.projectId,
+          status: 'queued',
+          startedAt: Date.now(),
+          updatedAt: Date.now(),
+          steps: [],
+        };
+        rescanJobs.set(input.projectId, job);
+        void runRescanJob(options, job, (next) => rescanJobs.set(input.projectId, next));
+        sendJson(res, 202, { ok: true, job });
+        return;
+      }
+
+      if (url.pathname === '/scans/rescan/status') {
+        const input = rescanBodyFromBody(body);
+        sendJson(res, 200, { ok: true, job: rescanJobs.get(input.projectId) ?? null });
         return;
       }
 

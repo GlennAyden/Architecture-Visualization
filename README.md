@@ -10,7 +10,7 @@ A personal living architecture canvas that mirrors the structure of your project
 - AI agents create / update / delete nodes via a stdio MCP server that calls Convex HTTP actions.
 - The browser canvas updates live through Convex reactive queries, no manual refresh.
 - Drill into nested nodes, run auto-layout, search with the command palette, and export project data.
-- Scan imports, orphan files, and drift through the `arch-viz-mcp` CLI.
+- Scan imports, orphan files, and drift through the `arch-viz-mcp` CLI or the canvas Rescan action.
 - Share read-only canvas links and invite signed-in collaborators by email.
 - Every AI action is recorded in an activity log, viewable from the node modal.
 
@@ -74,6 +74,10 @@ docs/             superpowers/specs/ (design spec) and superpowers/plans/ (phase
    AUTH_JWT_ISSUER=http://127.0.0.1:8788
    AUTH_JWT_AUDIENCE=convex
    AUTH_JWT_PRIVATE_KEY=...
+   ARCHITECTURE_REPO_PATH=/absolute/path/to/the/project-to-scan
+   ARCHITECTURE_CONVEX_URL=https://your-deployment.convex.site
+   ARCHITECTURE_API_KEY=archv_...
+   ARCHITECTURE_PROJECT_ID=<canvas project id>
    ```
 
    See `apps/web/.env.example` and `apps/vps-api/.env.example` for the full
@@ -118,6 +122,11 @@ Discord/CLI path can still push V1 or V2 suggestions through
 `arch-viz-mcp push-suggestions --from-json <file>`. See
 [`docs/hermes-integration.md`](docs/hermes-integration.md) for the run flow,
 payload contract, thresholds, and security boundaries.
+
+The same panel can trigger a VPS-backed Rescan. The VPS runs `scan-orphans`,
+`scan-imports`, a final `scan-orphans`, and `scan-drift` from
+`ARCHITECTURE_REPO_PATH`; Convex keeps only the newest scan snapshot per kind, so
+the latest successful rescan is the canvas' current source of truth.
 
 ## VPS auth backend
 

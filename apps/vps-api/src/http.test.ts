@@ -8,7 +8,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { createLocalAuthStore, type LocalAuthStore } from './auth-store.js';
-import { createVpsApiServer, type VpsApiOptions } from './http.js';
+import { createVpsApiServer, type ScanCommandRunner, type VpsApiOptions } from './http.js';
 
 describe('VPS auth API', () => {
   const tempDirs: string[] = [];
@@ -63,6 +63,31 @@ describe('VPS auth API', () => {
       },
       body: JSON.stringify(body),
     });
+  }
+
+  async function withProcessEnv<T>(vars: Record<string, string>, fn: () => Promise<T>): Promise<T> {
+    const previous = new Map<string, string | undefined>();
+    for (const [key, value] of Object.entries(vars)) {
+      previous.set(key, process.env[key]);
+      process.env[key] = value;
+    }
+    try {
+      return await fn();
+    } finally {
+      for (const [key, value] of previous) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  }
+
+  async function waitFor<T>(fn: () => Promise<T | null>): Promise<T> {
+    for (let i = 0; i < 40; i += 1) {
+      const value = await fn();
+      if (value) return value;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error('Timed out waiting for condition');
   }
 
   test('rejects auth requests without the Vercel proxy token', async () => {
@@ -144,6 +169,119 @@ describe('VPS auth API', () => {
       });
       expect(tokenAfterLogout.status).toBe(401);
     });
+  });
+
+  test('rescan endpoint runs scanner steps so the final orphan snapshot becomes newest', async () => {
+    const calls: Array<{ step: string; subcommand: string; cwd: string }> = [];
+    const runner: ScanCommandRunner = async (step, _command, args, options) => {
+      calls.push({ step, subcommand: args.at(-1) ?? '', cwd: options.cwd });
+      return {
+        name: step,
+        status: 'completed',
+        exitCode: 0,
+        durationMs: 1,
+        output: `${step} ok`,
+      };
+    };
+
+    await withProcessEnv(
+      {
+        ARCHITECTURE_PROJECT_ID: 'projects:abc',
+        ARCHITECTURE_REPO_PATH: tempDirs[0]!,
+      },
+      async () => {
+        await withServer(
+          async (baseUrl) => {
+            const started = await post(baseUrl, '/scans/rescan', {
+              projectId: 'projects:abc',
+            });
+            expect(started.status).toBe(202);
+
+            const completed = await waitFor(async () => {
+              const response = await post(baseUrl, '/scans/rescan/status', {
+                projectId: 'projects:abc',
+              });
+              const body = (await response.json()) as {
+                job: { status: string; steps: Array<{ name: string }> } | null;
+              };
+              return body.job?.status === 'completed' ? body.job : null;
+            });
+
+            expect(completed.steps.map((step) => step.name)).toEqual([
+              'scan-orphans-initial',
+              'scan-imports',
+              'scan-orphans-final',
+              'scan-drift',
+            ]);
+          },
+          { scanCommandRunner: runner },
+        );
+      },
+    );
+
+    expect(calls).toEqual([
+      { step: 'scan-orphans-initial', subcommand: 'scan-orphans', cwd: tempDirs[0] },
+      { step: 'scan-imports', subcommand: 'scan-imports', cwd: tempDirs[0] },
+      { step: 'scan-orphans-final', subcommand: 'scan-orphans', cwd: tempDirs[0] },
+      { step: 'scan-drift', subcommand: 'scan-drift', cwd: tempDirs[0] },
+    ]);
+  });
+
+  test('rescan endpoint refuses to scan a project outside the VPS guard', async () => {
+    await withProcessEnv(
+      {
+        ARCHITECTURE_PROJECT_ID: 'projects:expected',
+        ARCHITECTURE_REPO_PATH: tempDirs[0]!,
+      },
+      async () => {
+        await withServer(async (baseUrl) => {
+          const response = await post(baseUrl, '/scans/rescan', {
+            projectId: 'projects:other',
+          });
+
+          expect(response.status).toBe(400);
+          await expect(response.json()).resolves.toMatchObject({
+            error: 'Rescan project does not match the configured VPS project guard',
+          });
+        });
+      },
+    );
+  });
+
+  test('rescan endpoint marks the job failed when the scanner runner throws', async () => {
+    await withProcessEnv(
+      {
+        ARCHITECTURE_PROJECT_ID: 'projects:abc',
+        ARCHITECTURE_REPO_PATH: tempDirs[0]!,
+      },
+      async () => {
+        await withServer(
+          async (baseUrl) => {
+            const started = await post(baseUrl, '/scans/rescan', {
+              projectId: 'projects:abc',
+            });
+            expect(started.status).toBe(202);
+
+            const failed = await waitFor(async () => {
+              const response = await post(baseUrl, '/scans/rescan/status', {
+                projectId: 'projects:abc',
+              });
+              const body = (await response.json()) as {
+                job: { status: string; errorMessage?: string } | null;
+              };
+              return body.job?.status === 'failed' ? body.job : null;
+            });
+
+            expect(failed.errorMessage).toContain('scan-orphans-initial failed');
+          },
+          {
+            scanCommandRunner: async () => {
+              throw new Error('scanner unavailable with archv_secret');
+            },
+          },
+        );
+      },
+    );
   });
 
   test('Hermes mapping endpoint starts an async job and submits completed suggestions', async () => {

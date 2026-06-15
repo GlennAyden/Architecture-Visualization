@@ -66,16 +66,16 @@ function resolveBackendUrl(baseUrl: string, path: string): URL {
   return base;
 }
 
-export async function callAuthBackend(
+export async function callAuthBackend<T extends BackendAuthResponse = BackendAuthResponse>(
   path: string,
   body: object = {},
-): Promise<{ status: number; data: BackendAuthResponse }> {
+): Promise<{ status: number; data: T }> {
   const baseUrl = process.env.ARCHVIZ_AUTH_BACKEND_URL;
   const proxyToken = process.env.ARCHVIZ_AUTH_BACKEND_TOKEN;
   if (!baseUrl || !proxyToken) {
     return {
       status: 503,
-      data: { error: 'Arch Viz auth backend is not configured' },
+      data: { error: 'Arch Viz auth backend is not configured' } as T,
     };
   }
 
@@ -90,12 +90,12 @@ export async function callAuthBackend(
       body: JSON.stringify(body),
       cache: 'no-store',
     });
-    const data = (await response.json().catch(() => ({}))) as BackendAuthResponse;
+    const data = (await response.json().catch(() => ({}))) as T;
     return { status: response.status, data };
   } catch {
     return {
       status: 503,
-      data: { error: 'Arch Viz auth backend is unavailable' },
+      data: { error: 'Arch Viz auth backend is unavailable' } as T,
     };
   }
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery } from 'convex/react';
 import { Bot, Check, GitBranch, Pencil, Play, RotateCw, ShieldCheck, X } from 'lucide-react';
 
@@ -88,6 +88,20 @@ type SemanticReviewDraft = {
   parentNodeId: string;
 };
 
+type RescanJob = {
+  jobId: string;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  startedAt: number;
+  updatedAt: number;
+  completedAt?: number;
+  errorMessage?: string;
+  steps: Array<{
+    name: string;
+    status: 'completed' | 'failed';
+    durationMs: number;
+  }>;
+};
+
 function isHighConfidence(action: SuggestionAction, confidence: number) {
   return action === 'link_existing_node' || action === 'ignore'
     ? confidence >= 0.9
@@ -103,6 +117,14 @@ function statusTone(status?: string) {
   if (status === 'failed') return 'text-rose-300';
   if (status === 'running' || status === 'queued') return 'text-amber-300';
   return 'text-zinc-500';
+}
+
+function rescanLabel(job: RescanJob | null) {
+  if (!job) return 'No rescan in this session';
+  const latestStep = job.steps.at(-1);
+  if (job.status === 'completed') return `completed · ${job.steps.length} steps`;
+  if (job.status === 'failed') return `failed · ${latestStep?.name ?? 'scan'}`;
+  return `${job.status} · ${latestStep?.name ?? 'starting'}`;
 }
 
 export function HermesInboxPanel({ projectId }: Props) {
@@ -190,7 +212,10 @@ export function HermesInboxPanel({ projectId }: Props) {
 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [rescanning, setRescanning] = useState(false);
+  const [rescanJob, setRescanJob] = useState<RescanJob | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [rescanError, setRescanError] = useState<string | null>(null);
   const [bulkResult, setBulkResult] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<Id<'codebaseSuggestions'> | null>(null);
   const [editingSemanticId, setEditingSemanticId] = useState<Id<'semanticNodeSuggestions'> | null>(
@@ -228,6 +253,7 @@ export function HermesInboxPanel({ projectId }: Props) {
   const visibleFlowApplied = appliedFlows?.slice(0, 2) ?? [];
   const visibleFlowIgnored = ignoredFlows?.slice(0, 2) ?? [];
   const latestRun = runs?.[0];
+  const isRescanActive = rescanJob?.status === 'queued' || rescanJob?.status === 'running';
   const highConfidenceCount = useMemo(
     () =>
       (pending ?? []).filter((suggestion) =>
@@ -256,6 +282,47 @@ export function HermesInboxPanel({ projectId }: Props) {
       setError(err instanceof Error ? err.message : 'Hermes mapping could not start');
     } finally {
       setStarting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isRescanActive) return;
+    const interval = window.setInterval(async () => {
+      const response = await fetch(`/api/scans/rescan?projectId=${encodeURIComponent(projectId)}`, {
+        method: 'GET',
+        cache: 'no-store',
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        job?: RescanJob | null;
+      };
+      if (response.ok && data.job) {
+        setRescanJob(data.job);
+        if (data.job.status === 'failed') setRescanError(data.job.errorMessage ?? 'Rescan failed');
+      }
+    }, 4000);
+    return () => window.clearInterval(interval);
+  }, [isRescanActive, projectId]);
+
+  const handleRescan = async () => {
+    setRescanning(true);
+    setRescanError(null);
+    try {
+      const response = await fetch('/api/scans/rescan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId }),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        job?: RescanJob | null;
+      };
+      if (!response.ok) throw new Error(data.error ?? 'Rescan could not start');
+      setRescanJob(data.job ?? null);
+    } catch (err) {
+      setRescanError(err instanceof Error ? err.message : 'Rescan could not start');
+    } finally {
+      setRescanning(false);
     }
   };
 
@@ -481,21 +548,40 @@ export function HermesInboxPanel({ projectId }: Props) {
                 : 'No mapping run yet'}
             </p>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 shrink-0 border border-cyan-400/30 bg-cyan-400/10 text-cyan-100 hover:bg-cyan-400/20"
-            disabled={starting}
-            onClick={() => void handleStartRun()}
-          >
-            {starting ? (
-              <RotateCw className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Play className="h-3.5 w-3.5" />
-            )}
-            Ask Hermes
-          </Button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 border border-white/10 bg-white/[0.03] text-zinc-200 hover:bg-white/[0.07]"
+              disabled={rescanning || isRescanActive}
+              onClick={() => void handleRescan()}
+            >
+              {rescanning || isRescanActive ? (
+                <RotateCw className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RotateCw className="h-3.5 w-3.5" />
+              )}
+              Rescan
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 border border-cyan-400/30 bg-cyan-400/10 text-cyan-100 hover:bg-cyan-400/20"
+              disabled={starting}
+              onClick={() => void handleStartRun()}
+            >
+              {starting ? (
+                <RotateCw className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Play className="h-3.5 w-3.5" />
+              )}
+              Ask Hermes
+            </Button>
+          </div>
         </div>
+        <p className={`mt-2 truncate text-xs ${statusTone(rescanJob?.status)}`}>
+          Rescan: {rescanLabel(rescanJob)}
+        </p>
         {latestRun?.errorMessage && (
           <p className="mt-2 rounded border border-rose-400/20 bg-rose-400/10 px-2 py-1 text-xs text-rose-200">
             {latestRun.errorMessage}
@@ -504,6 +590,11 @@ export function HermesInboxPanel({ projectId }: Props) {
         {error && (
           <p className="mt-2 rounded border border-rose-400/20 bg-rose-400/10 px-2 py-1 text-xs text-rose-200">
             {error}
+          </p>
+        )}
+        {rescanError && (
+          <p className="mt-2 rounded border border-rose-400/20 bg-rose-400/10 px-2 py-1 text-xs text-rose-200">
+            {rescanError}
           </p>
         )}
       </div>
