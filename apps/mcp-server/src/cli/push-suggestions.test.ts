@@ -204,6 +204,7 @@ describe('runPushSuggestions', () => {
               source: 'hermes',
             },
           ],
+          semanticNodeSuggestions: [],
           relationshipSuggestions: [],
           flowSuggestions: [],
         },

@@ -1,13 +1,8 @@
 import { v } from 'convex/values';
 import { internalMutation } from '../_generated/server';
 import { ensureEdge, type EdgeType } from '../lib/edges';
+import { manualEdgeTypeValidator } from '../lib/semantic';
 import { ForbiddenError, requireNodeOwnership, requireOwnership } from './lib';
-
-const manualEdgeType = v.union(
-  v.literal('dependency'),
-  v.literal('navigation'),
-  v.literal('data_flow'),
-);
 
 /**
  * AI / user-driven manual classification: "these two nodes are related in
@@ -24,7 +19,7 @@ export const linkNodes = internalMutation({
     scopeProjectId: v.id('projects'),
     sourceNodeId: v.id('nodes'),
     targetNodeId: v.id('nodes'),
-    type: manualEdgeType,
+    type: manualEdgeTypeValidator,
   },
   handler: async (ctx, { userId, scopeProjectId, sourceNodeId, targetNodeId, type }) => {
     if (sourceNodeId === targetNodeId) {
@@ -62,7 +57,7 @@ export const unlinkNodes = internalMutation({
     scopeProjectId: v.id('projects'),
     sourceNodeId: v.id('nodes'),
     targetNodeId: v.id('nodes'),
-    type: manualEdgeType,
+    type: manualEdgeTypeValidator,
   },
   handler: async (ctx, { userId, scopeProjectId, sourceNodeId, targetNodeId, type }) => {
     await requireOwnership(ctx, userId, scopeProjectId);
@@ -108,7 +103,7 @@ export const reconcileEdges = internalMutation({
       v.object({
         sourceNodeId: v.id('nodes'),
         targetNodeId: v.id('nodes'),
-        type: manualEdgeType,
+        type: manualEdgeTypeValidator,
       }),
     ),
   },

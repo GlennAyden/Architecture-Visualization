@@ -14,6 +14,8 @@ interface PushSuggestionsResponse {
   pending: number;
   applied: number;
   ignored?: number;
+  semanticPending?: number;
+  semanticApplied?: number;
   relationshipPending?: number;
   relationshipApplied?: number;
   flowPending?: number;
@@ -41,6 +43,7 @@ const suggestionSchema = z
     semanticKind: z
       .enum([
         'surface',
+        'ui_module',
         'capability',
         'api',
         'data_logic',
@@ -99,7 +102,17 @@ const relationshipSuggestionSchema = z
   .object({
     sourceNodeId: z.string().trim().min(1),
     targetNodeId: z.string().trim().min(1),
-    type: z.enum(['dependency', 'navigation', 'data_flow']),
+    type: z.enum([
+      'dependency',
+      'navigation',
+      'data_flow',
+      'contains',
+      'uses',
+      'triggers',
+      'reads',
+      'writes',
+      'integrates',
+    ]),
     label: z.string().trim().min(1).max(120).optional(),
     confidence: z.number().min(0).max(1),
     reason: z.string().trim().min(1).max(1000),
@@ -116,7 +129,20 @@ const flowEdgeRefSchema = z
     edgeId: z.string().trim().min(1).optional(),
     sourceNodeId: z.string().trim().min(1).optional(),
     targetNodeId: z.string().trim().min(1).optional(),
-    type: z.enum(['hierarchy', 'dependency', 'navigation', 'data_flow']).optional(),
+    type: z
+      .enum([
+        'hierarchy',
+        'dependency',
+        'navigation',
+        'data_flow',
+        'contains',
+        'uses',
+        'triggers',
+        'reads',
+        'writes',
+        'integrates',
+      ])
+      .optional(),
   })
   .strict()
   .refine(
@@ -161,6 +187,40 @@ const flowSuggestionSchema = z
     confidence: z.number().min(0).max(1),
     reason: z.string().trim().min(1).max(1000),
     evidence: z.array(z.string().trim().min(1).max(240)).max(8).optional(),
+    productArea: z.enum(['public', 'user', 'admin', 'extension', 'internal', 'unknown']).optional(),
+    source: z.string().trim().min(1).max(80).default('hermes'),
+  })
+  .strict();
+
+const semanticNodeSuggestionSchema = z
+  .object({
+    sourceFilePath: z.string().trim().min(1).max(500),
+    semanticKey: z.string().trim().min(1).max(180),
+    suggestedNodeName: z.string().trim().min(1).max(80),
+    semanticKind: z.enum([
+      'surface',
+      'ui_module',
+      'capability',
+      'api',
+      'data_logic',
+      'agent',
+      'worker',
+      'storage',
+      'external_service',
+      'config',
+      'test_harness',
+      'unknown',
+    ]),
+    productArea: z
+      .enum(['public', 'user', 'admin', 'extension', 'internal', 'unknown'])
+      .default('unknown'),
+    capabilityKey: z.string().trim().min(1).max(120).optional(),
+    routeHint: z.string().trim().min(1).max(160).optional(),
+    layerId: z.string().trim().min(1),
+    parentNodeId: z.string().trim().min(1).optional(),
+    confidence: z.number().min(0).max(1),
+    reason: z.string().trim().min(1).max(1000),
+    evidence: z.array(z.string().trim().min(1).max(240)).max(8).optional(),
     source: z.string().trim().min(1).max(80).default('hermes'),
   })
   .strict();
@@ -169,6 +229,7 @@ const pushSuggestionsSchema = z
   .object({
     runId: z.string().trim().min(1).optional(),
     suggestions: z.array(suggestionSchema).max(500).default([]),
+    semanticNodeSuggestions: z.array(semanticNodeSuggestionSchema).max(500).default([]),
     relationshipSuggestions: z.array(relationshipSuggestionSchema).max(500).default([]),
     flowSuggestions: z.array(flowSuggestionSchema).max(100).default([]),
   })
@@ -176,6 +237,7 @@ const pushSuggestionsSchema = z
   .refine(
     (value) =>
       value.suggestions.length > 0 ||
+      value.semanticNodeSuggestions.length > 0 ||
       value.relationshipSuggestions.length > 0 ||
       value.flowSuggestions.length > 0,
     { message: 'At least one suggestion is required' },
@@ -225,13 +287,15 @@ export async function runPushSuggestions(
 
   progress(`[push-suggestions] project=${config.projectId}`);
   progress(
-    `[push-suggestions] suggestions=${payload.suggestions.length}, relationships=${payload.relationshipSuggestions.length}, flows=${payload.flowSuggestions.length}`,
+    `[push-suggestions] suggestions=${payload.suggestions.length}, semantic=${payload.semanticNodeSuggestions.length}, relationships=${payload.relationshipSuggestions.length}, flows=${payload.flowSuggestions.length}`,
   );
 
   const result = await client.post('/api/mcp/codebase_suggestions/push', payload);
   summary(
     `Suggestions: accepted ${result.accepted}, applied ${result.applied}, ` +
       `pending ${result.pending}, ignored ${result.ignored ?? 0}, ` +
+      `semantic applied ${result.semanticApplied ?? 0}, ` +
+      `semantic pending ${result.semanticPending ?? 0}, ` +
       `relationship applied ${result.relationshipApplied ?? 0}, ` +
       `relationship pending ${result.relationshipPending ?? 0}, ` +
       `flow applied ${result.flowApplied ?? 0}, ` +

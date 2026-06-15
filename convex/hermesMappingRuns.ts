@@ -7,11 +7,17 @@ import { upsertSuggestion } from './lib/codebaseSuggestions';
 import { upsertRelationshipSuggestion } from './lib/relationshipSuggestions';
 import { upsertArchitectureFlow } from './lib/architectureFlows';
 import {
+  upsertProductSurfaceFlows,
+  upsertSemanticNodeSuggestion,
+} from './lib/semanticNodeSuggestions';
+import { ensureProductLayers } from './projectLayers';
+import {
   architectureFlowKindValidator,
   edgeTypeValidator,
   linkedFileRoleValidator,
   manualEdgeTypeValidator,
   nodeSemanticKindValidator,
+  productAreaValidator,
 } from './lib/semantic';
 
 const mappingRunSource = v.union(v.literal('canvas'), v.literal('discord'), v.literal('cli'));
@@ -50,6 +56,22 @@ const relationshipSuggestionValidator = v.object({
   source: v.string(),
 });
 
+const semanticNodeSuggestionValidator = v.object({
+  sourceFilePath: v.string(),
+  semanticKey: v.string(),
+  suggestedNodeName: v.string(),
+  semanticKind: nodeSemanticKindValidator,
+  productArea: productAreaValidator,
+  capabilityKey: v.optional(v.string()),
+  routeHint: v.optional(v.string()),
+  layerId: v.id('projectLayers'),
+  parentNodeId: v.optional(v.id('nodes')),
+  confidence: v.number(),
+  reason: v.string(),
+  evidence: v.optional(v.array(v.string())),
+  source: v.string(),
+});
+
 const flowEdgeRefValidator = v.object({
   edgeId: v.optional(v.id('nodeEdges')),
   sourceNodeId: v.optional(v.id('nodes')),
@@ -78,6 +100,7 @@ const flowSuggestionValidator = v.object({
   confidence: v.number(),
   reason: v.string(),
   evidence: v.optional(v.array(v.string())),
+  productArea: v.optional(productAreaValidator),
   source: v.string(),
 });
 
@@ -106,6 +129,7 @@ export const start = mutation({
     if (!profile) throw new Error('Unauthorized');
     await requireProjectAccess(ctx, projectId);
     if (!submitTokenHash.trim()) throw new Error('submitTokenHash is required');
+    await ensureProductLayers(ctx, projectId);
 
     const snapshots = await ctx.db
       .query('scanSnapshots')
@@ -178,6 +202,9 @@ export const buildContext = query({
           layerId: node.layerId,
           parentId: node.parentId,
           semanticKind: node.semanticKind,
+          productArea: node.productArea,
+          capabilityKey: node.capabilityKey,
+          routeHint: node.routeHint,
           mappingStatus: node.mappingStatus,
           mappingConfidence: node.mappingConfidence,
           files: files.filter((file) => !file.archived).map((file) => file.path),
@@ -208,6 +235,7 @@ export const buildContext = query({
 
     const statuses = ['pending', 'applied', 'rejected', 'ignored'] as const;
     const suggestions = [];
+    const semanticNodeSuggestions = [];
     const relationshipSuggestions = [];
     const flows = [];
     for (const status of statuses) {
@@ -222,6 +250,26 @@ export const buildContext = query({
           layerId: row.layerId,
           targetNodeId: row.targetNodeId,
           groupKey: row.groupKey,
+          status: row.status,
+          confidence: row.confidence,
+        })),
+      );
+
+      const semanticRows = await ctx.db
+        .query('semanticNodeSuggestions')
+        .withIndex('by_project_status', (q) => q.eq('projectId', projectId).eq('status', status))
+        .take(100);
+      semanticNodeSuggestions.push(
+        ...semanticRows.map((row) => ({
+          sourceFilePath: row.sourceFilePath,
+          semanticKey: row.semanticKey,
+          suggestedNodeName: row.suggestedNodeName,
+          semanticKind: row.semanticKind,
+          productArea: row.productArea,
+          capabilityKey: row.capabilityKey,
+          routeHint: row.routeHint,
+          layerId: row.layerId,
+          parentNodeId: row.parentNodeId,
           status: row.status,
           confidence: row.confidence,
         })),
@@ -286,6 +334,7 @@ export const buildContext = query({
         : null,
       suggestions,
       relationshipSuggestions,
+      semanticNodeSuggestions,
       flows,
     };
   },
@@ -333,6 +382,12 @@ async function countRunSuggestions(
       .withIndex('by_project_status', (q) => q.eq('projectId', projectId).eq('status', status))
       .take(500);
     counts[status] = rows.filter((row) => row.runId === runId).length;
+
+    const semanticRows = await ctx.db
+      .query('semanticNodeSuggestions')
+      .withIndex('by_project_status', (q) => q.eq('projectId', projectId).eq('status', status))
+      .take(500);
+    counts[status] += semanticRows.filter((row) => row.runId === runId).length;
   }
   for (const status of statuses) {
     const rows = await ctx.db
@@ -357,6 +412,7 @@ export const complete = internalMutation({
     status: v.union(v.literal('completed'), v.literal('failed')),
     errorMessage: v.optional(v.string()),
     suggestions: v.array(suggestionValidator),
+    semanticNodeSuggestions: v.optional(v.array(semanticNodeSuggestionValidator)),
     relationshipSuggestions: v.optional(v.array(relationshipSuggestionValidator)),
     flowSuggestions: v.optional(v.array(flowSuggestionValidator)),
   },
@@ -383,6 +439,13 @@ export const complete = internalMutation({
       });
     }
 
+    for (const suggestion of args.semanticNodeSuggestions ?? []) {
+      await upsertSemanticNodeSuggestion(ctx, run.projectId, {
+        ...suggestion,
+        runId: args.runId,
+      });
+    }
+
     for (const suggestion of args.relationshipSuggestions ?? []) {
       await upsertRelationshipSuggestion(ctx, run.projectId, {
         ...suggestion,
@@ -397,11 +460,14 @@ export const complete = internalMutation({
       });
     }
 
+    await upsertProductSurfaceFlows(ctx, run.projectId, args.runId);
+
     const counts = await countRunSuggestions(ctx, run.projectId, args.runId);
     await ctx.db.patch(args.runId, {
       status: 'completed',
       suggestedCount:
         args.suggestions.length +
+        (args.semanticNodeSuggestions ?? []).length +
         (args.relationshipSuggestions ?? []).length +
         (args.flowSuggestions ?? []).length,
       appliedCount: counts.applied,

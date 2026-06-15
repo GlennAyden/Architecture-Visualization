@@ -11,36 +11,56 @@ const DEFAULT_LAYERS = [
     description: 'User-facing pages, routes, and interaction surfaces.',
   },
   {
-    name: 'Application',
+    name: 'UI Modules',
+    purpose: 'ui_modules',
+    description: 'Visible page sections, header controls, widgets, panels, and CTAs.',
+  },
+  {
+    name: 'Product Capabilities',
+    purpose: 'capabilities',
+    description: 'Business functions such as onboarding, billing, notifications, and profile.',
+  },
+  {
+    name: 'Application / API',
     purpose: 'application',
-    description: 'Product capabilities and feature-level orchestration.',
+    description: 'Route handlers, server actions, app services, and product orchestration.',
   },
   {
-    name: 'Backend',
-    purpose: 'backend',
-    description: 'Server routes, auth proxy, webhooks, and service APIs.',
-  },
-  {
-    name: 'Data',
+    name: 'Data & State',
     purpose: 'data',
     description: 'Convex schema, queries, mutations, and persistence logic.',
   },
   {
-    name: 'Agents',
+    name: 'Agents / Automation',
     purpose: 'agents',
     description: 'Hermes, MCP, scanners, workers, and automation flows.',
   },
   {
-    name: 'Infra',
-    purpose: 'infra',
-    description: 'Deployment, configuration, VPS, Vercel, and Cloudflare glue.',
-  },
-  {
-    name: 'External',
+    name: 'External Services',
     purpose: 'external',
     description: 'External services and third-party integration boundaries.',
   },
+  {
+    name: 'Infra / Delivery',
+    purpose: 'infra',
+    description: 'Deployment, configuration, VPS, Vercel, and delivery glue.',
+  },
 ] as const;
+
+function matchesLayer(
+  layer: { name: string; purpose?: string },
+  desired: (typeof DEFAULT_LAYERS)[number],
+) {
+  return (
+    layer.purpose === desired.purpose ||
+    layer.name.toLowerCase() === desired.name.toLowerCase() ||
+    (desired.purpose === 'application' && layer.name.toLowerCase() === 'application') ||
+    (desired.purpose === 'data' && layer.name.toLowerCase() === 'data') ||
+    (desired.purpose === 'agents' && layer.name.toLowerCase() === 'agents') ||
+    (desired.purpose === 'external' && layer.name.toLowerCase() === 'external') ||
+    (desired.purpose === 'infra' && layer.name.toLowerCase() === 'infra')
+  );
+}
 
 export async function seedDefaultLayers(ctx: MutationCtx, projectId: Id<'projects'>) {
   const existing = await ctx.db
@@ -57,6 +77,41 @@ export async function seedDefaultLayers(ctx: MutationCtx, projectId: Id<'project
       purpose: layer.purpose,
       description: layer.description,
     });
+  }
+}
+
+export async function ensureProductLayers(ctx: MutationCtx, projectId: Id<'projects'>) {
+  await seedDefaultLayers(ctx, projectId);
+  let layers = (
+    await ctx.db
+      .query('projectLayers')
+      .withIndex('by_project', (q) => q.eq('projectId', projectId))
+      .collect()
+  ).sort((a, b) => a.position - b.position);
+
+  for (const [targetPosition, desired] of DEFAULT_LAYERS.entries()) {
+    if (layers.some((layer) => matchesLayer(layer, desired))) continue;
+
+    for (const layer of layers) {
+      if (layer.position >= targetPosition) {
+        await ctx.db.patch(layer._id, { position: layer.position + 1 });
+      }
+    }
+
+    await ctx.db.insert('projectLayers', {
+      projectId,
+      name: desired.name,
+      position: targetPosition,
+      purpose: desired.purpose,
+      description: desired.description,
+    });
+
+    layers = (
+      await ctx.db
+        .query('projectLayers')
+        .withIndex('by_project', (q) => q.eq('projectId', projectId))
+        .collect()
+    ).sort((a, b) => a.position - b.position);
   }
 }
 
@@ -114,7 +169,7 @@ export const ensureDefaults = mutation({
   args: { projectId: v.id('projects') },
   handler: async (ctx, { projectId }) => {
     await requireProjectAccess(ctx, projectId);
-    await seedDefaultLayers(ctx, projectId);
+    await ensureProductLayers(ctx, projectId);
     await backfillMissingNodeLayers(ctx, projectId);
   },
 });

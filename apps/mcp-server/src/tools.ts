@@ -121,6 +121,7 @@ function registerCreateNode(server: McpServer, client: ConvexMcpClient) {
         semanticKind: z
           .enum([
             'surface',
+            'ui_module',
             'capability',
             'api',
             'data_logic',
@@ -133,6 +134,11 @@ function registerCreateNode(server: McpServer, client: ConvexMcpClient) {
             'unknown',
           ])
           .optional(),
+        productArea: z
+          .enum(['public', 'user', 'admin', 'extension', 'internal', 'unknown'])
+          .optional(),
+        capabilityKey: z.string().optional(),
+        routeHint: z.string().optional(),
         mappingStatus: z
           .enum(['manual', 'suggested', 'auto_mapped', 'verified', 'ignored', 'drifted'])
           .optional(),
@@ -179,6 +185,7 @@ function registerUpdateNode(server: McpServer, client: ConvexMcpClient) {
         semanticKind: z
           .enum([
             'surface',
+            'ui_module',
             'capability',
             'api',
             'data_logic',
@@ -191,6 +198,11 @@ function registerUpdateNode(server: McpServer, client: ConvexMcpClient) {
             'unknown',
           ])
           .optional(),
+        productArea: z
+          .enum(['public', 'user', 'admin', 'extension', 'internal', 'unknown'])
+          .optional(),
+        capabilityKey: z.string().optional(),
+        routeHint: z.string().optional(),
         mappingStatus: z
           .enum(['manual', 'suggested', 'auto_mapped', 'verified', 'ignored', 'drifted'])
           .optional(),
@@ -299,7 +311,17 @@ function registerLinkNodes(server: McpServer, client: ConvexMcpClient) {
         sourceNodeId: z.string(),
         targetNodeId: z.string(),
         type: z
-          .enum(['dependency', 'navigation', 'data_flow'])
+          .enum([
+            'dependency',
+            'navigation',
+            'data_flow',
+            'contains',
+            'uses',
+            'triggers',
+            'reads',
+            'writes',
+            'integrates',
+          ])
           .describe(
             'dependency = X uses Y; navigation = X links/routes to Y; data_flow = X sends data to Y.',
           ),
@@ -320,7 +342,17 @@ function registerUnlinkNodes(server: McpServer, client: ConvexMcpClient) {
       inputSchema: {
         sourceNodeId: z.string(),
         targetNodeId: z.string(),
-        type: z.enum(['dependency', 'navigation', 'data_flow']),
+        type: z.enum([
+          'dependency',
+          'navigation',
+          'data_flow',
+          'contains',
+          'uses',
+          'triggers',
+          'reads',
+          'writes',
+          'integrates',
+        ]),
       },
     },
     async (args) => run(() => client.post('/api/mcp/edges/unlink', args)),

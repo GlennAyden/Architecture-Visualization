@@ -18,6 +18,17 @@ export type ScanFileKind =
   | 'script'
   | 'unknown';
 
+export type ProductArea = 'public' | 'user' | 'admin' | 'extension' | 'internal' | 'unknown';
+
+export interface ScanUiBlockFact {
+  key: string;
+  name: string;
+  kind: 'header' | 'panel' | 'cta' | 'widget' | 'section' | 'control';
+  labels: string[];
+  evidence: string[];
+  routeHint?: string;
+}
+
 export interface ScanFileFact {
   path: string;
   kind: ScanFileKind;
@@ -29,6 +40,12 @@ export interface ScanFileFact {
   featureHint?: string;
   pathGroup?: string;
   testTargetHint?: string;
+  productArea?: ProductArea;
+  capabilityHints?: string[];
+  textHints?: string[];
+  componentRefs?: string[];
+  ctaHints?: string[];
+  uiBlocks?: ScanUiBlockFact[];
 }
 
 /**
@@ -240,6 +257,176 @@ function testTargetHintFor(path: string): string | undefined {
     .replace(/\.(test|spec)(\.[cm]?[tj]sx?)$/, '$2');
 }
 
+const CAPABILITY_PATTERNS: Array<{
+  key: string;
+  name: string;
+  kind: ScanUiBlockFact['kind'];
+  terms: RegExp[];
+}> = [
+  {
+    key: 'onboarding',
+    name: 'Onboarding',
+    kind: 'panel',
+    terms: [/onboarding/i, /get started/i, /welcome/i, /quick steps/i, /setup/i],
+  },
+  {
+    key: 'billing_subscription',
+    name: 'Billing & Subscription',
+    kind: 'cta',
+    terms: [/billing/i, /subscription/i, /plan/i, /redeem/i, /promo/i, /payment/i],
+  },
+  {
+    key: 'notifications',
+    name: 'Notifications',
+    kind: 'control',
+    terms: [/notification/i, /\bbell\b/i, /activity/i],
+  },
+  {
+    key: 'localization',
+    name: 'Localization',
+    kind: 'control',
+    terms: [/language/i, /locale/i, /i18n/i, /\bID\b/, /\bEN\b/, /bilingual/i],
+  },
+  {
+    key: 'profile',
+    name: 'Profile',
+    kind: 'control',
+    terms: [/profile/i, /account/i, /avatar/i, /user menu/i],
+  },
+  {
+    key: 'admin_operations',
+    name: 'Admin Operations',
+    kind: 'section',
+    terms: [/admin/i, /users/i, /settings/i, /management/i],
+  },
+  {
+    key: 'extension_services',
+    name: 'Extension Services',
+    kind: 'cta',
+    terms: [/extension/i, /chrome/i, /install extension/i],
+  },
+  {
+    key: 'feature_updates',
+    name: 'Feature Updates',
+    kind: 'section',
+    terms: [/feature update/i, /updates/i, /changelog/i, /what'?s new/i],
+  },
+];
+
+function classifyProductArea(path: string, kind: ScanFileKind, text: string): ProductArea {
+  const lowerPath = path.toLowerCase();
+  const lowerText = text.slice(0, 4000).toLowerCase();
+  const lower = `${lowerPath} ${lowerText}`;
+  if (lowerPath.includes('/admin') || lowerPath.includes('\\admin')) return 'admin';
+  if (lowerPath.includes('extension') || lowerPath.includes('chrome')) return 'extension';
+  if (kind === 'api' || kind === 'convex' || kind === 'mcp' || lower.includes('/server/')) {
+    return 'internal';
+  }
+  if (
+    lower.includes('/dashboard') ||
+    lower.includes('/account') ||
+    lower.includes('/billing') ||
+    lower.includes('/profile') ||
+    /\buser dashboard\b/.test(lower)
+  ) {
+    return 'user';
+  }
+  if (/\/(?:page|layout|template)\.[cm]?[tj]sx?$/.test(path) || kind === 'component') {
+    return 'public';
+  }
+  return 'unknown';
+}
+
+function stripMarkup(value: string) {
+  return value
+    .replace(/\{[^}]*\}/g, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function collectTextHints(text: string) {
+  const jsxText = [...text.matchAll(/>([^<>{}][^<>{]{2,120})</g)].map((match) =>
+    stripMarkup(match[1] ?? ''),
+  );
+  const ariaLabels = [
+    ...text.matchAll(/(?:aria-label|title|placeholder)=["']([^"']{2,120})["']/g),
+  ].map((match) => match[1] ?? '');
+  const stringLabels = [...text.matchAll(/["'`]([^"'`]{4,120})["'`]/g)]
+    .map((match) => match[1] ?? '')
+    .filter((value) => /[A-Za-z]/.test(value) && /\s/.test(value));
+  return uniqueCapped([...jsxText, ...ariaLabels, ...stringLabels], 24);
+}
+
+function collectComponentRefs(text: string) {
+  return uniqueCapped(
+    [...text.matchAll(/<([A-Z][A-Za-z0-9_]*)\b/g)].map((match) => match[1] ?? ''),
+    20,
+  );
+}
+
+function collectCapabilityHints(text: string, path: string) {
+  const haystack = `${path}\n${text.slice(0, 8000)}`;
+  return uniqueCapped(
+    CAPABILITY_PATTERNS.filter((pattern) => pattern.terms.some((term) => term.test(haystack))).map(
+      (pattern) => pattern.key,
+    ),
+    12,
+  );
+}
+
+function collectCtaHints(textHints: string[]) {
+  return uniqueCapped(
+    textHints.filter((hint) =>
+      /install|redeem|view|browse|connect|create|upgrade|subscribe|login|sign up|back to/i.test(
+        hint,
+      ),
+    ),
+    12,
+  );
+}
+
+function uiBlocksFor(
+  path: string,
+  text: string,
+  textHints: string[],
+  capabilityHints: string[],
+  routeHint: string | undefined,
+) {
+  const haystack = `${path}\n${text.slice(0, 8000)}`;
+  const blocks: ScanUiBlockFact[] = [];
+
+  const headerLabels = textHints.filter((hint) =>
+    /notification|language|profile|account|back to|admin panel/i.test(hint),
+  );
+  if (headerLabels.length > 0 || /notification|language|profile|back to home/i.test(haystack)) {
+    blocks.push({
+      key: 'header_controls',
+      name: 'Header Controls',
+      kind: 'header',
+      labels: uniqueCapped(headerLabels, 6),
+      evidence: ['notification/language/profile controls detected'],
+      routeHint,
+    });
+  }
+
+  for (const capabilityKey of capabilityHints) {
+    const pattern = CAPABILITY_PATTERNS.find((candidate) => candidate.key === capabilityKey);
+    if (!pattern) continue;
+    const labels = textHints.filter((hint) => pattern.terms.some((term) => term.test(hint)));
+    blocks.push({
+      key: capabilityKey,
+      name: pattern.name,
+      kind: pattern.kind,
+      labels: uniqueCapped(labels, 6),
+      evidence: [`${pattern.name} keywords detected`],
+      routeHint,
+    });
+  }
+
+  return blocks.slice(0, 10);
+}
+
 export function buildFileFacts(rootDir: string, files: ReadonlyArray<string>): ScanFileFact[] {
   const resolver = createImportResolver(rootDir);
   return files.map((path) => {
@@ -282,6 +469,12 @@ export function buildFileFacts(rootDir: string, files: ReadonlyArray<string>): S
     );
     const routeHint = routeHintFor(path);
     const kind = classifyFile(path);
+    const textHints = collectTextHints(text);
+    const componentRefs = collectComponentRefs(text);
+    const capabilityHints = collectCapabilityHints(text, path);
+    const ctaHints = collectCtaHints(textHints);
+    const productArea = classifyProductArea(path, kind, text);
+    const uiBlocks = uiBlocksFor(path, text, textHints, capabilityHints, routeHint);
     const fact: ScanFileFact = { path, kind, imports, exports };
     if (resolvedImports.length > 0) fact.resolvedImports = resolvedImports;
     const featureHint = featureHintFor(path);
@@ -292,6 +485,12 @@ export function buildFileFacts(rootDir: string, files: ReadonlyArray<string>): S
     if (featureHint) fact.featureHint = featureHint;
     if (pathGroup) fact.pathGroup = pathGroup;
     if (testTargetHint) fact.testTargetHint = testTargetHint;
+    if (productArea !== 'unknown') fact.productArea = productArea;
+    if (capabilityHints.length > 0) fact.capabilityHints = capabilityHints;
+    if (textHints.length > 0) fact.textHints = textHints;
+    if (componentRefs.length > 0) fact.componentRefs = componentRefs;
+    if (ctaHints.length > 0) fact.ctaHints = ctaHints;
+    if (uiBlocks.length > 0) fact.uiBlocks = uiBlocks;
     return fact;
   });
 }

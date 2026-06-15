@@ -27,6 +27,7 @@ import type * as lib_mcpAuth from "../lib/mcpAuth.js";
 import type * as lib_mcpRoute from "../lib/mcpRoute.js";
 import type * as lib_relationshipSuggestions from "../lib/relationshipSuggestions.js";
 import type * as lib_semantic from "../lib/semantic.js";
+import type * as lib_semanticNodeSuggestions from "../lib/semanticNodeSuggestions.js";
 import type * as lib_tokens from "../lib/tokens.js";
 import type * as mcp_activity from "../mcp/activity.js";
 import type * as mcp_codebaseSuggestions from "../mcp/codebaseSuggestions.js";
@@ -46,6 +47,7 @@ import type * as projectMembers from "../projectMembers.js";
 import type * as projects from "../projects.js";
 import type * as relationshipSuggestions from "../relationshipSuggestions.js";
 import type * as scans from "../scans.js";
+import type * as semanticNodeSuggestions from "../semanticNodeSuggestions.js";
 import type * as shareTokens from "../shareTokens.js";
 import type * as shareView from "../shareView.js";
 
@@ -75,6 +77,7 @@ declare const fullApi: ApiFromModules<{
   "lib/mcpRoute": typeof lib_mcpRoute;
   "lib/relationshipSuggestions": typeof lib_relationshipSuggestions;
   "lib/semantic": typeof lib_semantic;
+  "lib/semanticNodeSuggestions": typeof lib_semanticNodeSuggestions;
   "lib/tokens": typeof lib_tokens;
   "mcp/activity": typeof mcp_activity;
   "mcp/codebaseSuggestions": typeof mcp_codebaseSuggestions;
@@ -94,6 +97,7 @@ declare const fullApi: ApiFromModules<{
   projects: typeof projects;
   relationshipSuggestions: typeof relationshipSuggestions;
   scans: typeof scans;
+  semanticNodeSuggestions: typeof semanticNodeSuggestions;
   shareTokens: typeof shareTokens;
   shareView: typeof shareView;
 }>;

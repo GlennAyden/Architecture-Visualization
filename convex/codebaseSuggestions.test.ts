@@ -658,6 +658,144 @@ describe('codebase suggestions', () => {
     expect(applied.map((row) => row.title)).toEqual(['More important', 'Less important']);
   });
 
+  test('semantic product suggestions create UI modules, capabilities, edges, and a surface flow', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, rawToken, projectId, layers } = await seedTokenForUser(t);
+    const surface = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[0]!._id,
+      type: 'page',
+      name: 'User Dashboard',
+      positionX: 0,
+      positionY: 0,
+      semanticKind: 'surface',
+      productArea: 'user',
+      routeHint: '/dashboard',
+    });
+    await asUser.mutation(api.nodeFiles.add, {
+      nodeId: surface,
+      path: 'src/app/dashboard/page.tsx',
+      role: 'route',
+    });
+
+    const res = await t.fetch('/api/mcp/codebase_suggestions/push', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${rawToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        semanticNodeSuggestions: [
+          {
+            sourceFilePath: 'src/app/dashboard/page.tsx',
+            semanticKey: 'ui:/dashboard:onboarding',
+            suggestedNodeName: 'Onboarding Panel',
+            semanticKind: 'ui_module',
+            productArea: 'user',
+            capabilityKey: 'onboarding',
+            routeHint: '/dashboard',
+            layerId: layers[1]!._id,
+            parentNodeId: surface,
+            confidence: 0.89,
+            reason: 'The dashboard contains onboarding setup copy.',
+            evidence: ['Welcome back', 'get started'],
+          },
+          {
+            sourceFilePath: 'src/app/dashboard/page.tsx',
+            semanticKey: 'ui:/dashboard:billing',
+            suggestedNodeName: 'Subscription CTA',
+            semanticKind: 'ui_module',
+            productArea: 'user',
+            capabilityKey: 'billing_subscription',
+            routeHint: '/dashboard',
+            layerId: layers[1]!._id,
+            parentNodeId: surface,
+            confidence: 0.89,
+            reason: 'The dashboard exposes plan and redeem-code CTAs.',
+            evidence: ['Redeem code', 'View plans'],
+          },
+          {
+            sourceFilePath: 'src/app/dashboard/page.tsx',
+            semanticKey: 'capability:onboarding:src/app/dashboard/page.tsx',
+            suggestedNodeName: 'Onboarding',
+            semanticKind: 'capability',
+            productArea: 'user',
+            capabilityKey: 'onboarding',
+            routeHint: '/dashboard',
+            layerId: layers[2]!._id,
+            confidence: 0.91,
+            reason: 'Onboarding is a product capability surfaced on the dashboard.',
+            evidence: ['Welcome back', 'quick steps'],
+          },
+          {
+            sourceFilePath: 'src/app/dashboard/page.tsx',
+            semanticKey: 'capability:billing_subscription:src/app/dashboard/page.tsx',
+            suggestedNodeName: 'Billing & Subscription',
+            semanticKind: 'capability',
+            productArea: 'user',
+            capabilityKey: 'billing_subscription',
+            routeHint: '/dashboard',
+            layerId: layers[2]!._id,
+            confidence: 0.91,
+            reason: 'Billing is a product capability surfaced on the dashboard.',
+            evidence: ['Redeem code', 'View plans'],
+          },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ semanticApplied: 4 });
+
+    const nodes = await asUser.query(api.nodes.listByProject, { projectId });
+    const nodeByName = new Map(nodes.map((node) => [node.name, node]));
+    expect(nodeByName.get('Onboarding Panel')).toMatchObject({
+      semanticKind: 'ui_module',
+      productArea: 'user',
+      capabilityKey: 'onboarding',
+      layerId: layers[1]!._id,
+    });
+    expect(nodeByName.get('Billing & Subscription')).toMatchObject({
+      semanticKind: 'capability',
+      capabilityKey: 'billing_subscription',
+      layerId: layers[2]!._id,
+    });
+
+    const onboardingFiles = await asUser.query(api.nodeFiles.listByNode, {
+      nodeId: nodeByName.get('Onboarding Panel')!._id,
+    });
+    expect(onboardingFiles.map((file) => file.path)).toContain('src/app/dashboard/page.tsx');
+    expect(onboardingFiles[0]).toMatchObject({ role: 'ui', source: 'hermes' });
+
+    const edges = await asUser.query(api.nodeEdges.listByProject, { projectId });
+    expect(edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceNodeId: surface,
+          targetNodeId: nodeByName.get('Onboarding Panel')!._id,
+          type: 'contains',
+        }),
+        expect.objectContaining({
+          sourceNodeId: nodeByName.get('Subscription CTA')!._id,
+          targetNodeId: nodeByName.get('Billing & Subscription')!._id,
+          type: 'triggers',
+        }),
+      ]),
+    );
+
+    const flows = await asUser.query(api.architectureFlows.listByProject, {
+      projectId,
+      status: 'applied',
+    });
+    expect(flows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: 'User Dashboard Experience',
+          kind: 'user_journey',
+          productArea: 'user',
+          isCurated: true,
+        }),
+      ]),
+    );
+  });
+
   test('mapping run complete route verifies submit token and stores suggestions', async () => {
     const t = convexTest(schema, modules);
     const { asUser, projectId, layers } = await seedTokenForUser(t);

@@ -13,6 +13,8 @@ export type NodeType = z.infer<typeof nodeTypeSchema>;
 
 export const layerPurposeSchema = z.enum([
   'surfaces',
+  'ui_modules',
+  'capabilities',
   'application',
   'backend',
   'data',
@@ -25,6 +27,7 @@ export type LayerPurpose = z.infer<typeof layerPurposeSchema>;
 
 export const nodeSemanticKindSchema = z.enum([
   'surface',
+  'ui_module',
   'capability',
   'api',
   'data_logic',
@@ -37,6 +40,16 @@ export const nodeSemanticKindSchema = z.enum([
   'unknown',
 ]);
 export type NodeSemanticKind = z.infer<typeof nodeSemanticKindSchema>;
+
+export const productAreaSchema = z.enum([
+  'public',
+  'user',
+  'admin',
+  'extension',
+  'internal',
+  'unknown',
+]);
+export type ProductArea = z.infer<typeof productAreaSchema>;
 
 export const linkedFileRoleSchema = z.enum([
   'primary',

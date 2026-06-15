@@ -166,4 +166,89 @@ describe('buildFileFacts', () => {
       pathGroup: 'convex',
     });
   });
+
+  test('extracts product UI facts from a dashboard surface without sending raw file content', () => {
+    const root = mkdtempSync(join(tmpdir(), 'arch-viz-product-facts-'));
+    TMPS.push(root);
+    const write = (p: string, body: string) => {
+      const abs = join(root, p);
+      mkdirSync(join(abs, '..'), { recursive: true });
+      writeFileSync(abs, body);
+    };
+
+    write(
+      'src/app/dashboard/page.tsx',
+      `
+        export default function DashboardPage() {
+          return (
+            <main>
+              <header aria-label="Notification language profile back to home">
+                <button title="Notifications">Bell</button>
+                <button>ID</button>
+                <button>EN</button>
+                <button>Back to Home</button>
+                <button>Profile account</button>
+              </header>
+              <section>
+                <h1>Welcome, Expandly Admin! Let's get you started</h1>
+                <p>Finish these quick steps to unlock the full experience.</p>
+                <button>Install extension</button>
+              </section>
+              <section>
+                <h2>Activate a plan or redeem a promo code</h2>
+                <button>Redeem code</button>
+                <button>View plans</button>
+              </section>
+              <section>
+                <h2>Feature updates</h2>
+                <p>See what's new this week.</p>
+              </section>
+            </main>
+          );
+        }
+      `,
+    );
+    write('src/app/admin/users/page.tsx', 'export default function AdminUsers() { return null; }');
+
+    const facts = buildFileFacts(root, [
+      'src/app/dashboard/page.tsx',
+      'src/app/admin/users/page.tsx',
+    ]);
+    const dashboard = facts[0]!;
+
+    expect(dashboard).toMatchObject({
+      path: 'src/app/dashboard/page.tsx',
+      kind: 'component',
+      routeHint: '/dashboard',
+      productArea: 'user',
+    });
+    expect(dashboard.capabilityHints).toEqual(
+      expect.arrayContaining([
+        'onboarding',
+        'billing_subscription',
+        'notifications',
+        'localization',
+        'profile',
+        'extension_services',
+        'feature_updates',
+      ]),
+    );
+    expect(dashboard.ctaHints).toEqual(
+      expect.arrayContaining(['Install extension', 'Redeem code', 'View plans', 'Back to Home']),
+    );
+    expect(dashboard.textHints?.join(' ')).not.toContain('return (');
+    expect(dashboard.uiBlocks?.map((block) => block.key)).toEqual(
+      expect.arrayContaining([
+        'header_controls',
+        'onboarding',
+        'billing_subscription',
+        'notifications',
+        'localization',
+        'profile',
+        'extension_services',
+        'feature_updates',
+      ]),
+    );
+    expect(facts[1]).toMatchObject({ productArea: 'admin', featureHint: 'users' });
+  });
 });

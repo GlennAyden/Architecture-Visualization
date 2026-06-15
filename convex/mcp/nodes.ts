@@ -7,6 +7,7 @@ import {
   linkedFileRoleValidator,
   mappingStatusValidator,
   nodeSemanticKindValidator,
+  productAreaValidator,
 } from '../lib/semantic';
 import { ForbiddenError, requireNodeOwnership, requireOwnership } from './lib';
 
@@ -40,6 +41,9 @@ export const listForProject = internalQuery({
       positionY: n.positionY,
       layerId: n.layerId ?? null,
       semanticKind: n.semanticKind ?? null,
+      productArea: n.productArea ?? null,
+      capabilityKey: n.capabilityKey ?? null,
+      routeHint: n.routeHint ?? null,
       mappingStatus: n.mappingStatus ?? null,
       mappingConfidence: n.mappingConfidence ?? null,
     }));
@@ -79,6 +83,9 @@ export const getDetail = internalQuery({
       // apiPath→node lookup from a single `nodes/get` pass per node.
       metadata: (node.metadata ?? null) as Record<string, unknown> | null,
       semanticKind: node.semanticKind ?? null,
+      productArea: node.productArea ?? null,
+      capabilityKey: node.capabilityKey ?? null,
+      routeHint: node.routeHint ?? null,
       mappingStatus: node.mappingStatus ?? null,
       mappingConfidence: node.mappingConfidence ?? null,
       files: files.map((f) => ({
@@ -117,6 +124,9 @@ export const createForProject = internalMutation({
     positionX: v.optional(v.number()),
     positionY: v.optional(v.number()),
     semanticKind: v.optional(nodeSemanticKindValidator),
+    productArea: v.optional(productAreaValidator),
+    capabilityKey: v.optional(v.string()),
+    routeHint: v.optional(v.string()),
     mappingStatus: v.optional(mappingStatusValidator),
     mappingConfidence: v.optional(v.number()),
     fileRole: v.optional(linkedFileRoleValidator),
@@ -172,6 +182,9 @@ export const createForProject = internalMutation({
       positionX,
       positionY,
       semanticKind: args.semanticKind,
+      productArea: args.productArea,
+      capabilityKey: args.capabilityKey?.trim() || undefined,
+      routeHint: args.routeHint?.trim() || undefined,
       mappingStatus: args.mappingStatus ?? 'manual',
       mappingConfidence: args.mappingConfidence,
     });
@@ -208,6 +221,9 @@ export const updateForProject = internalMutation({
     // from this when running the navigation / data-flow heuristic walkers.
     metadata: v.optional(v.any()),
     semanticKind: v.optional(nodeSemanticKindValidator),
+    productArea: v.optional(productAreaValidator),
+    capabilityKey: v.optional(v.string()),
+    routeHint: v.optional(v.string()),
     mappingStatus: v.optional(mappingStatusValidator),
     mappingConfidence: v.optional(v.number()),
   },
@@ -230,6 +246,10 @@ export const updateForProject = internalMutation({
     if (args.positionX !== undefined) patch.positionX = args.positionX;
     if (args.positionY !== undefined) patch.positionY = args.positionY;
     if (args.semanticKind !== undefined) patch.semanticKind = args.semanticKind;
+    if (args.productArea !== undefined) patch.productArea = args.productArea;
+    if (args.capabilityKey !== undefined)
+      patch.capabilityKey = args.capabilityKey.trim() || undefined;
+    if (args.routeHint !== undefined) patch.routeHint = args.routeHint.trim() || undefined;
     if (args.mappingStatus !== undefined) patch.mappingStatus = args.mappingStatus;
     if (args.mappingConfidence !== undefined) patch.mappingConfidence = args.mappingConfidence;
     if (args.metadata !== undefined) {

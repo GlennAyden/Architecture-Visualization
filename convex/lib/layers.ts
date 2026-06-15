@@ -8,12 +8,12 @@ import {
 } from '@arch-viz/shared';
 import { Doc, Id } from '../_generated/dataModel';
 import { MutationCtx } from '../_generated/server';
-import { backfillMissingNodeLayers, seedDefaultLayers } from '../projectLayers';
+import { backfillMissingNodeLayers, ensureProductLayers } from '../projectLayers';
 
 type LayerError = (message: string) => Error;
 
 export async function getProjectLayers(ctx: MutationCtx, projectId: Id<'projects'>) {
-  await seedDefaultLayers(ctx, projectId);
+  await ensureProductLayers(ctx, projectId);
   await backfillMissingNodeLayers(ctx, projectId);
   return (
     await ctx.db

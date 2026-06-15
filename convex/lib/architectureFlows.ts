@@ -40,6 +40,7 @@ export interface ArchitectureFlowInput {
   confidence: number;
   reason: string;
   evidence?: string[];
+  productArea?: Doc<'nodes'>['productArea'];
   source: string;
 }
 
@@ -223,6 +224,7 @@ export async function upsertArchitectureFlow(
     confidence: input.confidence,
     reason: normalizeText(input.reason, 'Suggested by Hermes.', 1000),
     evidence: input.evidence?.slice(0, 8),
+    productArea: input.productArea,
     source: normalizeText(input.source, 'hermes', 80),
     status: shouldAutoApplyArchitectureFlow({
       kind: input.kind,

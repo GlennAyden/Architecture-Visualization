@@ -50,6 +50,7 @@ type ArchitectureFlowRow = Doc<'architectureFlows'> & {
 
 type SidebarTab = 'overview' | 'layers' | 'hermes' | 'inspector' | 'flows';
 type FlowView = 'featured' | 'all';
+type ProductAreaFilter = 'all' | 'public' | 'user' | 'admin' | 'extension' | 'internal';
 
 const TABS: Array<{ id: SidebarTab; label: string; icon: LucideIcon }> = [
   { id: 'overview', label: 'Overview', icon: Gauge },
@@ -121,12 +122,15 @@ export function FlowSidebar({
   const [creatingLayer, setCreatingLayer] = useState(false);
   const [activeTab, setActiveTab] = useState<SidebarTab>('overview');
   const [flowView, setFlowView] = useState<FlowView>('featured');
+  const [productAreaFilter, setProductAreaFilter] = useState<ProductAreaFilter>('all');
   const [verifying, setVerifying] = useState(false);
   const sortedLayers = sortLayers(layers);
   const displayedFlows = useMemo(() => {
     const all = flows ?? [];
-    return flowView === 'featured' ? all.filter((flow) => flow.isCurated !== false) : all;
-  }, [flowView, flows]);
+    const byView = flowView === 'featured' ? all.filter((flow) => flow.isCurated !== false) : all;
+    if (productAreaFilter === 'all') return byView;
+    return byView.filter((flow) => flow.productArea === productAreaFilter);
+  }, [flowView, flows, productAreaFilter]);
   const selectedFlow = useMemo(
     () => flows?.find((flow) => flow._id === selectedFlowId) ?? null,
     [flows, selectedFlowId],
@@ -302,8 +306,14 @@ export function FlowSidebar({
                       </p>
                       <p className="mt-1 text-xs text-zinc-500">
                         {formatToken(inspectedNode.semanticKind ?? 'unknown')} /{' '}
-                        {formatToken(inspectedNode.mappingStatus ?? 'manual')}
+                        {formatToken(inspectedNode.mappingStatus ?? 'manual')} /{' '}
+                        {formatToken(inspectedNode.productArea ?? 'unknown')}
                       </p>
+                      {(inspectedNode.capabilityKey || inspectedNode.routeHint) && (
+                        <p className="mt-1 truncate text-[11px] text-cyan-200">
+                          {inspectedNode.capabilityKey ?? inspectedNode.routeHint}
+                        </p>
+                      )}
                     </div>
                     <Button
                       variant="ghost"
@@ -463,6 +473,24 @@ export function FlowSidebar({
                     ))}
                   </div>
                 </div>
+                <div className="grid grid-cols-3 gap-1 rounded-md border border-white/10 bg-white/[0.03] p-1">
+                  {(['all', 'user', 'admin', 'public', 'extension', 'internal'] as const).map(
+                    (area) => (
+                      <button
+                        key={area}
+                        type="button"
+                        onClick={() => setProductAreaFilter(area)}
+                        className={cn(
+                          'h-7 rounded text-[11px] capitalize text-zinc-500 transition-colors hover:bg-white/[0.05] hover:text-zinc-100',
+                          productAreaFilter === area &&
+                            'bg-amber-400/10 text-amber-200 ring-1 ring-amber-400/25',
+                        )}
+                      >
+                        {area}
+                      </button>
+                    ),
+                  )}
+                </div>
                 <div className="overflow-hidden rounded-md border border-white/10">
                   {displayedFlows.length > 0 ? (
                     displayedFlows.map((flow) => {
@@ -501,6 +529,7 @@ export function FlowSidebar({
                             <span className="mt-1 block truncate text-xs text-zinc-500">
                               {FLOW_KIND_LABELS[flow.kind]} / {flow.steps.length} steps /{' '}
                               {flow.nodeIds.length} nodes / {Math.round(flow.confidence * 100)}%
+                              {flow.productArea ? ` / ${formatToken(flow.productArea)}` : ''}
                             </span>
                           </span>
                         </button>
@@ -541,6 +570,9 @@ export function FlowSidebar({
                       <p className="mt-1 text-xs text-amber-200">
                         {FLOW_KIND_LABELS[selectedFlow.kind]} / {selectedFlow.steps.length} steps /{' '}
                         {Math.round(selectedFlow.confidence * 100)}%
+                        {selectedFlow.productArea
+                          ? ` / ${formatToken(selectedFlow.productArea)}`
+                          : ''}
                       </p>
                     </div>
                   </div>

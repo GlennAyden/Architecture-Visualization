@@ -72,22 +72,24 @@ describe('projects.create', () => {
     const layers = await asUser.query(api.projectLayers.listByProject, { projectId });
     expect(layers.map((layer) => layer.name)).toEqual([
       'Surfaces',
-      'Application',
-      'Backend',
-      'Data',
-      'Agents',
-      'Infra',
-      'External',
+      'UI Modules',
+      'Product Capabilities',
+      'Application / API',
+      'Data & State',
+      'Agents / Automation',
+      'External Services',
+      'Infra / Delivery',
     ]);
-    expect(layers.map((layer) => layer.position)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(layers.map((layer) => layer.position)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
     expect(layers.map((layer) => layer.purpose)).toEqual([
       'surfaces',
+      'ui_modules',
+      'capabilities',
       'application',
-      'backend',
       'data',
       'agents',
-      'infra',
       'external',
+      'infra',
     ]);
   });
 
@@ -100,7 +102,7 @@ describe('projects.create', () => {
 
     const layers = await asUser.query(api.projectLayers.listByProject, { projectId });
     expect(layers.at(-1)?.name).toEqual('Integrations');
-    expect(layers.at(-1)?.position).toEqual(7);
+    expect(layers.at(-1)?.position).toEqual(8);
   });
 
   test('appends -2 when the slug is already used by the same user', async () => {

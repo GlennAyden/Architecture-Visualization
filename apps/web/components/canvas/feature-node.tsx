@@ -21,6 +21,7 @@ export interface FeatureNodeData extends Record<string, unknown> {
   highlighted?: boolean;
   dimmed?: boolean;
   semanticKind?: string;
+  productArea?: string;
   mappingStatus?: string;
   mappingConfidence?: number;
   fileCount?: number;
@@ -110,7 +111,9 @@ export function FeatureNode({ id, data }: NodeProps<FeatureNodeType>) {
           {formatLabel(data.semanticKind)}
         </span>
         <span style={{ color: '#a1a1aa' }}>
-          {data.fileCount ?? 0}f/{data.edgeCount ?? 0}r
+          {data.productArea && data.productArea !== 'unknown'
+            ? formatLabel(data.productArea)
+            : `${data.fileCount ?? 0}f/${data.edgeCount ?? 0}r`}
         </span>
       </span>
       {showSubtitle && (

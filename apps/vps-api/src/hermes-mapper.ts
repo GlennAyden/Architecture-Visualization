@@ -29,6 +29,9 @@ export interface HermesNodeContext {
   layerId?: string;
   parentId?: string;
   semanticKind?: string;
+  productArea?: ProductArea;
+  capabilityKey?: string;
+  routeHint?: string;
   mappingStatus?: string;
   mappingConfidence?: number;
   files: string[];
@@ -58,6 +61,23 @@ export interface HermesFileFact {
   featureHint?: string;
   pathGroup?: string;
   testTargetHint?: string;
+  productArea?: ProductArea;
+  capabilityHints?: string[];
+  textHints?: string[];
+  componentRefs?: string[];
+  ctaHints?: string[];
+  uiBlocks?: HermesUiBlockFact[];
+}
+
+export type ProductArea = 'public' | 'user' | 'admin' | 'extension' | 'internal' | 'unknown';
+
+export interface HermesUiBlockFact {
+  key: string;
+  name: string;
+  kind?: string;
+  labels?: string[];
+  evidence?: string[];
+  routeHint?: string;
 }
 
 export interface HermesExistingSuggestion {
@@ -70,13 +90,36 @@ export interface HermesExistingSuggestion {
   confidence: number;
 }
 
-export type HermesRelationshipSuggestionType = 'dependency' | 'navigation' | 'data_flow';
+export type HermesRelationshipSuggestionType =
+  | 'dependency'
+  | 'navigation'
+  | 'data_flow'
+  | 'contains'
+  | 'uses'
+  | 'triggers'
+  | 'reads'
+  | 'writes'
+  | 'integrates';
 
 export interface HermesExistingRelationshipSuggestion {
   sourceNodeId: string;
   targetNodeId: string;
   type: HermesRelationshipSuggestionType;
   label?: string;
+  status: 'pending' | 'applied' | 'rejected' | 'ignored';
+  confidence: number;
+}
+
+export interface HermesExistingSemanticNodeSuggestion {
+  sourceFilePath: string;
+  semanticKey: string;
+  suggestedNodeName: string;
+  semanticKind: string;
+  productArea: ProductArea;
+  capabilityKey?: string;
+  routeHint?: string;
+  layerId: string;
+  parentNodeId?: string;
   status: 'pending' | 'applied' | 'rejected' | 'ignored';
   confidence: number;
 }
@@ -106,6 +149,7 @@ export interface HermesMappingContext {
   edges?: HermesEdgeContext[];
   latestScan: { data?: unknown } | null;
   suggestions: HermesExistingSuggestion[];
+  semanticNodeSuggestions?: HermesExistingSemanticNodeSuggestion[];
   relationshipSuggestions?: HermesExistingRelationshipSuggestion[];
   flows?: HermesExistingArchitectureFlow[];
 }
@@ -130,6 +174,22 @@ export interface HermesRelationshipSuggestion {
   targetNodeId: string;
   type: HermesRelationshipSuggestionType;
   label?: string;
+  confidence: number;
+  reason: string;
+  evidence?: string[];
+  source: string;
+}
+
+export interface HermesSemanticNodeSuggestion {
+  sourceFilePath: string;
+  semanticKey: string;
+  suggestedNodeName: string;
+  semanticKind: string;
+  productArea: ProductArea;
+  capabilityKey?: string;
+  routeHint?: string;
+  layerId: string;
+  parentNodeId?: string;
   confidence: number;
   reason: string;
   evidence?: string[];
@@ -164,11 +224,13 @@ export interface HermesArchitectureFlowSuggestion {
   confidence: number;
   reason: string;
   evidence?: string[];
+  productArea?: ProductArea;
   source: string;
 }
 
 export interface HermesMappingResult {
   suggestions: HermesMappingSuggestion[];
+  semanticNodeSuggestions?: HermesSemanticNodeSuggestion[];
   relationshipSuggestions?: HermesRelationshipSuggestion[];
   flowSuggestions?: HermesArchitectureFlowSuggestion[];
 }
@@ -217,10 +279,12 @@ function toTitle(value: string) {
 function layerByName(layers: HermesLayerContext[], names: string[]) {
   const normalizedNames = names.map((name) => name.toLowerCase());
   return (
-    layers.find((layer) => normalizedNames.includes(layer.name.toLowerCase())) ??
-    layers.find((layer) =>
-      normalizedNames.some((name) => layer.name.toLowerCase().includes(name)),
-    ) ??
+    normalizedNames
+      .map((name) => layers.find((layer) => layer.name.toLowerCase() === name))
+      .find((layer): layer is HermesLayerContext => Boolean(layer)) ??
+    normalizedNames
+      .map((name) => layers.find((layer) => layer.name.toLowerCase().includes(name)))
+      .find((layer): layer is HermesLayerContext => Boolean(layer)) ??
     layers[0]
   );
 }
@@ -287,11 +351,193 @@ function evidenceFor(path: string, fact?: HermesFileFact) {
   const evidence = new Set<string>();
   if (fact?.kind) evidence.add(`${fact.kind} file`);
   if (fact?.routeHint) evidence.add(`route ${fact.routeHint}`);
+  if (fact?.productArea) evidence.add(`product area ${fact.productArea}`);
   if (fact?.apiHint) evidence.add(`api ${fact.apiHint}`);
+  for (const block of fact?.uiBlocks?.slice(0, 2) ?? []) evidence.add(`ui block ${block.name}`);
+  for (const capability of fact?.capabilityHints?.slice(0, 2) ?? []) {
+    evidence.add(`capability ${capability.replace(/_/g, ' ')}`);
+  }
   for (const exported of fact?.exports?.slice(0, 2) ?? []) evidence.add(`exports ${exported}`);
   for (const imported of fact?.imports?.slice(0, 2) ?? []) evidence.add(`imports ${imported}`);
   if (evidence.size === 0) evidence.add(`path ${normalized(path)}`);
   return [...evidence].slice(0, 8);
+}
+
+function productAreaForFact(path: string, fact?: HermesFileFact): ProductArea {
+  if (fact?.productArea) return fact.productArea;
+  const lower = normalized(path).toLowerCase();
+  if (lower.includes('/admin') || lower.includes('admin')) return 'admin';
+  if (lower.includes('extension') || lower.includes('chrome')) return 'extension';
+  if (lower.includes('/api/') || lower.startsWith('convex/') || lower.startsWith('apps/vps-api/')) {
+    return 'internal';
+  }
+  if (
+    lower.includes('dashboard') ||
+    lower.includes('account') ||
+    lower.includes('billing') ||
+    lower.includes('profile')
+  ) {
+    return 'user';
+  }
+  return fact?.kind === 'component' ? 'public' : 'unknown';
+}
+
+function capabilityName(key: string) {
+  const labels: Record<string, string> = {
+    onboarding: 'Onboarding',
+    billing_subscription: 'Billing & Subscription',
+    notifications: 'Notifications',
+    localization: 'Localization',
+    profile: 'Profile',
+    admin_operations: 'Admin Operations',
+    extension_services: 'Extension Services',
+    feature_updates: 'Feature Updates',
+  };
+  return labels[key] ?? toTitle(key.replace(/_/g, ' '));
+}
+
+function routeKey(path: string, fact?: HermesFileFact) {
+  return (fact?.routeHint ?? fact?.uiBlocks?.[0]?.routeHint ?? normalized(path)).replace(
+    /[^a-zA-Z0-9/_-]+/g,
+    '-',
+  );
+}
+
+function findLayer(context: HermesMappingContext, names: string[]) {
+  return layerByName(context.layers, names);
+}
+
+function surfaceNodeForFact(
+  context: HermesMappingContext,
+  fact: HermesFileFact,
+  nodeByFile: Map<string, HermesNodeContext>,
+) {
+  const direct = nodeByFile.get(normalized(fact.path));
+  if (direct && (direct.semanticKind === 'surface' || direct.type === 'page')) return direct;
+  if (fact.routeHint) {
+    const lastSegment = fact.routeHint.split('/').filter(Boolean).at(-1) ?? 'home';
+    return (
+      context.nodes.find((node) => node.routeHint === fact.routeHint) ??
+      context.nodes.find(
+        (node) =>
+          node.semanticKind === 'surface' &&
+          node.name.toLowerCase().includes(lastSegment.replace(/[-_]/g, ' ')),
+      ) ??
+      null
+    );
+  }
+  return null;
+}
+
+function buildSemanticSuggestionKeys(context: HermesMappingContext) {
+  return new Set(
+    (context.semanticNodeSuggestions ?? [])
+      .filter((suggestion) => suggestion.status === 'applied' || suggestion.status === 'ignored')
+      .map((suggestion) => suggestion.semanticKey.toLowerCase()),
+  );
+}
+
+function pushSemanticSuggestion(
+  out: HermesSemanticNodeSuggestion[],
+  seen: Set<string>,
+  suggestion: HermesSemanticNodeSuggestion,
+) {
+  const key = suggestion.semanticKey.toLowerCase();
+  if (seen.has(key)) return;
+  seen.add(key);
+  out.push(suggestion);
+}
+
+function semanticNodeSuggestionsFromFacts(
+  context: HermesMappingContext,
+  factByPath: Map<string, HermesFileFact>,
+) {
+  const surfaceLayer = findLayer(context, ['Surfaces']);
+  const uiLayer = findLayer(context, ['UI Modules', 'Surfaces']);
+  const capabilityLayer = findLayer(context, ['Product Capabilities', 'Application', 'Features']);
+  const nodeByFile = buildNodeByFile(context.nodes);
+  const seen = buildSemanticSuggestionKeys(context);
+  const suggestions: HermesSemanticNodeSuggestion[] = [];
+
+  const facts = [...factByPath.values()]
+    .filter((fact) => fact.kind !== 'generated' && fact.kind !== 'test' && fact.kind !== 'config')
+    .filter(
+      (fact) =>
+        fact.kind === 'component' ||
+        Boolean(fact.routeHint) ||
+        (fact.uiBlocks?.length ?? 0) > 0 ||
+        (fact.capabilityHints?.length ?? 0) > 0,
+    )
+    .sort((a, b) => normalized(a.path).localeCompare(normalized(b.path)))
+    .slice(0, 300);
+
+  for (const fact of facts) {
+    const path = normalized(fact.path);
+    const area = productAreaForFact(path, fact);
+    const evidence = evidenceFor(path, fact);
+    const existingSurface = surfaceNodeForFact(context, fact, nodeByFile);
+    const route = fact.routeHint ?? fact.uiBlocks?.[0]?.routeHint;
+
+    if (route && !existingSurface && surfaceLayer) {
+      pushSemanticSuggestion(suggestions, seen, {
+        sourceFilePath: path,
+        semanticKey: `surface:${route}`,
+        suggestedNodeName: `${titleFromPath(path)} Surface`,
+        semanticKind: 'surface',
+        productArea: area,
+        routeHint: route,
+        layerId: surfaceLayer._id,
+        confidence: 0.9,
+        reason: `Route ${route} is a user-facing surface and should anchor UI modules.`,
+        evidence,
+        source: 'hermes',
+      });
+    }
+
+    for (const capabilityKey of fact.capabilityHints ?? []) {
+      if (!capabilityLayer) continue;
+      pushSemanticSuggestion(suggestions, seen, {
+        sourceFilePath: path,
+        semanticKey: `capability:${capabilityKey}:${path}`,
+        suggestedNodeName: capabilityName(capabilityKey),
+        semanticKind: 'capability',
+        productArea: area,
+        capabilityKey,
+        routeHint: route,
+        layerId: capabilityLayer._id,
+        confidence: 0.9,
+        reason: `${capabilityName(capabilityKey)} appears as a product function in this file.`,
+        evidence,
+        source: 'hermes',
+      });
+    }
+
+    for (const block of fact.uiBlocks ?? []) {
+      if (!uiLayer) continue;
+      const capabilityKey = block.key === 'header_controls' ? undefined : block.key;
+      pushSemanticSuggestion(suggestions, seen, {
+        sourceFilePath: path,
+        semanticKey: `ui:${routeKey(path, fact)}:${block.key}`,
+        suggestedNodeName: block.name,
+        semanticKind: 'ui_module',
+        productArea: area,
+        capabilityKey,
+        routeHint: block.routeHint ?? route,
+        layerId: uiLayer._id,
+        parentNodeId: existingSurface?._id,
+        confidence: existingSurface ? 0.9 : 0.86,
+        reason: `${block.name} is a visible UI module inside ${route ?? titleFromPath(path)}.`,
+        evidence: uniqueStrings([
+          ...evidence,
+          ...(block.evidence ?? []),
+          ...(block.labels ?? []),
+        ]).slice(0, 8),
+        source: 'hermes',
+      });
+    }
+  }
+
+  return suggestions.slice(0, 500);
 }
 
 function nodeMatchScore(path: string, node: HermesNodeContext) {
@@ -420,6 +666,62 @@ function relationshipSuggestionsFromImports(
         confidence: 0.91,
         reason: `"${sourceNode.name}" imports a file owned by "${targetNode.name}".`,
         evidence: [`${normalized(fact.path)} imports ${normalized(imported)}`],
+        source: 'hermes',
+      });
+      if (suggestions.length >= 100) return suggestions;
+    }
+  }
+
+  return suggestions;
+}
+
+function relationshipSuggestionsFromSemanticNodes(context: HermesMappingContext) {
+  const existingKeys = buildRelationshipKeys(context);
+  const suggestions: HermesRelationshipSuggestion[] = [];
+  const nodesByCapability = new Map<string, HermesNodeContext[]>();
+  for (const node of context.nodes) {
+    if (!node.capabilityKey) continue;
+    const list = nodesByCapability.get(node.capabilityKey) ?? [];
+    list.push(node);
+    nodesByCapability.set(node.capabilityKey, list);
+  }
+
+  for (const node of context.nodes) {
+    if (node.parentId && node.semanticKind === 'ui_module') {
+      const key = existingRelationshipKey(node.parentId, node._id, 'contains');
+      if (!existingKeys.has(key)) {
+        existingKeys.add(key);
+        suggestions.push({
+          sourceNodeId: node.parentId,
+          targetNodeId: node._id,
+          type: 'contains',
+          label: 'contains',
+          confidence: 0.92,
+          reason: `${node.name} is a visible module under its parent surface.`,
+          evidence: [`${node.name} parentId ${node.parentId}`],
+          source: 'hermes',
+        });
+      }
+    }
+
+    if (node.semanticKind !== 'ui_module' || !node.capabilityKey) continue;
+    const capabilities = (nodesByCapability.get(node.capabilityKey) ?? []).filter(
+      (candidate) => candidate.semanticKind === 'capability' && candidate._id !== node._id,
+    );
+    for (const capability of capabilities) {
+      const type: HermesRelationshipSuggestionType =
+        node.capabilityKey === 'billing_subscription' ? 'triggers' : 'uses';
+      const key = existingRelationshipKey(node._id, capability._id, type);
+      if (existingKeys.has(key)) continue;
+      existingKeys.add(key);
+      suggestions.push({
+        sourceNodeId: node._id,
+        targetNodeId: capability._id,
+        type,
+        label: node.capabilityKey.replace(/_/g, ' '),
+        confidence: 0.92,
+        reason: `${node.name} is UI evidence for ${capability.name}.`,
+        evidence: [`shared capabilityKey ${node.capabilityKey}`],
         source: 'hermes',
       });
       if (suggestions.length >= 100) return suggestions;
@@ -942,10 +1244,15 @@ export async function heuristicHermesMapper(
     });
   }
 
-  const relationshipSuggestions = relationshipSuggestionsFromImports(context, factByPath);
+  const semanticNodeSuggestions = semanticNodeSuggestionsFromFacts(context, factByPath);
+  const relationshipSuggestions = [
+    ...relationshipSuggestionsFromImports(context, factByPath),
+    ...relationshipSuggestionsFromSemanticNodes(context),
+  ].slice(0, 500);
 
   return {
     suggestions,
+    semanticNodeSuggestions,
     relationshipSuggestions,
     flowSuggestions: architectureFlowSuggestionsFromContext(context, relationshipSuggestions),
   };

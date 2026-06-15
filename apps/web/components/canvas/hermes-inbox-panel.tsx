@@ -30,6 +30,7 @@ const ACTION_OPTIONS: SuggestionAction[] = [
 
 const SEMANTIC_KIND_OPTIONS = [
   'surface',
+  'ui_module',
   'capability',
   'api',
   'data_logic',
@@ -39,6 +40,15 @@ const SEMANTIC_KIND_OPTIONS = [
   'external_service',
   'config',
   'test_harness',
+  'unknown',
+] as const;
+
+const PRODUCT_AREA_OPTIONS = [
+  'public',
+  'user',
+  'admin',
+  'extension',
+  'internal',
   'unknown',
 ] as const;
 
@@ -58,6 +68,7 @@ const FILE_ROLE_OPTIONS = [
 
 type SemanticKind = (typeof SEMANTIC_KIND_OPTIONS)[number];
 type FileRole = (typeof FILE_ROLE_OPTIONS)[number];
+type ProductArea = (typeof PRODUCT_AREA_OPTIONS)[number];
 type ReviewDraft = {
   action: SuggestionAction;
   layerId: string;
@@ -67,11 +78,24 @@ type ReviewDraft = {
   semanticKind: SemanticKind | '';
   fileRole: FileRole | '';
 };
+type SemanticReviewDraft = {
+  suggestedNodeName: string;
+  semanticKind: SemanticKind;
+  productArea: ProductArea;
+  capabilityKey: string;
+  routeHint: string;
+  layerId: string;
+  parentNodeId: string;
+};
 
 function isHighConfidence(action: SuggestionAction, confidence: number) {
   return action === 'link_existing_node' || action === 'ignore'
     ? confidence >= 0.9
     : confidence >= 0.85;
+}
+
+function isHighConfidenceSemantic(semanticKind: string, confidence: number) {
+  return semanticKind === 'ui_module' ? confidence >= 0.88 : confidence >= 0.9;
 }
 
 function statusTone(status?: string) {
@@ -91,6 +115,18 @@ export function HermesInboxPanel({ projectId }: Props) {
     status: 'applied',
   });
   const ignored = useQuery(api.codebaseSuggestions.listByProject, {
+    projectId,
+    status: 'ignored',
+  });
+  const pendingSemantic = useQuery(api.semanticNodeSuggestions.listByProject, {
+    projectId,
+    status: 'pending',
+  });
+  const appliedSemantic = useQuery(api.semanticNodeSuggestions.listByProject, {
+    projectId,
+    status: 'applied',
+  });
+  const ignoredSemantic = useQuery(api.semanticNodeSuggestions.listByProject, {
     projectId,
     status: 'ignored',
   });
@@ -126,6 +162,11 @@ export function HermesInboxPanel({ projectId }: Props) {
   const ignore = useMutation(api.codebaseSuggestions.ignore);
   const updateReview = useMutation(api.codebaseSuggestions.updateReview);
   const bulkApply = useMutation(api.codebaseSuggestions.applyHighConfidence);
+  const applySemantic = useMutation(api.semanticNodeSuggestions.apply);
+  const rejectSemantic = useMutation(api.semanticNodeSuggestions.reject);
+  const ignoreSemantic = useMutation(api.semanticNodeSuggestions.ignore);
+  const updateSemanticReview = useMutation(api.semanticNodeSuggestions.updateReview);
+  const bulkApplySemantic = useMutation(api.semanticNodeSuggestions.applyHighConfidence);
   const applyRelationship = useMutation(api.relationshipSuggestions.apply);
   const rejectRelationship = useMutation(api.relationshipSuggestions.reject);
   const ignoreRelationship = useMutation(api.relationshipSuggestions.ignore);
@@ -139,6 +180,9 @@ export function HermesInboxPanel({ projectId }: Props) {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<Id<'codebaseSuggestions'> | null>(null);
+  const [editingSemanticId, setEditingSemanticId] = useState<Id<'semanticNodeSuggestions'> | null>(
+    null,
+  );
   const [draft, setDraft] = useState<ReviewDraft>({
     action: 'create_node',
     layerId: '',
@@ -148,11 +192,23 @@ export function HermesInboxPanel({ projectId }: Props) {
     semanticKind: '',
     fileRole: '',
   });
+  const [semanticDraft, setSemanticDraft] = useState<SemanticReviewDraft>({
+    suggestedNodeName: '',
+    semanticKind: 'ui_module',
+    productArea: 'unknown',
+    capabilityKey: '',
+    routeHint: '',
+    layerId: '',
+    parentNodeId: '',
+  });
 
   const visiblePending = pending?.slice(0, 5) ?? [];
+  const visibleSemanticPending = pendingSemantic?.slice(0, 5) ?? [];
   const visibleRelationshipPending = pendingRelationships?.slice(0, 4) ?? [];
   const visibleApplied = applied?.slice(0, 3) ?? [];
   const visibleIgnored = ignored?.slice(0, 3) ?? [];
+  const visibleSemanticApplied = appliedSemantic?.slice(0, 3) ?? [];
+  const visibleSemanticIgnored = ignoredSemantic?.slice(0, 3) ?? [];
   const visibleRelationshipApplied = appliedRelationships?.slice(0, 2) ?? [];
   const visibleRelationshipIgnored = ignoredRelationships?.slice(0, 2) ?? [];
   const visibleFlowPending = pendingFlows?.slice(0, 3) ?? [];
@@ -164,9 +220,12 @@ export function HermesInboxPanel({ projectId }: Props) {
       (pending ?? []).filter((suggestion) =>
         isHighConfidence(suggestion.action as SuggestionAction, suggestion.confidence),
       ).length +
+      (pendingSemantic ?? []).filter((suggestion) =>
+        isHighConfidenceSemantic(suggestion.semanticKind, suggestion.confidence),
+      ).length +
       (pendingRelationships ?? []).filter((suggestion) => suggestion.confidence >= 0.9).length +
       (pendingFlows ?? []).filter((flow) => flow.confidence >= 0.9).length,
-    [pending, pendingFlows, pendingRelationships],
+    [pending, pendingFlows, pendingRelationships, pendingSemantic],
   );
 
   const handleStartRun = async () => {
@@ -246,10 +305,72 @@ export function HermesInboxPanel({ projectId }: Props) {
     }
   };
 
+  const handleSemanticApply = async (id: Id<'semanticNodeSuggestions'>) => {
+    setBusyId(id);
+    try {
+      await applySemantic({ id });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleSemanticReject = async (id: Id<'semanticNodeSuggestions'>) => {
+    setBusyId(id);
+    try {
+      await rejectSemantic({ id });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleSemanticIgnore = async (id: Id<'semanticNodeSuggestions'>) => {
+    setBusyId(id);
+    try {
+      await ignoreSemantic({ id });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const beginSemanticEdit = (suggestion: (typeof visibleSemanticPending)[number]) => {
+    setEditingSemanticId(suggestion._id);
+    setSemanticDraft({
+      suggestedNodeName: suggestion.suggestedNodeName,
+      semanticKind: suggestion.semanticKind,
+      productArea: suggestion.productArea,
+      capabilityKey: suggestion.capabilityKey ?? '',
+      routeHint: suggestion.routeHint ?? '',
+      layerId: suggestion.layerId,
+      parentNodeId: suggestion.parentNodeId ?? '',
+    });
+  };
+
+  const saveSemanticEdit = async (id: Id<'semanticNodeSuggestions'>) => {
+    setBusyId(id);
+    try {
+      await updateSemanticReview({
+        id,
+        suggestedNodeName: semanticDraft.suggestedNodeName.trim() || undefined,
+        semanticKind: semanticDraft.semanticKind,
+        productArea: semanticDraft.productArea,
+        capabilityKey: semanticDraft.capabilityKey.trim() || undefined,
+        routeHint: semanticDraft.routeHint.trim() || undefined,
+        layerId: semanticDraft.layerId as Id<'projectLayers'>,
+        parentNodeId: semanticDraft.parentNodeId
+          ? (semanticDraft.parentNodeId as Id<'nodes'>)
+          : undefined,
+      });
+      setEditingSemanticId(null);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const handleBulkApply = async () => {
     setBusyId('bulk');
     try {
       await bulkApply({ projectId });
+      await bulkApplySemantic({ projectId });
       await bulkApplyRelationships({ projectId });
       await bulkApplyFlows({ projectId });
     } finally {
@@ -602,6 +723,225 @@ export function HermesInboxPanel({ projectId }: Props) {
         </div>
       )}
 
+      {pendingSemantic !== undefined && visibleSemanticPending.length > 0 && (
+        <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+            Semantic function review
+          </p>
+          {visibleSemanticPending.map((suggestion) => {
+            const isEditing = editingSemanticId === suggestion._id;
+            return (
+              <div
+                key={suggestion._id}
+                className="rounded-md border border-cyan-400/20 bg-cyan-400/5 p-3"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-zinc-100">
+                      {suggestion.suggestedNodeName}
+                    </p>
+                    <p className="mt-1 truncate font-mono text-[11px] text-zinc-500">
+                      {suggestion.sourceFilePath}
+                    </p>
+                  </div>
+                  <span className="shrink-0 rounded bg-cyan-400/15 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-200">
+                    {Math.round(suggestion.confidence * 100)}%
+                  </span>
+                </div>
+
+                {isEditing ? (
+                  <div className="mt-3 space-y-2">
+                    <input
+                      value={semanticDraft.suggestedNodeName}
+                      onChange={(event) =>
+                        setSemanticDraft((prev) => ({
+                          ...prev,
+                          suggestedNodeName: event.target.value,
+                        }))
+                      }
+                      className="h-8 w-full rounded border border-white/10 bg-zinc-950 px-2 text-xs text-zinc-100 outline-none"
+                    />
+                    <select
+                      value={semanticDraft.layerId}
+                      onChange={(event) =>
+                        setSemanticDraft((prev) => ({ ...prev, layerId: event.target.value }))
+                      }
+                      className="h-8 w-full rounded border border-white/10 bg-zinc-950 px-2 text-xs text-zinc-100 outline-none"
+                    >
+                      {(layers ?? []).map((layer) => (
+                        <option key={layer._id} value={layer._id}>
+                          {layer.name}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={semanticDraft.parentNodeId}
+                      onChange={(event) =>
+                        setSemanticDraft((prev) => ({
+                          ...prev,
+                          parentNodeId: event.target.value,
+                        }))
+                      }
+                      className="h-8 w-full rounded border border-white/10 bg-zinc-950 px-2 text-xs text-zinc-100 outline-none"
+                    >
+                      <option value="">No parent surface</option>
+                      {(nodes ?? [])
+                        .filter((node) => node.type === 'page')
+                        .map((node) => (
+                          <option key={node._id} value={node._id}>
+                            {node.name}
+                          </option>
+                        ))}
+                    </select>
+                    <div className="grid grid-cols-2 gap-2">
+                      <select
+                        value={semanticDraft.semanticKind}
+                        onChange={(event) =>
+                          setSemanticDraft((prev) => ({
+                            ...prev,
+                            semanticKind: event.target.value as SemanticKind,
+                          }))
+                        }
+                        className="h-8 rounded border border-white/10 bg-zinc-950 px-2 text-xs text-zinc-100 outline-none"
+                      >
+                        {SEMANTIC_KIND_OPTIONS.map((kind) => (
+                          <option key={kind} value={kind}>
+                            {kind.replace(/_/g, ' ')}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={semanticDraft.productArea}
+                        onChange={(event) =>
+                          setSemanticDraft((prev) => ({
+                            ...prev,
+                            productArea: event.target.value as ProductArea,
+                          }))
+                        }
+                        className="h-8 rounded border border-white/10 bg-zinc-950 px-2 text-xs text-zinc-100 outline-none"
+                      >
+                        {PRODUCT_AREA_OPTIONS.map((area) => (
+                          <option key={area} value={area}>
+                            {area}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <input
+                      value={semanticDraft.capabilityKey}
+                      onChange={(event) =>
+                        setSemanticDraft((prev) => ({ ...prev, capabilityKey: event.target.value }))
+                      }
+                      placeholder="Capability key"
+                      className="h-8 w-full rounded border border-white/10 bg-zinc-950 px-2 text-xs text-zinc-100 outline-none placeholder:text-zinc-600"
+                    />
+                    <input
+                      value={semanticDraft.routeHint}
+                      onChange={(event) =>
+                        setSemanticDraft((prev) => ({ ...prev, routeHint: event.target.value }))
+                      }
+                      placeholder="Route hint"
+                      className="h-8 w-full rounded border border-white/10 bg-zinc-950 px-2 text-xs text-zinc-100 outline-none placeholder:text-zinc-600"
+                    />
+                    <div className="flex gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 border border-emerald-400/30 bg-emerald-400/10 text-emerald-200 hover:bg-emerald-400/20"
+                        disabled={busyId !== null}
+                        onClick={() => void saveSemanticEdit(suggestion._id)}
+                      >
+                        Save
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 border border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.07]"
+                        onClick={() => setEditingSemanticId(null)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="mt-2 grid gap-1 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-cyan-200">
+                          {suggestion.semanticKind.replace(/_/g, ' ')}
+                        </span>
+                        <span className="truncate text-zinc-500">
+                          {suggestion.parentNodeName ??
+                            suggestion.layerName ??
+                            suggestion.productArea}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2 text-[11px]">
+                        <span className="truncate text-zinc-500">
+                          {suggestion.capabilityKey ??
+                            suggestion.routeHint ??
+                            suggestion.semanticKey}
+                        </span>
+                        <span className="shrink-0 rounded bg-white/[0.06] px-1.5 py-0.5 text-zinc-400">
+                          {suggestion.productArea}
+                        </span>
+                      </div>
+                      <p className="line-clamp-2 text-zinc-400">{suggestion.reason}</p>
+                      {suggestion.evidence && suggestion.evidence.length > 0 && (
+                        <p className="truncate text-[11px] text-zinc-500">
+                          {suggestion.evidence.slice(0, 3).join(' / ')}
+                        </p>
+                      )}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 border border-emerald-400/30 bg-emerald-400/10 text-emerald-200 hover:bg-emerald-400/20"
+                        disabled={busyId !== null}
+                        onClick={() => void handleSemanticApply(suggestion._id)}
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                        Apply
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 border border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.07] hover:text-zinc-50"
+                        disabled={busyId !== null}
+                        onClick={() => beginSemanticEdit(suggestion)}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        Edit
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 border border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.07] hover:text-zinc-50"
+                        disabled={busyId !== null}
+                        onClick={() => void handleSemanticIgnore(suggestion._id)}
+                      >
+                        Ignore
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 border border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.07] hover:text-zinc-50"
+                        disabled={busyId !== null}
+                        onClick={() => void handleSemanticReject(suggestion._id)}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                        Reject
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {pendingRelationships !== undefined && visibleRelationshipPending.length > 0 && (
         <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
@@ -742,6 +1082,8 @@ export function HermesInboxPanel({ projectId }: Props) {
 
       {(visibleApplied.length > 0 ||
         visibleIgnored.length > 0 ||
+        visibleSemanticApplied.length > 0 ||
+        visibleSemanticIgnored.length > 0 ||
         visibleRelationshipApplied.length > 0 ||
         visibleRelationshipIgnored.length > 0 ||
         visibleFlowApplied.length > 0 ||
@@ -769,6 +1111,28 @@ export function HermesInboxPanel({ projectId }: Props) {
               >
                 <span className="truncate text-xs text-zinc-300">{suggestion.filePath}</span>
                 <span className="shrink-0 text-[11px] text-zinc-500">ignored</span>
+              </div>
+            ))}
+            {visibleSemanticApplied.map((suggestion) => (
+              <div
+                key={suggestion._id}
+                className="flex items-center justify-between gap-2 rounded-md bg-white/[0.03] px-2 py-1.5"
+              >
+                <span className="truncate text-xs text-zinc-300">
+                  {suggestion.suggestedNodeName}
+                </span>
+                <span className="shrink-0 text-[11px] text-cyan-300">semantic</span>
+              </div>
+            ))}
+            {visibleSemanticIgnored.map((suggestion) => (
+              <div
+                key={suggestion._id}
+                className="flex items-center justify-between gap-2 rounded-md bg-white/[0.03] px-2 py-1.5"
+              >
+                <span className="truncate text-xs text-zinc-300">
+                  {suggestion.suggestedNodeName}
+                </span>
+                <span className="shrink-0 text-[11px] text-zinc-500">ignored semantic</span>
               </div>
             ))}
             {visibleRelationshipApplied.map((suggestion) => (

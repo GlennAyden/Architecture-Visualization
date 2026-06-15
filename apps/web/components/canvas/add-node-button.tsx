@@ -35,6 +35,7 @@ interface Props {
 type NodeKind = 'page' | 'feature';
 type SemanticKind =
   | 'surface'
+  | 'ui_module'
   | 'capability'
   | 'api'
   | 'data_logic'
@@ -48,6 +49,7 @@ type SemanticKind =
 
 const SEMANTIC_KIND_OPTIONS: SemanticKind[] = [
   'surface',
+  'ui_module',
   'capability',
   'api',
   'data_logic',

@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { kanbanStatusSchema } from './kanban';
-import { linkedFileRoleSchema, mappingStatusSchema, nodeSemanticKindSchema } from './nodes';
+import {
+  linkedFileRoleSchema,
+  mappingStatusSchema,
+  nodeSemanticKindSchema,
+  productAreaSchema,
+} from './nodes';
 
 const nodeIdSchema = z.string().min(1);
 const taskIdSchema = z.string().min(1);
@@ -26,6 +31,9 @@ export const createNodeInput = z
     positionX: z.number().optional(),
     positionY: z.number().optional(),
     semanticKind: nodeSemanticKindSchema.optional(),
+    productArea: productAreaSchema.optional(),
+    capabilityKey: z.string().trim().min(1).max(120).optional(),
+    routeHint: z.string().trim().min(1).max(160).optional(),
     mappingStatus: mappingStatusSchema.optional(),
     mappingConfidence: z.number().min(0).max(1).optional(),
     fileRole: linkedFileRoleSchema.optional(),
@@ -45,6 +53,9 @@ export const updateNodeInput = z
     positionY: z.number().optional(),
     metadata: z.record(z.unknown()).optional(),
     semanticKind: nodeSemanticKindSchema.optional(),
+    productArea: productAreaSchema.optional(),
+    capabilityKey: z.string().trim().min(1).max(120).optional(),
+    routeHint: z.string().trim().min(1).max(160).optional(),
     mappingStatus: mappingStatusSchema.optional(),
     mappingConfidence: z.number().min(0).max(1).optional(),
   })
@@ -57,6 +68,9 @@ export const updateNodeInput = z
       v.positionY !== undefined ||
       v.metadata !== undefined ||
       v.semanticKind !== undefined ||
+      v.productArea !== undefined ||
+      v.capabilityKey !== undefined ||
+      v.routeHint !== undefined ||
       v.mappingStatus !== undefined ||
       v.mappingConfidence !== undefined,
     { message: 'At least one field must be updated' },
@@ -162,7 +176,17 @@ export const codebaseSuggestionActionSchema = z.enum([
   'ignore',
 ]);
 
-export const relationshipSuggestionTypeSchema = z.enum(['dependency', 'navigation', 'data_flow']);
+export const relationshipSuggestionTypeSchema = z.enum([
+  'dependency',
+  'navigation',
+  'data_flow',
+  'contains',
+  'uses',
+  'triggers',
+  'reads',
+  'writes',
+  'integrates',
+]);
 export const architectureFlowKindSchema = z.enum([
   'user_journey',
   'system_process',
@@ -176,6 +200,12 @@ export const architectureFlowEdgeTypeSchema = z.enum([
   'dependency',
   'navigation',
   'data_flow',
+  'contains',
+  'uses',
+  'triggers',
+  'reads',
+  'writes',
+  'integrates',
 ]);
 
 const codebaseSuggestionSchema = z
@@ -234,6 +264,24 @@ const relationshipSuggestionSchema = z
     message: 'sourceNodeId and targetNodeId must differ',
   });
 
+const semanticNodeSuggestionSchema = z
+  .object({
+    sourceFilePath: pathPattern,
+    semanticKey: z.string().trim().min(1).max(180),
+    suggestedNodeName: namePattern,
+    semanticKind: nodeSemanticKindSchema,
+    productArea: productAreaSchema.default('unknown'),
+    capabilityKey: z.string().trim().min(1).max(120).optional(),
+    routeHint: z.string().trim().min(1).max(160).optional(),
+    layerId: z.string().trim().min(1),
+    parentNodeId: z.string().trim().min(1).optional(),
+    confidence: z.number().min(0).max(1),
+    reason: z.string().trim().min(1, 'reason is required').max(1000),
+    evidence: evidenceSchema.optional(),
+    source: z.string().trim().min(1).max(80).default('hermes'),
+  })
+  .strict();
+
 const flowEdgeRefSchema = z
   .object({
     edgeId: z.string().trim().min(1).optional(),
@@ -277,6 +325,7 @@ const flowSuggestionSchema = z
     confidence: z.number().min(0).max(1),
     reason: z.string().trim().min(1, 'reason is required').max(1000),
     evidence: evidenceSchema.optional(),
+    productArea: productAreaSchema.optional(),
     source: z.string().trim().min(1).max(80).default('hermes'),
   })
   .strict();
@@ -285,6 +334,7 @@ export const pushCodebaseSuggestionsInput = z
   .object({
     runId: z.string().trim().min(1).optional(),
     suggestions: z.array(codebaseSuggestionSchema).max(500).default([]),
+    semanticNodeSuggestions: z.array(semanticNodeSuggestionSchema).max(500).default([]),
     relationshipSuggestions: z.array(relationshipSuggestionSchema).max(500).default([]),
     flowSuggestions: z.array(flowSuggestionSchema).max(100).default([]),
   })
@@ -292,6 +342,7 @@ export const pushCodebaseSuggestionsInput = z
   .refine(
     (value) =>
       value.suggestions.length > 0 ||
+      value.semanticNodeSuggestions.length > 0 ||
       value.relationshipSuggestions.length > 0 ||
       value.flowSuggestions.length > 0,
     {
@@ -306,6 +357,7 @@ export const hermesMappingRunCompleteInput = z
     status: z.enum(['completed', 'failed']),
     errorMessage: z.string().trim().min(1).max(1000).optional(),
     suggestions: z.array(codebaseSuggestionSchema).max(500).default([]),
+    semanticNodeSuggestions: z.array(semanticNodeSuggestionSchema).max(500).default([]),
     relationshipSuggestions: z.array(relationshipSuggestionSchema).max(500).default([]),
     flowSuggestions: z.array(flowSuggestionSchema).max(100).default([]),
   })
@@ -322,7 +374,17 @@ export const hermesMappingRunCompleteInput = z
 
 // Sprint 3 — non-hierarchy edge types. Hierarchy is auto-mirrored from
 // `parentId` and never manipulated through these endpoints.
-export const manualEdgeTypeSchema = z.enum(['dependency', 'navigation', 'data_flow']);
+export const manualEdgeTypeSchema = z.enum([
+  'dependency',
+  'navigation',
+  'data_flow',
+  'contains',
+  'uses',
+  'triggers',
+  'reads',
+  'writes',
+  'integrates',
+]);
 
 // AI/user-driven edge creation. Reconciles "manually classified" relations
 // the import scanner can't see (cross-language, cross-process).

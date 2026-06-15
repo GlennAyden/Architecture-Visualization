@@ -27,6 +27,7 @@ function edgeMatchesRef(edge: Doc<'nodeEdges'>, ref: EdgeRef) {
 
 function isOverviewEdge(edge: Doc<'nodeEdges'>) {
   if (edge.type === 'hierarchy' || edge.type === 'dependency') return false;
+  if (['contains', 'uses', 'triggers', 'integrates'].includes(edge.type)) return true;
   if (edge.source === 'manual') return true;
   return (edge.confidence ?? 0) >= 0.9;
 }
@@ -35,10 +36,12 @@ function edgeMatchesMode(edge: Doc<'nodeEdges'>, mode: CanvasEdgeMode) {
   if (mode === 'all') return true;
   if (mode === 'overview') return isOverviewEdge(edge);
   if (mode === 'dependencies') return edge.type === 'dependency';
-  if (mode === 'api') return edge.type === 'navigation' || edge.type === 'data_flow';
-  if (mode === 'data') return edge.type === 'data_flow';
+  if (mode === 'api') {
+    return ['navigation', 'data_flow', 'uses', 'triggers', 'reads', 'writes'].includes(edge.type);
+  }
+  if (mode === 'data') return ['data_flow', 'reads', 'writes'].includes(edge.type);
   return (
-    edge.type === 'data_flow' ||
+    ['data_flow', 'uses', 'triggers', 'integrates'].includes(edge.type) ||
     Boolean(edge.sourceRunId) ||
     /agent|hermes|mcp/i.test(edge.label ?? '')
   );

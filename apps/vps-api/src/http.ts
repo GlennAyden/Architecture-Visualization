@@ -7,6 +7,7 @@ import {
   type HermesMappingContext,
   type HermesRelationshipSuggestion,
   type HermesMappingSuggestion,
+  type HermesSemanticNodeSuggestion,
   type HermesArchitectureFlowSuggestion,
 } from './hermes-mapper.js';
 import { signLocalConvexToken } from './jwt.js';
@@ -115,6 +116,7 @@ async function submitMappingRunCompletion(
     status: 'completed' | 'failed';
     errorMessage?: string;
     suggestions?: HermesMappingSuggestion[];
+    semanticNodeSuggestions?: HermesSemanticNodeSuggestion[];
     relationshipSuggestions?: HermesRelationshipSuggestion[];
     flowSuggestions?: HermesArchitectureFlowSuggestion[];
   },
@@ -129,6 +131,7 @@ async function submitMappingRunCompletion(
       status: payload.status,
       errorMessage: payload.errorMessage,
       suggestions: payload.suggestions ?? [],
+      semanticNodeSuggestions: payload.semanticNodeSuggestions ?? [],
       relationshipSuggestions: payload.relationshipSuggestions ?? [],
       flowSuggestions: payload.flowSuggestions ?? [],
     }),
@@ -145,6 +148,12 @@ export async function runHermesMappingJob(options: VpsApiOptions, job: HermesMap
       throw new Error('Hermes mapper returned malformed suggestions');
     }
     if (
+      result.semanticNodeSuggestions !== undefined &&
+      !Array.isArray(result.semanticNodeSuggestions)
+    ) {
+      throw new Error('Hermes mapper returned malformed semantic node suggestions');
+    }
+    if (
       result.relationshipSuggestions !== undefined &&
       !Array.isArray(result.relationshipSuggestions)
     ) {
@@ -156,6 +165,7 @@ export async function runHermesMappingJob(options: VpsApiOptions, job: HermesMap
     await submitMappingRunCompletion(fetchImpl, job, {
       status: 'completed',
       suggestions: result.suggestions,
+      semanticNodeSuggestions: result.semanticNodeSuggestions ?? [],
       relationshipSuggestions: result.relationshipSuggestions ?? [],
       flowSuggestions: result.flowSuggestions ?? [],
     });

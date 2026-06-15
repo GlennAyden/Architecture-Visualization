@@ -9,6 +9,7 @@ import {
   manualEdgeTypeValidator,
   mappingStatusValidator,
   nodeSemanticKindValidator,
+  productAreaValidator,
   relationshipSuggestionStatusValidator,
 } from './lib/semantic';
 
@@ -47,12 +48,16 @@ export default defineSchema({
     positionY: v.number(),
     metadata: v.optional(v.any()),
     semanticKind: v.optional(nodeSemanticKindValidator),
+    productArea: v.optional(productAreaValidator),
+    capabilityKey: v.optional(v.string()),
+    routeHint: v.optional(v.string()),
     mappingStatus: v.optional(mappingStatusValidator),
     mappingConfidence: v.optional(v.number()),
   })
     .index('by_project', ['projectId'])
     .index('by_project_layer', ['projectId', 'layerId'])
-    .index('by_parent', ['parentId']),
+    .index('by_parent', ['parentId'])
+    .index('by_project_capability', ['projectId', 'capabilityKey']),
 
   nodeFiles: defineTable({
     nodeId: v.id('nodes'),
@@ -121,6 +126,12 @@ export default defineSchema({
       v.literal('dependency'),
       v.literal('navigation'),
       v.literal('data_flow'),
+      v.literal('contains'),
+      v.literal('uses'),
+      v.literal('triggers'),
+      v.literal('reads'),
+      v.literal('writes'),
+      v.literal('integrates'),
     ),
     source: v.optional(v.union(v.literal('auto'), v.literal('manual'))),
     label: v.optional(v.string()),
@@ -178,6 +189,31 @@ export default defineSchema({
   })
     .index('by_project_status', ['projectId', 'status'])
     .index('by_project_file', ['projectId', 'filePath']),
+
+  semanticNodeSuggestions: defineTable({
+    projectId: v.id('projects'),
+    runId: v.optional(v.id('hermesMappingRuns')),
+    sourceFilePath: v.string(),
+    semanticKey: v.string(),
+    suggestedNodeName: v.string(),
+    semanticKind: nodeSemanticKindValidator,
+    productArea: productAreaValidator,
+    capabilityKey: v.optional(v.string()),
+    routeHint: v.optional(v.string()),
+    layerId: v.id('projectLayers'),
+    parentNodeId: v.optional(v.id('nodes')),
+    confidence: v.number(),
+    reason: v.string(),
+    evidence: v.optional(v.array(v.string())),
+    source: v.string(),
+    status: relationshipSuggestionStatusValidator,
+    appliedNodeId: v.optional(v.id('nodes')),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index('by_project_status', ['projectId', 'status'])
+    .index('by_project_key', ['projectId', 'semanticKey'])
+    .index('by_project_file', ['projectId', 'sourceFilePath']),
 
   relationshipSuggestions: defineTable({
     projectId: v.id('projects'),
@@ -241,6 +277,7 @@ export default defineSchema({
     evidence: v.optional(v.array(v.string())),
     source: v.string(),
     status: architectureFlowStatusValidator,
+    productArea: v.optional(productAreaValidator),
     createdAt: v.optional(v.number()),
     updatedAt: v.number(),
   })

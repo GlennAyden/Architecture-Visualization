@@ -9,8 +9,13 @@ import {
   linkedFileRoleValidator,
   manualEdgeTypeValidator,
   nodeSemanticKindValidator,
+  productAreaValidator,
 } from '../lib/semantic';
 import { upsertRelationshipSuggestion } from '../lib/relationshipSuggestions';
+import {
+  upsertProductSurfaceFlows,
+  upsertSemanticNodeSuggestion,
+} from '../lib/semanticNodeSuggestions';
 
 const suggestionValidator = v.object({
   filePath: v.string(),
@@ -47,6 +52,23 @@ const relationshipSuggestionValidator = v.object({
   source: v.string(),
 });
 
+const semanticNodeSuggestionValidator = v.object({
+  runId: v.optional(v.id('hermesMappingRuns')),
+  sourceFilePath: v.string(),
+  semanticKey: v.string(),
+  suggestedNodeName: v.string(),
+  semanticKind: nodeSemanticKindValidator,
+  productArea: productAreaValidator,
+  capabilityKey: v.optional(v.string()),
+  routeHint: v.optional(v.string()),
+  layerId: v.id('projectLayers'),
+  parentNodeId: v.optional(v.id('nodes')),
+  confidence: v.number(),
+  reason: v.string(),
+  evidence: v.optional(v.array(v.string())),
+  source: v.string(),
+});
+
 const flowEdgeRefValidator = v.object({
   edgeId: v.optional(v.id('nodeEdges')),
   sourceNodeId: v.optional(v.id('nodes')),
@@ -76,6 +98,7 @@ const flowSuggestionValidator = v.object({
   confidence: v.number(),
   reason: v.string(),
   evidence: v.optional(v.array(v.string())),
+  productArea: v.optional(productAreaValidator),
   source: v.string(),
 });
 
@@ -84,12 +107,20 @@ export const pushForProject = internalMutation({
     userId: v.id('profiles'),
     scopeProjectId: v.id('projects'),
     suggestions: v.array(suggestionValidator),
+    semanticNodeSuggestions: v.optional(v.array(semanticNodeSuggestionValidator)),
     relationshipSuggestions: v.optional(v.array(relationshipSuggestionValidator)),
     flowSuggestions: v.optional(v.array(flowSuggestionValidator)),
   },
   handler: async (
     ctx,
-    { userId, scopeProjectId, suggestions, relationshipSuggestions, flowSuggestions },
+    {
+      userId,
+      scopeProjectId,
+      suggestions,
+      semanticNodeSuggestions,
+      relationshipSuggestions,
+      flowSuggestions,
+    },
   ) => {
     await requireOwnership(ctx, userId, scopeProjectId);
 
@@ -98,6 +129,8 @@ export const pushForProject = internalMutation({
     let pending = 0;
     let applied = 0;
     let ignored = 0;
+    let semanticPending = 0;
+    let semanticApplied = 0;
     let relationshipPending = 0;
     let relationshipApplied = 0;
     let flowPending = 0;
@@ -114,6 +147,15 @@ export const pushForProject = internalMutation({
         ignored++;
       } else {
         pending++;
+      }
+    }
+
+    for (const suggestion of semanticNodeSuggestions ?? []) {
+      const result = await upsertSemanticNodeSuggestion(ctx, scopeProjectId, suggestion);
+      if (result.status === 'applied') {
+        semanticApplied++;
+      } else if (result.status === 'pending') {
+        semanticPending++;
       }
     }
 
@@ -142,6 +184,10 @@ export const pushForProject = internalMutation({
       }
     }
 
+    if ((semanticNodeSuggestions ?? []).length > 0) {
+      await upsertProductSurfaceFlows(ctx, scopeProjectId);
+    }
+
     return {
       accepted:
         pending +
@@ -149,11 +195,15 @@ export const pushForProject = internalMutation({
         ignored +
         relationshipPending +
         relationshipApplied +
+        semanticPending +
+        semanticApplied +
         flowPending +
         flowApplied,
       pending,
       applied,
       ignored,
+      semanticPending,
+      semanticApplied,
       relationshipPending,
       relationshipApplied,
       flowPending,

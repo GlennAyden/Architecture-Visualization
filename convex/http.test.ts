@@ -141,12 +141,13 @@ describe('POST /api/mcp/layers/list', () => {
     const body = await res.json();
     expect(body.layers.map((layer: { name: string }) => layer.name)).toEqual([
       'Surfaces',
-      'Application',
-      'Backend',
-      'Data',
-      'Agents',
-      'Infra',
-      'External',
+      'UI Modules',
+      'Product Capabilities',
+      'Application / API',
+      'Data & State',
+      'Agents / Automation',
+      'External Services',
+      'Infra / Delivery',
     ]);
   });
 });

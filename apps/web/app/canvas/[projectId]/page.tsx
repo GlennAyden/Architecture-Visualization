@@ -61,6 +61,10 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
     projectId,
     status: 'pending',
   });
+  const pendingSemanticSuggestions = useQuery(api.semanticNodeSuggestions.listByProject, {
+    projectId,
+    status: 'pending',
+  });
   const ensureDefaultLayers = useMutation(api.projectLayers.ensureDefaults);
   const openModal = useModalStore((s) => s.open);
   const selectedNodeId = useModalStore((s) => s.selectedNodeId);
@@ -193,7 +197,9 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
       mappedFiles: (nodeSummaries ?? []).reduce((sum, row) => sum + row.fileCount, 0),
       orphanFiles: orphanData?.orphans?.length ?? 0,
       pendingSuggestions:
-        (pendingSuggestions?.length ?? 0) + (pendingRelationshipSuggestions?.length ?? 0),
+        (pendingSuggestions?.length ?? 0) +
+        (pendingSemanticSuggestions?.length ?? 0) +
+        (pendingRelationshipSuggestions?.length ?? 0),
       driftCount: driftData?.drift?.length ?? 0,
       lastScanAt: orphanData?.scannedAt ?? orphanSnapshot?.createdAt ?? null,
     };
@@ -202,6 +208,7 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
     nodeSummaries,
     orphanSnapshot,
     pendingRelationshipSuggestions,
+    pendingSemanticSuggestions,
     pendingSuggestions,
   ]);
 

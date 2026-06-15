@@ -64,6 +64,22 @@ const EDGE_STYLE_BY_TYPE: Record<EdgeType, EdgeVariantStyle> = {
     strokeDasharray: '2 4',
     markerEnd: 'arrow',
   },
+  contains: { stroke: '#22d3ee', strokeWidth: 2, markerEnd: 'arrow' },
+  uses: { stroke: '#a78bfa', strokeWidth: 2, markerEnd: 'arrowclosed' },
+  triggers: { stroke: '#facc15', strokeWidth: 2.2, markerEnd: 'arrowclosed' },
+  reads: {
+    stroke: '#34d399',
+    strokeWidth: 2,
+    strokeDasharray: '2 4',
+    markerEnd: 'arrow',
+  },
+  writes: { stroke: '#fb7185', strokeWidth: 2.2, markerEnd: 'arrowclosed' },
+  integrates: {
+    stroke: '#38bdf8',
+    strokeWidth: 2,
+    strokeDasharray: '8 4',
+    markerEnd: 'arrowclosed',
+  },
 };
 
 function convexEdgeToRf(edge: Doc<'nodeEdges'>, highlightMode: HighlightMode | undefined): Edge {
@@ -174,6 +190,7 @@ function buildRfNodes(
     const summary = nodeSummaries.get(id);
     const commonData = {
       semanticKind: n.semanticKind ?? 'unknown',
+      productArea: n.productArea ?? 'unknown',
       mappingStatus: n.mappingStatus ?? 'manual',
       mappingConfidence: n.mappingConfidence,
       fileCount: summary?.fileCount ?? 0,

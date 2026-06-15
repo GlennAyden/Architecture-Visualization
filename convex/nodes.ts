@@ -4,7 +4,11 @@ import { getNodeIfAccessible, getProjectIfAccessible, requireProjectAccess } fro
 import { deleteNodeCascade } from './lib/cascade';
 import { ensureHierarchyEdge } from './lib/edges';
 import { resolveNodeLayer } from './lib/layers';
-import { mappingStatusValidator, nodeSemanticKindValidator } from './lib/semantic';
+import {
+  mappingStatusValidator,
+  nodeSemanticKindValidator,
+  productAreaValidator,
+} from './lib/semantic';
 
 export const listByProject = query({
   args: { projectId: v.id('projects') },
@@ -35,6 +39,9 @@ export const create = mutation({
     positionX: v.number(),
     positionY: v.number(),
     semanticKind: v.optional(nodeSemanticKindValidator),
+    productArea: v.optional(productAreaValidator),
+    capabilityKey: v.optional(v.string()),
+    routeHint: v.optional(v.string()),
     mappingStatus: v.optional(mappingStatusValidator),
     mappingConfidence: v.optional(v.number()),
   },
@@ -68,6 +75,9 @@ export const create = mutation({
       positionX: args.positionX,
       positionY: args.positionY,
       semanticKind: args.semanticKind,
+      productArea: args.productArea,
+      capabilityKey: args.capabilityKey,
+      routeHint: args.routeHint,
       mappingStatus: args.mappingStatus ?? 'manual',
       mappingConfidence: args.mappingConfidence,
     });
@@ -88,6 +98,9 @@ export const update = mutation({
     positionY: v.optional(v.number()),
     description: v.optional(v.string()),
     semanticKind: v.optional(nodeSemanticKindValidator),
+    productArea: v.optional(productAreaValidator),
+    capabilityKey: v.optional(v.string()),
+    routeHint: v.optional(v.string()),
     mappingStatus: v.optional(mappingStatusValidator),
     mappingConfidence: v.optional(v.number()),
   },
@@ -110,6 +123,9 @@ export const update = mutation({
     if (args.positionY !== undefined) patch.positionY = args.positionY;
     if (args.description !== undefined) patch.description = args.description;
     if (args.semanticKind !== undefined) patch.semanticKind = args.semanticKind;
+    if (args.productArea !== undefined) patch.productArea = args.productArea;
+    if (args.capabilityKey !== undefined) patch.capabilityKey = args.capabilityKey;
+    if (args.routeHint !== undefined) patch.routeHint = args.routeHint;
     if (args.mappingStatus !== undefined) patch.mappingStatus = args.mappingStatus;
     if (args.mappingConfidence !== undefined) patch.mappingConfidence = args.mappingConfidence;
 

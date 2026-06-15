@@ -2,6 +2,8 @@ import { v } from 'convex/values';
 
 export const layerPurposeValidator = v.union(
   v.literal('surfaces'),
+  v.literal('ui_modules'),
+  v.literal('capabilities'),
   v.literal('application'),
   v.literal('backend'),
   v.literal('data'),
@@ -13,6 +15,7 @@ export const layerPurposeValidator = v.union(
 
 export const nodeSemanticKindValidator = v.union(
   v.literal('surface'),
+  v.literal('ui_module'),
   v.literal('capability'),
   v.literal('api'),
   v.literal('data_logic'),
@@ -22,6 +25,15 @@ export const nodeSemanticKindValidator = v.union(
   v.literal('external_service'),
   v.literal('config'),
   v.literal('test_harness'),
+  v.literal('unknown'),
+);
+
+export const productAreaValidator = v.union(
+  v.literal('public'),
+  v.literal('user'),
+  v.literal('admin'),
+  v.literal('extension'),
+  v.literal('internal'),
   v.literal('unknown'),
 );
 
@@ -76,10 +88,22 @@ export const edgeTypeValidator = v.union(
   v.literal('dependency'),
   v.literal('navigation'),
   v.literal('data_flow'),
+  v.literal('contains'),
+  v.literal('uses'),
+  v.literal('triggers'),
+  v.literal('reads'),
+  v.literal('writes'),
+  v.literal('integrates'),
 );
 
 export const manualEdgeTypeValidator = v.union(
   v.literal('dependency'),
   v.literal('navigation'),
   v.literal('data_flow'),
+  v.literal('contains'),
+  v.literal('uses'),
+  v.literal('triggers'),
+  v.literal('reads'),
+  v.literal('writes'),
+  v.literal('integrates'),
 );

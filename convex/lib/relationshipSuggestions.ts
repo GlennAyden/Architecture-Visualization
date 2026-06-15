@@ -4,7 +4,7 @@ import { upsertManualEdge } from './edges';
 
 export const RELATIONSHIP_AUTO_APPLY_CONFIDENCE = 0.9;
 
-export type RelationshipSuggestionType = 'dependency' | 'navigation' | 'data_flow';
+export type RelationshipSuggestionType = Exclude<Doc<'nodeEdges'>['type'], 'hierarchy'>;
 
 export interface RelationshipSuggestionInput {
   runId?: Id<'hermesMappingRuns'>;

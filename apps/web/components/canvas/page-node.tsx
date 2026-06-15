@@ -25,6 +25,7 @@ export interface PageNodeData extends Record<string, unknown> {
   highlighted?: boolean;
   dimmed?: boolean;
   semanticKind?: string;
+  productArea?: string;
   mappingStatus?: string;
   mappingConfidence?: number;
   fileCount?: number;
@@ -80,6 +81,25 @@ function NodeStats({ files, edges }: { files: number | undefined; edges: number 
   return (
     <span style={{ color: '#a1a1aa', fontSize: '10px', lineHeight: 1.2 }}>
       {files ?? 0} files / {edges ?? 0} rel
+    </span>
+  );
+}
+
+function ProductAreaBadge({ value }: { value: string | undefined }) {
+  if (!value || value === 'unknown') return null;
+  return (
+    <span
+      style={{
+        borderRadius: '999px',
+        background: 'rgba(255,255,255,0.07)',
+        color: '#d4d4d8',
+        padding: '2px 6px',
+        fontSize: '10px',
+        fontWeight: 600,
+        lineHeight: 1.2,
+      }}
+    >
+      {formatLabel(value)}
     </span>
   );
 }
@@ -148,7 +168,10 @@ export function PageNode({ id, data }: NodeProps<PageNodeType>) {
           <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {data.name}
           </span>
-          <StatusBadge status={data.mappingStatus} confidence={data.mappingConfidence} />
+          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <ProductAreaBadge value={data.productArea} />
+            <StatusBadge status={data.mappingStatus} confidence={data.mappingConfidence} />
+          </span>
         </div>
       </div>
     );
@@ -225,6 +248,7 @@ export function PageNode({ id, data }: NodeProps<PageNodeType>) {
         >
           {formatLabel(data.semanticKind)}
         </span>
+        <ProductAreaBadge value={data.productArea} />
         <StatusBadge status={data.mappingStatus} confidence={data.mappingConfidence} />
       </span>
       <NodeStats files={data.fileCount} edges={data.edgeCount} />

@@ -215,6 +215,91 @@ describe('pushCodebaseSuggestionsInput', () => {
     });
   });
 
+  test('accepts product function semantic node and relationship suggestions', () => {
+    const parsed = pushCodebaseSuggestionsInput.parse({
+      semanticNodeSuggestions: [
+        {
+          sourceFilePath: 'src/app/dashboard/page.tsx',
+          semanticKey: 'ui:/dashboard:onboarding',
+          suggestedNodeName: 'Onboarding Panel',
+          semanticKind: 'ui_module',
+          productArea: 'user',
+          capabilityKey: 'onboarding',
+          routeHint: '/dashboard',
+          layerId: 'projectLayers:ui',
+          parentNodeId: 'nodes:dashboard',
+          confidence: 0.89,
+          reason: 'The dashboard page contains visible onboarding copy and setup CTAs.',
+          evidence: ['Welcome back', 'get started'],
+        },
+        {
+          sourceFilePath: 'src/app/dashboard/page.tsx',
+          semanticKey: 'capability:onboarding:src/app/dashboard/page.tsx',
+          suggestedNodeName: 'Onboarding',
+          semanticKind: 'capability',
+          productArea: 'user',
+          capabilityKey: 'onboarding',
+          routeHint: '/dashboard',
+          layerId: 'projectLayers:capabilities',
+          confidence: 0.91,
+          reason: 'Onboarding is a business function exposed on the dashboard.',
+        },
+      ],
+      relationshipSuggestions: [
+        {
+          sourceNodeId: 'nodes:dashboard',
+          targetNodeId: 'nodes:onboarding-panel',
+          type: 'contains',
+          confidence: 0.92,
+          reason: 'The dashboard surface visually contains the onboarding panel.',
+        },
+        {
+          sourceNodeId: 'nodes:onboarding-panel',
+          targetNodeId: 'nodes:onboarding',
+          type: 'uses',
+          confidence: 0.92,
+          reason: 'The panel exposes the onboarding capability.',
+        },
+      ],
+      flowSuggestions: [
+        {
+          title: 'User Dashboard Experience',
+          shortTitle: 'Dashboard Experience',
+          productArea: 'user',
+          description: 'Dashboard modules lead users through onboarding and billing.',
+          kind: 'user_journey',
+          nodeIds: ['nodes:dashboard', 'nodes:onboarding-panel', 'nodes:onboarding'],
+          steps: [
+            {
+              title: 'Open dashboard',
+              description: 'User lands on the dashboard surface.',
+              nodeIds: ['nodes:dashboard'],
+            },
+            {
+              title: 'Review onboarding',
+              description: 'The dashboard highlights setup tasks.',
+              nodeIds: ['nodes:onboarding-panel', 'nodes:onboarding'],
+            },
+          ],
+          confidence: 0.91,
+          reason: 'This flow groups product UI modules instead of a single code edge.',
+        },
+      ],
+    });
+
+    expect(parsed.semanticNodeSuggestions).toHaveLength(2);
+    expect(parsed.semanticNodeSuggestions[0]).toMatchObject({
+      semanticKind: 'ui_module',
+      productArea: 'user',
+      source: 'hermes',
+    });
+    expect(parsed.relationshipSuggestions.map((row) => row.type)).toEqual(['contains', 'uses']);
+    expect(parsed.flowSuggestions[0]).toMatchObject({
+      productArea: 'user',
+      shortTitle: 'Dashboard Experience',
+    });
+  });
+
   test('rejects flow importance outside the 0..1 range', () => {
     expect(() =>
       pushCodebaseSuggestionsInput.parse({
