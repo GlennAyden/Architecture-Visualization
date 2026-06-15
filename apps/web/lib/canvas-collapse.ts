@@ -20,6 +20,8 @@ export type CollapsedNodeStats = {
   hiddenNodeCount: number;
   hiddenFileCount: number;
   hiddenEdgeCount: number;
+  semanticGroupKey?: string;
+  memberNodeIds?: string[];
 };
 
 export type CollapsedGraph = {
@@ -41,6 +43,44 @@ function buildChildrenByParent(nodes: Doc<'nodes'>[]) {
   return children;
 }
 
+function normalizeToken(value: string | undefined, fallback = 'unknown') {
+  const token = (value ?? fallback)
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9/_-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  return token || fallback;
+}
+
+function semanticDuplicateKeyForNode(node: Doc<'nodes'>) {
+  if (node.semanticKind !== 'ui_module' || node.parentId) return null;
+  const area = node.productArea ?? 'unknown';
+  const capability = node.capabilityKey
+    ? normalizeToken(node.capabilityKey)
+    : normalizeToken(node.name);
+  return `ui:${area}:top:${capability}`;
+}
+
+function semanticGroupId(key: string) {
+  return `semantic-group:${key}`;
+}
+
+function buildSemanticGroups(nodes: Doc<'nodes'>[]) {
+  const groups = new Map<string, Doc<'nodes'>[]>();
+  for (const node of nodes) {
+    const key = semanticDuplicateKeyForNode(node);
+    if (!key) continue;
+    const list = groups.get(key) ?? [];
+    list.push(node);
+    groups.set(key, list);
+  }
+  return [...groups.entries()]
+    .filter(([, members]) => members.length > 1)
+    .map(([key, members]) => ({ key, id: semanticGroupId(key), members }));
+}
+
 function collectDescendantIds(
   rootId: string,
   childrenByParent: ReadonlyMap<string, Doc<'nodes'>[]>,
@@ -57,31 +97,21 @@ function collectDescendantIds(
   return out;
 }
 
-function findCollapsedAncestor(
-  node: Doc<'nodes'> | undefined,
-  byId: ReadonlyMap<string, Doc<'nodes'>>,
-  collapsedIds: ReadonlySet<string>,
-) {
-  let current = node;
-  while (current?.parentId) {
-    const parentId = current.parentId as string;
-    if (collapsedIds.has(parentId)) return parentId;
-    current = byId.get(parentId);
-  }
-  return node && collapsedIds.has(node._id as string) ? (node._id as string) : null;
-}
-
 export function getDefaultCollapsedNodeIds(nodes: Doc<'nodes'>[], threshold = 3) {
   const childrenByParent = buildChildrenByParent(nodes);
   const out: string[] = [];
   for (const [parentId, children] of childrenByParent.entries()) {
     if (children.length > threshold) out.push(parentId);
   }
+  for (const group of buildSemanticGroups(nodes)) out.push(group.id);
   return out;
 }
 
 export function getCollapsibleNodeIds(nodes: Doc<'nodes'>[]) {
-  return Array.from(buildChildrenByParent(nodes).keys());
+  return [
+    ...Array.from(buildChildrenByParent(nodes).keys()),
+    ...buildSemanticGroups(nodes).map((group) => group.id),
+  ];
 }
 
 export function buildCollapsedGraph(args: {
@@ -97,6 +127,41 @@ export function buildCollapsedGraph(args: {
   const hiddenIds = new Set<string>();
   const visibleNodeIdForNodeId = new Map<string, string>();
   const collapsedStats = new Map<string, CollapsedNodeStats>();
+  const syntheticNodes: Doc<'nodes'>[] = [];
+
+  for (const group of buildSemanticGroups(nodes)) {
+    if (!collapsedNodeIds.has(group.id)) continue;
+    const first = group.members[0];
+    if (!first) continue;
+    let hiddenFileCount = 0;
+    let mappingConfidence = first.mappingConfidence;
+    for (const member of group.members) {
+      const id = member._id as string;
+      hiddenIds.add(id);
+      visibleNodeIdForNodeId.set(id, group.id);
+      hiddenFileCount += summaryByNode.get(id)?.fileCount ?? 0;
+      mappingConfidence = Math.max(mappingConfidence ?? 0, member.mappingConfidence ?? 0);
+    }
+    const memberNodeIds = group.members.map((member) => member._id as string);
+    collapsedStats.set(group.id, {
+      directChildCount: group.members.length,
+      hiddenNodeCount: group.members.length,
+      hiddenFileCount,
+      hiddenEdgeCount: 0,
+      semanticGroupKey: group.key,
+      memberNodeIds,
+    });
+    syntheticNodes.push({
+      ...first,
+      _id: group.id as Doc<'nodes'>['_id'],
+      name: first.name,
+      type: 'page',
+      parentId: undefined,
+      positionX: first.positionX,
+      positionY: first.positionY,
+      mappingConfidence,
+    });
+  }
 
   for (const collapsedId of collapsedNodeIds) {
     if (!byId.has(collapsedId)) continue;
@@ -122,12 +187,10 @@ export function buildCollapsedGraph(args: {
 
   const edgeMap = new Map<string, RenderEdge>();
   for (const edge of edges) {
-    const sourceNode = byId.get(edge.sourceNodeId as string);
-    const targetNode = byId.get(edge.targetNodeId as string);
-    const sourceCollapsed = findCollapsedAncestor(sourceNode, byId, collapsedNodeIds);
-    const targetCollapsed = findCollapsedAncestor(targetNode, byId, collapsedNodeIds);
-    const sourceId = sourceCollapsed ?? (edge.sourceNodeId as string);
-    const targetId = targetCollapsed ?? (edge.targetNodeId as string);
+    const sourceId =
+      visibleNodeIdForNodeId.get(edge.sourceNodeId as string) ?? (edge.sourceNodeId as string);
+    const targetId =
+      visibleNodeIdForNodeId.get(edge.targetNodeId as string) ?? (edge.targetNodeId as string);
     const aggregated =
       sourceId !== (edge.sourceNodeId as string) || targetId !== (edge.targetNodeId as string);
     if (sourceId === targetId) {
@@ -160,7 +223,10 @@ export function buildCollapsedGraph(args: {
   }
 
   return {
-    visibleNodes: nodes.filter((node) => !hiddenIds.has(node._id as string)),
+    visibleNodes: [
+      ...nodes.filter((node) => !hiddenIds.has(node._id as string)),
+      ...syntheticNodes,
+    ],
     renderEdges: Array.from(edgeMap.values()),
     collapsedStats,
     visibleNodeIdForNodeId,

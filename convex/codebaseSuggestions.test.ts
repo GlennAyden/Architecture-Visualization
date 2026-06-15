@@ -1,7 +1,18 @@
 import { convexTest } from 'convex-test';
+import type { FunctionReference } from 'convex/server';
 import { describe, expect, test } from 'vitest';
 import { api } from './_generated/api';
 import schema from './schema';
+
+const semanticSuggestionApi = api.semanticNodeSuggestions as typeof api.semanticNodeSuggestions & {
+  duplicateReport: FunctionReference<'query', 'public', { projectId: string }, unknown[]>;
+  consolidateSemanticDuplicateGroup: FunctionReference<
+    'mutation',
+    'public',
+    { projectId: string; groupKey: string; canonicalNodeId?: string },
+    Record<string, unknown>
+  >;
+};
 
 const modules = import.meta.glob('./**/*.{ts,js}');
 
@@ -804,10 +815,12 @@ describe('codebase suggestions', () => {
     const nodes = await asUser.query(api.nodes.listByProject, { projectId });
     const nodeByName = new Map(nodes.map((node) => [node.name, node]));
     expect(nodeByName.get('Onboarding Panel')).toMatchObject({
+      type: 'feature',
+      parentId: surface,
       semanticKind: 'ui_module',
       productArea: 'user',
       capabilityKey: 'onboarding',
-      layerId: layers[1]!._id,
+      layerId: layers[0]!._id,
     });
     expect(nodeByName.get('Billing & Subscription')).toMatchObject({
       semanticKind: 'capability',
@@ -851,6 +864,140 @@ describe('codebase suggestions', () => {
         }),
       ]),
     );
+  });
+
+  test('semantic UI module suggestions merge into an existing canonical node', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, rawToken, projectId, layers } = await seedTokenForUser(t);
+    const surface = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[0]!._id,
+      type: 'page',
+      name: 'Admin Console',
+      positionX: 0,
+      positionY: 0,
+      semanticKind: 'surface',
+      productArea: 'admin',
+      routeHint: '/admin',
+    });
+
+    const res = await t.fetch('/api/mcp/codebase_suggestions/push', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${rawToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        semanticNodeSuggestions: [
+          {
+            sourceFilePath: 'src/components/admin/users.tsx',
+            semanticKey: 'ui:admin:/admin:admin_operations',
+            suggestedNodeName: 'Admin Operations',
+            semanticKind: 'ui_module',
+            productArea: 'admin',
+            capabilityKey: 'admin_operations',
+            routeHint: '/admin',
+            layerId: layers[1]!._id,
+            parentNodeId: surface,
+            confidence: 0.9,
+            reason: 'Admin users UI belongs to admin operations.',
+            evidence: ['users table'],
+          },
+          {
+            sourceFilePath: 'src/components/admin/filters.tsx',
+            semanticKey: 'ui:admin:/admin:admin_operations:filters',
+            suggestedNodeName: 'Admin Operations',
+            semanticKind: 'ui_module',
+            productArea: 'admin',
+            capabilityKey: 'admin_operations',
+            routeHint: '/admin',
+            layerId: layers[1]!._id,
+            parentNodeId: surface,
+            confidence: 0.9,
+            reason: 'Admin filters UI belongs to admin operations.',
+            evidence: ['filters panel'],
+          },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ semanticApplied: 2 });
+
+    const nodes = await asUser.query(api.nodes.listByProject, { projectId });
+    const adminOps = nodes.filter(
+      (node) => node.semanticKind === 'ui_module' && node.capabilityKey === 'admin_operations',
+    );
+    expect(adminOps).toHaveLength(1);
+    expect(adminOps[0]).toMatchObject({ parentId: surface, type: 'feature' });
+
+    const files = await asUser.query(api.nodeFiles.listByNode, { nodeId: adminOps[0]!._id });
+    expect(files.map((file) => file.path).sort()).toEqual([
+      'src/components/admin/filters.tsx',
+      'src/components/admin/users.tsx',
+    ]);
+  });
+
+  test('semantic duplicate report and consolidation move files to a canonical node', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, layers } = await seedTokenForUser(t);
+    const first = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[1]!._id,
+      type: 'page',
+      name: 'Notifications',
+      positionX: 0,
+      positionY: 0,
+      semanticKind: 'ui_module',
+      productArea: 'admin',
+      capabilityKey: 'notifications',
+    });
+    const second = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[1]!._id,
+      type: 'page',
+      name: 'Notifications',
+      positionX: 0,
+      positionY: 120,
+      semanticKind: 'ui_module',
+      productArea: 'admin',
+      capabilityKey: 'notifications',
+    });
+    await asUser.mutation(api.nodeFiles.add, {
+      nodeId: first,
+      path: 'src/admin/notification-bell.tsx',
+      role: 'ui',
+    });
+    await asUser.mutation(api.nodeFiles.add, {
+      nodeId: second,
+      path: 'src/admin/notification-settings.tsx',
+      role: 'ui',
+    });
+
+    const report = await asUser.query(semanticSuggestionApi.duplicateReport, {
+      projectId,
+    });
+    expect(report).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          groupKey: 'ui:admin:top:notifications',
+          nodeCount: 2,
+          uniqueFileCount: 2,
+        }),
+      ]),
+    );
+
+    const result = await asUser.mutation(semanticSuggestionApi.consolidateSemanticDuplicateGroup, {
+      projectId,
+      groupKey: 'ui:admin:top:notifications',
+      canonicalNodeId: first,
+    });
+    expect(result).toMatchObject({ merged: 1, movedFiles: 1, failed: 0 });
+
+    const nodes = await asUser.query(api.nodes.listByProject, { projectId });
+    expect(nodes.some((node) => node._id === second)).toBe(false);
+    const files = await asUser.query(api.nodeFiles.listByNode, { nodeId: first });
+    expect(files.map((file) => file.path).sort()).toEqual([
+      'src/admin/notification-bell.tsx',
+      'src/admin/notification-settings.tsx',
+    ]);
   });
 
   test('mapping run complete route verifies submit token and stores suggestions', async () => {

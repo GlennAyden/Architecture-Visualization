@@ -219,6 +219,7 @@ function buildRfNodes(
       hiddenFileCount: collapseStats?.hiddenFileCount ?? 0,
       hiddenEdgeCount: collapseStats?.hiddenEdgeCount ?? 0,
       relatedFlowCount: relatedFlowCounts.get(id) ?? 0,
+      memberNodeIds: collapseStats?.memberNodeIds,
     };
 
     if (n.type === 'feature') {

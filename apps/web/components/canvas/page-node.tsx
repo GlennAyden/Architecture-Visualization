@@ -40,6 +40,7 @@ export interface PageNodeData extends Record<string, unknown> {
   hiddenFileCount?: number;
   hiddenEdgeCount?: number;
   relatedFlowCount?: number;
+  memberNodeIds?: string[];
 }
 
 export type PageNodeType = Node<PageNodeData, 'page-node'>;

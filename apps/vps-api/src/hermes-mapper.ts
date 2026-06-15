@@ -417,6 +417,45 @@ function routeKeyFor(path: string, fact: HermesFileFact | undefined, route: stri
   );
 }
 
+function stableSemanticToken(value: string | undefined, fallback = 'unknown') {
+  const normalizedValue = (value ?? fallback)
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9/_-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  return normalizedValue || fallback;
+}
+
+function semanticSurfaceGroupKey(args: {
+  path: string;
+  fact: HermesFileFact | undefined;
+  route?: string;
+  surface?: HermesNodeContext | null;
+  productArea: ProductArea;
+}) {
+  if (args.route) return semanticRouteKey(args.path, args.fact, args.route);
+  if (args.surface?.routeHint) {
+    return stableSemanticToken(args.surface.routeHint);
+  }
+  const lower = normalized(args.path).toLowerCase();
+  if (args.surface?.name) return `surface-${stableSemanticToken(args.surface.name)}`;
+  if (lower.includes('admin')) return 'admin-console';
+  if (
+    lower.includes('dashboard') ||
+    lower.includes('billing') ||
+    lower.includes('profile') ||
+    lower.includes('notification') ||
+    lower.includes('account')
+  ) {
+    return 'user-dashboard';
+  }
+  if (lower.includes('extension') || lower.includes('chrome')) return 'chrome-extension';
+  if (args.productArea !== 'unknown') return `${args.productArea}-workspace`;
+  return 'unowned';
+}
+
 function semanticRouteKey(
   path: string,
   fact: HermesFileFact | undefined,
@@ -436,6 +475,28 @@ function capabilitySemanticKey(args: {
   return routeKey
     ? `capability:${args.productArea}:${routeKey}:${args.capabilityKey}`
     : `capability:${args.productArea}:${args.capabilityKey}`;
+}
+
+function uiModuleSemanticKey(args: {
+  blockKey: string;
+  productArea: ProductArea;
+  path: string;
+  fact: HermesFileFact;
+  route?: string;
+  surface?: HermesNodeContext | null;
+}) {
+  const surfaceKey = semanticSurfaceGroupKey(args);
+  return `ui:${args.productArea}:${surfaceKey}:${stableSemanticToken(args.blockKey)}`;
+}
+
+function canSuggestUiModulesFromFact(fact: HermesFileFact) {
+  if (fact.kind === 'generated' || fact.kind === 'test' || fact.kind === 'config') return false;
+  if (fact.kind === 'api' || fact.apiHint || normalized(fact.path).includes('/api/')) return false;
+  return (
+    fact.kind === 'component' ||
+    Boolean(surfaceRouteForFact(fact)) ||
+    (fact.uiBlocks?.some((block) => Boolean(block.routeHint)) ?? false)
+  );
 }
 
 function findLayer(context: HermesMappingContext, names: string[]) {
@@ -673,12 +734,21 @@ function semanticNodeSuggestionsFromFacts(
       });
     }
 
-    for (const block of fact.uiBlocks ?? []) {
+    const canSuggestUiModules = canSuggestUiModulesFromFact(fact);
+    for (const block of canSuggestUiModules ? (fact.uiBlocks ?? []) : []) {
       if (!uiLayer) continue;
       const capabilityKey = block.key === 'header_controls' ? undefined : block.key;
+      const hasSurfaceOwner = Boolean(existingSurface || route);
       pushSemanticSuggestion(suggestions, seen, {
         sourceFilePath: path,
-        semanticKey: `ui:${routeKeyFor(path, fact, route)}:${block.key}`,
+        semanticKey: uiModuleSemanticKey({
+          blockKey: block.key,
+          productArea: area,
+          path,
+          fact,
+          route,
+          surface: existingSurface,
+        }),
         suggestedNodeName: block.name,
         semanticKind: 'ui_module',
         productArea: area,
@@ -686,7 +756,7 @@ function semanticNodeSuggestionsFromFacts(
         routeHint: block.routeHint ?? route,
         layerId: uiLayer._id,
         parentNodeId: existingSurface?._id,
-        confidence: existingSurface ? 0.9 : 0.86,
+        confidence: hasSurfaceOwner ? 0.9 : 0.82,
         reason: `${block.name} is a visible UI module inside ${route ?? titleFromPath(path)}.`,
         evidence: uniqueStrings([
           ...evidence,

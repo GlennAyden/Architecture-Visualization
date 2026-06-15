@@ -79,7 +79,7 @@ describe('heuristicHermesMapper architecture flows', () => {
     expect(semantic).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          semanticKey: 'ui:/dashboard:header_controls',
+          semanticKey: 'ui:user:/dashboard:header_controls',
           semanticKind: 'ui_module',
           suggestedNodeName: 'Header Controls',
           layerId: 'layers:ui',
@@ -87,7 +87,7 @@ describe('heuristicHermesMapper architecture flows', () => {
           productArea: 'user',
         }),
         expect.objectContaining({
-          semanticKey: 'ui:/dashboard:onboarding',
+          semanticKey: 'ui:user:/dashboard:onboarding',
           semanticKind: 'ui_module',
           capabilityKey: 'onboarding',
           parentNodeId: 'nodes:dashboard',
@@ -211,21 +211,21 @@ describe('heuristicHermesMapper architecture flows', () => {
       expect.arrayContaining([
         expect.objectContaining({
           sourceFilePath: 'src/components/dashboard/layout/dashboard-header.tsx',
-          semanticKey: 'ui:/dashboard:header_controls',
+          semanticKey: 'ui:user:/dashboard:header_controls',
           parentNodeId: 'nodes:dashboard',
           routeHint: '/dashboard',
           confidence: 0.9,
         }),
         expect.objectContaining({
           sourceFilePath: 'src/components/dashboard/content/home-content.tsx',
-          semanticKey: 'ui:/dashboard:onboarding',
+          semanticKey: 'ui:user:/dashboard:onboarding',
           parentNodeId: 'nodes:dashboard',
           routeHint: '/dashboard',
           confidence: 0.9,
         }),
         expect.objectContaining({
           sourceFilePath: 'src/components/dashboard/content/home-content.tsx',
-          semanticKey: 'ui:/dashboard:billing_subscription',
+          semanticKey: 'ui:user:/dashboard:billing_subscription',
           parentNodeId: 'nodes:dashboard',
           routeHint: '/dashboard',
           confidence: 0.9,
@@ -359,14 +359,58 @@ describe('heuristicHermesMapper architecture flows', () => {
       expect.arrayContaining([
         expect.objectContaining({
           sourceFilePath: 'src/components/dashboard/content/home-content.tsx',
-          semanticKey: 'ui:src/components/dashboard/content/home-content-tsx:onboarding',
+          semanticKey: 'ui:user:user-dashboard:onboarding',
           semanticKind: 'ui_module',
           layerId: 'layers:ui',
-          confidence: 0.86,
+          confidence: 0.82,
         }),
       ]),
     );
     expect(result.semanticNodeSuggestions?.[0]?.parentNodeId).toBeUndefined();
+  });
+
+  test('does not turn API route semantic hints into UI module duplicates', async () => {
+    const context: HermesMappingContext = {
+      runId: 'runs:api-no-ui',
+      project: { _id: 'projects:expandly', name: 'Expandly' },
+      layers: [
+        { _id: 'layers:surfaces', name: 'Surfaces', position: 0 },
+        { _id: 'layers:ui', name: 'UI Modules', position: 1 },
+        { _id: 'layers:capabilities', name: 'Product Capabilities', position: 2 },
+      ],
+      nodes: [],
+      edges: [],
+      latestScan: {
+        data: {
+          orphans: [],
+          fileFacts: [
+            {
+              path: 'src/app/api/admin/users/route.ts',
+              kind: 'api',
+              productArea: 'admin',
+              capabilityHints: ['admin_operations'],
+              uiBlocks: [{ key: 'admin_operations', name: 'Admin Operations' }],
+            },
+          ],
+        },
+      },
+      suggestions: [],
+      relationshipSuggestions: [],
+      flows: [],
+    };
+
+    const result = await heuristicHermesMapper(context);
+    const semantic = result.semanticNodeSuggestions ?? [];
+
+    expect(semantic.some((row) => row.semanticKind === 'ui_module')).toBe(false);
+    expect(semantic).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          semanticKind: 'capability',
+          semanticKey: 'capability:admin:admin_operations',
+        }),
+      ]),
+    );
   });
 
   test('suggests semantic contains and uses edges for existing product nodes', async () => {

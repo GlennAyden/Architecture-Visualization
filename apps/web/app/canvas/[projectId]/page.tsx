@@ -444,7 +444,12 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onNodeDragStop={onNodeDragStop}
-            onNodeClick={(_, node) => setInspectedNodeId(node.id as Id<'nodes'>)}
+            onNodeClick={(_, node) => {
+              const memberNodeId = Array.isArray(node.data.memberNodeIds)
+                ? (node.data.memberNodeIds[0] as Id<'nodes'> | undefined)
+                : undefined;
+              setInspectedNodeId(memberNodeId ?? (node.id as Id<'nodes'>));
+            }}
             onConnect={onConnect}
             nodesDraggable={false}
             nodesConnectable={false}

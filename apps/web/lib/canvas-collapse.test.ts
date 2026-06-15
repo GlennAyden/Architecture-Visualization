@@ -85,4 +85,51 @@ describe('canvas collapse helpers', () => {
       hiddenFileCount: 2,
     });
   });
+
+  test('collapses duplicate top-level UI modules into a semantic group', () => {
+    const nodes = [
+      node({
+        id: 'admin-a',
+        name: 'Admin Operations',
+        semanticKind: 'ui_module',
+        productArea: 'admin',
+        capabilityKey: 'admin_operations',
+      }),
+      node({
+        id: 'admin-b',
+        name: 'Admin Operations',
+        semanticKind: 'ui_module',
+        productArea: 'admin',
+        capabilityKey: 'admin_operations',
+      }),
+      node({ id: 'api', name: 'API Layer', semanticKind: 'api' }),
+    ];
+    const defaults = getDefaultCollapsedNodeIds(nodes);
+    expect(defaults).toEqual(['semantic-group:ui:admin:top:admin_operations']);
+
+    const graph = buildCollapsedGraph({
+      nodes,
+      edges: [edge({ id: 'edge', source: 'admin-b', target: 'api', type: 'uses' })],
+      nodeSummaries: [
+        { nodeId: 'admin-a', fileCount: 2, verifiedCount: 0, roles: {} },
+        { nodeId: 'admin-b', fileCount: 3, verifiedCount: 0, roles: {} },
+      ],
+      collapsedNodeIds: new Set(defaults),
+    });
+
+    expect(graph.visibleNodes.map((item) => item._id as string)).toEqual([
+      'api',
+      'semantic-group:ui:admin:top:admin_operations',
+    ]);
+    expect(graph.collapsedStats.get('semantic-group:ui:admin:top:admin_operations')).toMatchObject({
+      hiddenNodeCount: 2,
+      hiddenFileCount: 5,
+      memberNodeIds: ['admin-a', 'admin-b'],
+    });
+    expect(graph.renderEdges[0]).toMatchObject({
+      sourceNodeId: 'semantic-group:ui:admin:top:admin_operations',
+      targetNodeId: 'api',
+      aggregateCount: 1,
+    });
+  });
 });

@@ -32,6 +32,72 @@ function normalizeKey(key: string) {
   return key.trim().toLowerCase().replace(/\s+/g, '-').slice(0, 180);
 }
 
+function normalizeIdentityToken(value: string | undefined, fallback = 'unknown') {
+  const token = (value ?? fallback)
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9/_-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  return token || fallback;
+}
+
+function normalizeRouteScope(value: string | undefined) {
+  if (!value) return undefined;
+  const route = value.trim().toLowerCase();
+  if (!route) return undefined;
+  if (route.startsWith('/api/')) return undefined;
+  return normalizeIdentityToken(route);
+}
+
+function semanticIdentityName(value: string | undefined, fallback = 'semantic-node') {
+  return normalizeIdentityToken(value, fallback);
+}
+
+export function semanticDuplicateKeyForNode(
+  node: Pick<
+    Doc<'nodes'>,
+    'semanticKind' | 'productArea' | 'parentId' | 'capabilityKey' | 'routeHint' | 'name'
+  >,
+) {
+  if (node.semanticKind !== 'ui_module') return null;
+  const area = node.productArea ?? 'unknown';
+  const capability = node.capabilityKey
+    ? normalizeIdentityToken(node.capabilityKey)
+    : semanticIdentityName(node.name);
+  const scope = node.parentId
+    ? `parent:${node.parentId as string}`
+    : normalizeRouteScope(node.routeHint)
+      ? `route:${normalizeRouteScope(node.routeHint)}`
+      : 'top';
+  return `ui:${area}:${scope}:${capability}`;
+}
+
+function semanticMergeKeyForSuggestion(
+  suggestion: Pick<
+    Doc<'semanticNodeSuggestions'>,
+    | 'semanticKind'
+    | 'productArea'
+    | 'parentNodeId'
+    | 'capabilityKey'
+    | 'routeHint'
+    | 'suggestedNodeName'
+  >,
+) {
+  if (suggestion.semanticKind !== 'ui_module') return null;
+  const area = suggestion.productArea ?? 'unknown';
+  const capability = suggestion.capabilityKey
+    ? normalizeIdentityToken(suggestion.capabilityKey)
+    : semanticIdentityName(suggestion.suggestedNodeName);
+  const scope = suggestion.parentNodeId
+    ? `parent:${suggestion.parentNodeId as string}`
+    : normalizeRouteScope(suggestion.routeHint)
+      ? `route:${normalizeRouteScope(suggestion.routeHint)}`
+      : 'top';
+  return `ui:${area}:${scope}:${capability}`;
+}
+
 function normalizeOptionalText(value: string | undefined, max: number) {
   const trimmed = value?.trim();
   return trimmed ? trimmed.slice(0, max) : undefined;
@@ -166,6 +232,30 @@ async function findRelatedUiModuleNodes(
   );
 }
 
+async function findUiModuleNodeForSuggestion(
+  ctx: MutationCtx,
+  suggestion: Doc<'semanticNodeSuggestions'>,
+) {
+  if (suggestion.semanticKind !== 'ui_module') return null;
+  const suggestionKey = semanticMergeKeyForSuggestion(suggestion);
+  if (!suggestionKey) return null;
+  const nodes = await ctx.db
+    .query('nodes')
+    .withIndex('by_project', (q) => q.eq('projectId', suggestion.projectId))
+    .take(1000);
+  return (
+    nodes.find((node) => semanticDuplicateKeyForNode(node) === suggestionKey) ??
+    nodes.find(
+      (node) =>
+        node.semanticKind === 'ui_module' &&
+        node.productArea === suggestion.productArea &&
+        (node.capabilityKey ?? '') === (suggestion.capabilityKey ?? '') &&
+        node.name.trim().toLowerCase() === suggestion.suggestedNodeName.trim().toLowerCase(),
+    ) ??
+    null
+  );
+}
+
 async function linkSemanticFile(
   ctx: MutationCtx,
   nodeId: Id<'nodes'>,
@@ -206,6 +296,24 @@ async function patchNodeFromSuggestion(
   });
 }
 
+async function attachUiModuleToParentIfClear(
+  ctx: MutationCtx,
+  nodeId: Id<'nodes'>,
+  suggestion: Doc<'semanticNodeSuggestions'>,
+) {
+  if (suggestion.semanticKind !== 'ui_module' || !suggestion.parentNodeId) return;
+  const node = await ctx.db.get(nodeId);
+  if (!node || node.parentId === suggestion.parentNodeId) return;
+  const parent = await ensureParentInProject(ctx, suggestion.projectId, suggestion.parentNodeId);
+  if (!parent) return;
+  await ctx.db.patch(nodeId, {
+    parentId: parent._id,
+    type: 'feature',
+    layerId: parent.layerId ?? node.layerId,
+  });
+  await ensureHierarchyEdge(ctx, suggestion.projectId, parent._id, nodeId);
+}
+
 async function createNodeForSuggestion(
   ctx: MutationCtx,
   suggestion: Doc<'semanticNodeSuggestions'>,
@@ -215,7 +323,7 @@ async function createNodeForSuggestion(
     suggestion.projectId,
     suggestion.parentNodeId,
   );
-  const shouldNestInParent = suggestion.semanticKind !== 'ui_module' && Boolean(semanticParent);
+  const shouldNestInParent = suggestion.semanticKind === 'ui_module' && Boolean(semanticParent);
   const parentLayer =
     shouldNestInParent && semanticParent?.layerId ? await ctx.db.get(semanticParent.layerId) : null;
   const layer =
@@ -350,8 +458,13 @@ export async function applySemanticNodeSuggestion(
     );
     nodeId = existingCapability?._id;
   }
+  if (!nodeId && suggestion.semanticKind === 'ui_module') {
+    const existingUiModule = await findUiModuleNodeForSuggestion(ctx, suggestion);
+    nodeId = existingUiModule?._id;
+  }
   if (!nodeId) nodeId = await createNodeForSuggestion(ctx, suggestion);
 
+  await attachUiModuleToParentIfClear(ctx, nodeId, suggestion);
   await patchNodeFromSuggestion(ctx, nodeId, suggestion);
   await linkSemanticFile(ctx, nodeId, suggestion);
   await ensureSemanticEdges(ctx, nodeId, suggestion);
