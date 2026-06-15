@@ -472,6 +472,10 @@ http.route({
         flowSuggestions: input.flowSuggestions.map((flow) => ({
           runId: input.runId as Id<'hermesMappingRuns'> | undefined,
           title: flow.title,
+          shortTitle: flow.shortTitle,
+          goal: flow.goal,
+          importance: flow.importance,
+          curationKey: flow.curationKey,
           description: flow.description,
           kind: flow.kind,
           nodeIds: flow.nodeIds.map((nodeId) => nodeId as Id<'nodes'>),
@@ -566,6 +570,10 @@ http.route({
         })),
         flowSuggestions: parsed.data.flowSuggestions.map((flow) => ({
           title: flow.title,
+          shortTitle: flow.shortTitle,
+          goal: flow.goal,
+          importance: flow.importance,
+          curationKey: flow.curationKey,
           description: flow.description,
           kind: flow.kind,
           nodeIds: flow.nodeIds.map((nodeId) => nodeId as Id<'nodes'>),

@@ -1,7 +1,10 @@
 import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 import { getProjectIfAccessible, requireProjectAccess } from './lib/auth';
-import { shouldAutoApplyArchitectureFlow } from './lib/architectureFlows';
+import {
+  isCuratedArchitectureFlow,
+  shouldAutoApplyArchitectureFlow,
+} from './lib/architectureFlows';
 import { architectureFlowStatusValidator } from './lib/semantic';
 
 export const listByProject = query({
@@ -28,12 +31,18 @@ export const listByProject = query({
         );
         return {
           ...flow,
+          isCurated: isCuratedArchitectureFlow(flow),
           nodeNames: Object.fromEntries(nodePairs),
         };
       }),
     );
 
-    return withNames.sort((a, b) => b.updatedAt - a.updatedAt);
+    return withNames.sort(
+      (a, b) =>
+        (b.importance ?? 0) - (a.importance ?? 0) ||
+        b.confidence - a.confidence ||
+        b.updatedAt - a.updatedAt,
+    );
   },
 });
 

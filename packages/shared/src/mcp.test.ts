@@ -175,6 +175,10 @@ describe('pushCodebaseSuggestionsInput', () => {
       flowSuggestions: [
         {
           title: 'User login flow',
+          shortTitle: 'Login flow',
+          goal: 'Show how login reaches the auth backend.',
+          importance: 0.92,
+          curationKey: 'user:login',
           description: 'Browser submits credentials and the backend creates a session.',
           kind: 'user_journey',
           nodeIds: ['nodes:surface', 'nodes:api'],
@@ -203,9 +207,31 @@ describe('pushCodebaseSuggestionsInput', () => {
     expect(parsed.relationshipSuggestions).toEqual([]);
     expect(parsed.flowSuggestions[0]).toMatchObject({
       title: 'User login flow',
+      shortTitle: 'Login flow',
+      importance: 0.92,
+      curationKey: 'user:login',
       kind: 'user_journey',
       source: 'hermes',
     });
+  });
+
+  test('rejects flow importance outside the 0..1 range', () => {
+    expect(() =>
+      pushCodebaseSuggestionsInput.parse({
+        flowSuggestions: [
+          {
+            title: 'Invalid importance',
+            description: 'Importance must stay bounded for sorting.',
+            kind: 'user_journey',
+            nodeIds: ['nodes:surface', 'nodes:api'],
+            steps: [{ title: 'Call API', description: 'Surface calls API.' }],
+            confidence: 0.91,
+            importance: 1.5,
+            reason: 'Invalid sorting weight.',
+          },
+        ],
+      }),
+    ).toThrow();
   });
 
   test('rejects flows without at least two nodes', () => {

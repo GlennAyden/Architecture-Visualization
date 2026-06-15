@@ -681,10 +681,18 @@ export function HermesInboxPanel({ projectId }: Props) {
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-zinc-100">{flow.title}</p>
-                  <p className="mt-1 text-xs text-amber-200">
-                    {flow.kind.replace(/_/g, ' ')} / {flow.nodeIds.length} nodes
+                  <p className="truncate text-sm font-semibold text-zinc-100">
+                    {flow.shortTitle ?? flow.title}
                   </p>
+                  <p className="mt-1 text-xs text-amber-200">
+                    {flow.kind.replace(/_/g, ' ')} / {flow.steps.length} steps /{' '}
+                    {flow.nodeIds.length} nodes
+                  </p>
+                  {flow.importance !== undefined && (
+                    <p className="mt-0.5 text-[11px] text-zinc-500">
+                      importance {Math.round(flow.importance * 100)}%
+                    </p>
+                  )}
                 </div>
                 <span className="shrink-0 rounded bg-amber-400/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-200">
                   {Math.round(flow.confidence * 100)}%
@@ -794,7 +802,9 @@ export function HermesInboxPanel({ projectId }: Props) {
               >
                 <span className="inline-flex min-w-0 items-center gap-1.5">
                   <GitBranch className="h-3 w-3 shrink-0 text-amber-300" />
-                  <span className="truncate text-xs text-zinc-300">{flow.title}</span>
+                  <span className="truncate text-xs text-zinc-300">
+                    {flow.shortTitle ?? flow.title}
+                  </span>
                 </span>
                 <span className="shrink-0 text-[11px] text-amber-300">flow</span>
               </div>
@@ -806,7 +816,9 @@ export function HermesInboxPanel({ projectId }: Props) {
               >
                 <span className="inline-flex min-w-0 items-center gap-1.5">
                   <GitBranch className="h-3 w-3 shrink-0 text-zinc-500" />
-                  <span className="truncate text-xs text-zinc-300">{flow.title}</span>
+                  <span className="truncate text-xs text-zinc-300">
+                    {flow.shortTitle ?? flow.title}
+                  </span>
                 </span>
                 <span className="shrink-0 text-[11px] text-zinc-500">ignored flow</span>
               </div>

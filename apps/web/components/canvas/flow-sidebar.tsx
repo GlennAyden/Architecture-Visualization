@@ -44,10 +44,12 @@ const FLOW_KIND_LABELS: Record<Doc<'architectureFlows'>['kind'], string> = {
 };
 
 type ArchitectureFlowRow = Doc<'architectureFlows'> & {
+  isCurated?: boolean;
   nodeNames?: Record<string, string>;
 };
 
 type SidebarTab = 'overview' | 'layers' | 'hermes' | 'inspector' | 'flows';
+type FlowView = 'featured' | 'all';
 
 const TABS: Array<{ id: SidebarTab; label: string; icon: LucideIcon }> = [
   { id: 'overview', label: 'Overview', icon: Gauge },
@@ -118,8 +120,13 @@ export function FlowSidebar({
   const [layerError, setLayerError] = useState<string | null>(null);
   const [creatingLayer, setCreatingLayer] = useState(false);
   const [activeTab, setActiveTab] = useState<SidebarTab>('overview');
+  const [flowView, setFlowView] = useState<FlowView>('featured');
   const [verifying, setVerifying] = useState(false);
   const sortedLayers = sortLayers(layers);
+  const displayedFlows = useMemo(() => {
+    const all = flows ?? [];
+    return flowView === 'featured' ? all.filter((flow) => flow.isCurated !== false) : all;
+  }, [flowView, flows]);
   const selectedFlow = useMemo(
     () => flows?.find((flow) => flow._id === selectedFlowId) ?? null,
     [flows, selectedFlowId],
@@ -435,41 +442,75 @@ export function FlowSidebar({
               </p>
             ) : flows.length > 0 ? (
               <>
-                <div className="overflow-hidden rounded-md border border-white/10">
-                  {flows.map((flow) => {
-                    const selected = selectedFlowId === flow._id;
-                    return (
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold uppercase tracking-[0.13em] text-zinc-500">
+                    {flowView === 'featured' ? 'Featured flows' : 'All flows'}
+                  </p>
+                  <div className="grid grid-cols-2 overflow-hidden rounded-md border border-white/10 bg-white/[0.03] p-0.5">
+                    {(['featured', 'all'] as const).map((view) => (
                       <button
-                        key={flow._id}
+                        key={view}
                         type="button"
-                        onClick={() => onSelectedFlowChange(flow._id)}
+                        onClick={() => setFlowView(view)}
                         className={cn(
-                          'flex w-full items-start gap-3 border-b border-white/10 px-3 py-3 text-left last:border-b-0',
-                          'transition-colors hover:bg-white/[0.04]',
-                          selected &&
-                            'bg-amber-400/10 text-amber-200 ring-1 ring-inset ring-amber-400/70',
+                          'h-7 px-3 text-xs text-zinc-500 transition-colors hover:text-zinc-100',
+                          flowView === view &&
+                            'rounded bg-cyan-400/10 text-cyan-200 ring-1 ring-cyan-400/25',
                         )}
                       >
-                        <span
+                        {view === 'featured' ? 'Featured' : 'All'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="overflow-hidden rounded-md border border-white/10">
+                  {displayedFlows.length > 0 ? (
+                    displayedFlows.map((flow) => {
+                      const selected = selectedFlowId === flow._id;
+                      return (
+                        <button
+                          key={flow._id}
+                          type="button"
+                          onClick={() => onSelectedFlowChange(flow._id)}
                           className={cn(
-                            'mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 text-zinc-400',
-                            selected && 'border-amber-400/70 text-amber-300',
+                            'flex w-full items-start gap-3 border-b border-white/10 px-3 py-3 text-left last:border-b-0',
+                            'transition-colors hover:bg-white/[0.04]',
+                            selected &&
+                              'bg-amber-400/10 text-amber-200 ring-1 ring-inset ring-amber-400/70',
                           )}
                         >
-                          <GitBranch className="h-4 w-4" />
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-medium text-zinc-100">
-                            {flow.title}
+                          <span
+                            className={cn(
+                              'mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 text-zinc-400',
+                              selected && 'border-amber-400/70 text-amber-300',
+                            )}
+                          >
+                            <GitBranch className="h-4 w-4" />
                           </span>
-                          <span className="mt-0.5 block truncate text-xs text-zinc-500">
-                            {FLOW_KIND_LABELS[flow.kind]} / {flow.nodeIds.length} nodes /{' '}
-                            {Math.round(flow.confidence * 100)}%
+                          <span className="min-w-0">
+                            <span className="flex min-w-0 items-center gap-2">
+                              <span className="truncate text-sm font-medium text-zinc-100">
+                                {flow.shortTitle ?? flow.title}
+                              </span>
+                              {flow.isCurated === false && (
+                                <span className="shrink-0 rounded border border-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.08em] text-zinc-500">
+                                  legacy
+                                </span>
+                              )}
+                            </span>
+                            <span className="mt-1 block truncate text-xs text-zinc-500">
+                              {FLOW_KIND_LABELS[flow.kind]} / {flow.steps.length} steps /{' '}
+                              {flow.nodeIds.length} nodes / {Math.round(flow.confidence * 100)}%
+                            </span>
                           </span>
-                        </span>
-                      </button>
-                    );
-                  })}
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="p-3 text-sm leading-6 text-zinc-500">
+                      No featured flows yet. Switch to All to review legacy edge-level flows.
+                    </div>
+                  )}
                 </div>
                 <Button
                   variant="ghost"
@@ -495,14 +536,19 @@ export function FlowSidebar({
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-zinc-100">
-                        {selectedFlow.title}
+                        {selectedFlow.shortTitle ?? selectedFlow.title}
                       </p>
                       <p className="mt-1 text-xs text-amber-200">
-                        {FLOW_KIND_LABELS[selectedFlow.kind]} /{' '}
+                        {FLOW_KIND_LABELS[selectedFlow.kind]} / {selectedFlow.steps.length} steps /{' '}
                         {Math.round(selectedFlow.confidence * 100)}%
                       </p>
                     </div>
                   </div>
+                  {selectedFlow.goal && (
+                    <p className="mt-2 rounded border border-white/10 bg-black/20 p-2 text-xs leading-5 text-amber-100/90">
+                      {selectedFlow.goal}
+                    </p>
+                  )}
                   <p className="mt-2 text-xs leading-5 text-zinc-400">{selectedFlow.description}</p>
                   <p className="mt-2 line-clamp-3 text-xs text-zinc-500">{selectedFlow.reason}</p>
                 </div>

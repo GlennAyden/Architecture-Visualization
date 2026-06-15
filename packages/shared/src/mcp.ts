@@ -265,6 +265,10 @@ const flowStepSchema = z
 const flowSuggestionSchema = z
   .object({
     title: z.string().trim().min(1).max(120),
+    shortTitle: z.string().trim().min(1).max(64).optional(),
+    goal: z.string().trim().min(1).max(240).optional(),
+    importance: z.number().min(0).max(1).optional(),
+    curationKey: z.string().trim().min(1).max(120).optional(),
     description: z.string().trim().max(1000),
     kind: architectureFlowKindSchema,
     nodeIds: z.array(nodeIdSchema).min(2).max(40),

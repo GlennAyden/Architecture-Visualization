@@ -109,6 +109,10 @@ describe('readSuggestionsPayload', () => {
         flowSuggestions: [
           {
             title: 'User login reaches data layer',
+            shortTitle: 'Login Flow',
+            goal: 'Show how login reaches backend and data ownership.',
+            importance: 0.91,
+            curationKey: 'flow:login',
             description: 'Login surface calls the API and persists user state.',
             kind: 'user_journey',
             nodeIds: ['nodes:surface', 'nodes:api', 'nodes:data'],
@@ -136,6 +140,9 @@ describe('readSuggestionsPayload', () => {
       flowSuggestions: [
         {
           title: 'User login reaches data layer',
+          shortTitle: 'Login Flow',
+          importance: 0.91,
+          curationKey: 'flow:login',
           kind: 'user_journey',
           source: 'hermes',
         },

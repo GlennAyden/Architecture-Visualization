@@ -28,6 +28,10 @@ export interface ArchitectureFlowStepInput {
 export interface ArchitectureFlowInput {
   runId?: Id<'hermesMappingRuns'>;
   title: string;
+  shortTitle?: string;
+  goal?: string;
+  importance?: number;
+  curationKey?: string;
   description: string;
   kind: ArchitectureFlowKind;
   nodeIds: Id<'nodes'>[];
@@ -44,6 +48,11 @@ function normalizeText(value: string, fallback: string, max: number) {
   return (trimmed || fallback).slice(0, max);
 }
 
+function normalizeOptionalText(value: string | undefined, max: number) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed.slice(0, max) : undefined;
+}
+
 function uniqueIds<T extends string>(ids: T[]): T[] {
   const seen = new Set<string>();
   const out: T[] = [];
@@ -56,9 +65,23 @@ function uniqueIds<T extends string>(ids: T[]): T[] {
 }
 
 export function shouldAutoApplyArchitectureFlow(
-  flow: Pick<Doc<'architectureFlows'>, 'confidence'>,
+  flow: Pick<Doc<'architectureFlows'>, 'kind' | 'nodeIds' | 'edgeRefs' | 'evidence' | 'confidence'>,
 ) {
-  return flow.confidence >= FLOW_AUTO_APPLY_CONFIDENCE;
+  return flow.confidence >= FLOW_AUTO_APPLY_CONFIDENCE && isCuratedArchitectureFlow(flow);
+}
+
+export function isCuratedArchitectureFlow(
+  flow: Pick<Doc<'architectureFlows'>, 'kind' | 'nodeIds' | 'edgeRefs' | 'evidence' | 'confidence'>,
+) {
+  const edgeCount = flow.edgeRefs?.length ?? 0;
+  if (flow.nodeIds.length >= 3 || edgeCount >= 2) return true;
+  return (
+    (flow.kind === 'agent_workflow' ||
+      flow.kind === 'integration' ||
+      flow.kind === 'build_deploy') &&
+    flow.confidence >= FLOW_AUTO_APPLY_CONFIDENCE &&
+    (flow.evidence?.length ?? 0) > 0
+  );
 }
 
 async function ensureNodeInProject(
@@ -156,11 +179,23 @@ export async function upsertArchitectureFlow(
     return { status: 'skipped' as const, reason: 'not_enough_steps' as const };
   }
 
+  if (input.importance !== undefined && (input.importance < 0 || input.importance > 1)) {
+    throw new Error('Architecture flow importance must be between 0 and 1');
+  }
+
   const title = normalizeText(input.title, 'Architecture flow', 120);
-  const existing = await ctx.db
-    .query('architectureFlows')
-    .withIndex('by_project_title', (q) => q.eq('projectId', projectId).eq('title', title))
-    .unique();
+  const curationKey = normalizeOptionalText(input.curationKey, 120);
+  const existing = curationKey
+    ? await ctx.db
+        .query('architectureFlows')
+        .withIndex('by_project_curation', (q) =>
+          q.eq('projectId', projectId).eq('curationKey', curationKey),
+        )
+        .unique()
+    : await ctx.db
+        .query('architectureFlows')
+        .withIndex('by_project_title', (q) => q.eq('projectId', projectId).eq('title', title))
+        .unique();
 
   if (existing?.status === 'applied' || existing?.status === 'ignored') {
     return {
@@ -172,20 +207,32 @@ export async function upsertArchitectureFlow(
   }
 
   const now = Date.now();
+  const edgeRefs = await normalizeEdgeRefs(ctx, projectId, input.edgeRefs);
   const patch = {
     runId: input.runId,
     title,
+    shortTitle: normalizeOptionalText(input.shortTitle, 64),
+    goal: normalizeOptionalText(input.goal, 240),
+    importance: input.importance,
+    curationKey,
     description: normalizeText(input.description, '', 1000),
     kind: input.kind,
     nodeIds,
-    edgeRefs: await normalizeEdgeRefs(ctx, projectId, input.edgeRefs),
+    edgeRefs,
     steps: await normalizeSteps(ctx, projectId, input.steps),
     confidence: input.confidence,
     reason: normalizeText(input.reason, 'Suggested by Hermes.', 1000),
     evidence: input.evidence?.slice(0, 8),
     source: normalizeText(input.source, 'hermes', 80),
-    status:
-      input.confidence >= FLOW_AUTO_APPLY_CONFIDENCE ? ('applied' as const) : ('pending' as const),
+    status: shouldAutoApplyArchitectureFlow({
+      kind: input.kind,
+      nodeIds,
+      edgeRefs,
+      evidence: input.evidence,
+      confidence: input.confidence,
+    })
+      ? ('applied' as const)
+      : ('pending' as const),
     updatedAt: now,
   };
 

@@ -202,6 +202,10 @@ export default defineSchema({
     projectId: v.id('projects'),
     runId: v.optional(v.id('hermesMappingRuns')),
     title: v.string(),
+    shortTitle: v.optional(v.string()),
+    goal: v.optional(v.string()),
+    importance: v.optional(v.number()),
+    curationKey: v.optional(v.string()),
     description: v.string(),
     kind: architectureFlowKindValidator,
     nodeIds: v.array(v.id('nodes')),
@@ -242,7 +246,8 @@ export default defineSchema({
   })
     .index('by_project_status', ['projectId', 'status'])
     .index('by_project_run', ['projectId', 'runId'])
-    .index('by_project_title', ['projectId', 'title']),
+    .index('by_project_title', ['projectId', 'title'])
+    .index('by_project_curation', ['projectId', 'curationKey']),
 
   hermesMappingRuns: defineTable({
     projectId: v.id('projects'),

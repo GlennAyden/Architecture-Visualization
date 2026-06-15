@@ -464,6 +464,200 @@ describe('codebase suggestions', () => {
     expect(applied.map((flow) => flow.title)).toContain('Login review flow');
   });
 
+  test('curationKey updates an existing pending flow instead of duplicating it', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, rawToken, projectId, layers } = await seedTokenForUser(t);
+    const surface = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[0]!._id,
+      type: 'page',
+      name: 'Admin Surface',
+      positionX: 0,
+      positionY: 0,
+    });
+    const apiNode = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[2]!._id,
+      type: 'page',
+      name: 'Admin API',
+      positionX: 300,
+      positionY: 0,
+    });
+    const dataNode = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[3]!._id,
+      type: 'page',
+      name: 'Admin Data',
+      positionX: 600,
+      positionY: 0,
+    });
+
+    const flow = (title: string, importance: number) => ({
+      title,
+      shortTitle: 'Admin Journey',
+      goal: 'Show the admin surface reaching API and data ownership.',
+      importance,
+      curationKey: 'flow:admin-journey',
+      description: 'Admin surface calls the API and the API writes data.',
+      kind: 'user_journey',
+      nodeIds: [surface, apiNode, dataNode],
+      edgeRefs: [
+        { sourceNodeId: surface, targetNodeId: apiNode, type: 'data_flow' },
+        { sourceNodeId: apiNode, targetNodeId: dataNode, type: 'data_flow' },
+      ],
+      steps: [
+        { title: 'Open admin', description: 'Admin starts from the surface.', nodeIds: [surface] },
+        { title: 'Call API', description: 'Surface calls API.', nodeIds: [apiNode] },
+        { title: 'Write data', description: 'API writes data.', nodeIds: [dataNode] },
+      ],
+      confidence: 0.82,
+      reason: 'A curated user journey has multiple nodes and edges.',
+      evidence: ['Admin Surface -> Admin API', 'Admin API -> Admin Data'],
+    });
+
+    await t.fetch('/api/mcp/codebase_suggestions/push', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${rawToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ flowSuggestions: [flow('Old admin title', 0.7)] }),
+    });
+    await t.fetch('/api/mcp/codebase_suggestions/push', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${rawToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ flowSuggestions: [flow('Updated admin title', 0.96)] }),
+    });
+
+    const pending = await asUser.query(api.architectureFlows.listByProject, {
+      projectId,
+      status: 'pending',
+    });
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({
+      title: 'Updated admin title',
+      shortTitle: 'Admin Journey',
+      importance: 0.96,
+      curationKey: 'flow:admin-journey',
+      isCurated: true,
+    });
+  });
+
+  test('high-confidence low-value two-node data flow stays pending and is marked legacy', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, rawToken, projectId, layers } = await seedTokenForUser(t);
+    const source = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[1]!._id,
+      type: 'page',
+      name: 'Domain Services',
+      positionX: 0,
+      positionY: 0,
+    });
+    const target = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[2]!._id,
+      type: 'page',
+      name: 'Admin Service',
+      positionX: 300,
+      positionY: 0,
+    });
+
+    const res = await t.fetch('/api/mcp/codebase_suggestions/push', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${rawToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        flowSuggestions: [
+          {
+            title: 'Domain Services writes through Admin Service',
+            description: 'A single edge should not become a featured flow.',
+            kind: 'data_flow',
+            nodeIds: [source, target],
+            edgeRefs: [{ sourceNodeId: source, targetNodeId: target, type: 'data_flow' }],
+            steps: [{ title: 'Write', description: 'Domain writes through service.' }],
+            confidence: 0.95,
+            reason: 'This is only a pairwise edge-level flow.',
+            evidence: ['Domain Services -> Admin Service'],
+          },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ flowPending: 1, flowApplied: 0 });
+
+    const pending = await asUser.query(api.architectureFlows.listByProject, {
+      projectId,
+      status: 'pending',
+    });
+    expect(pending[0]).toMatchObject({ isCurated: false });
+  });
+
+  test('applied architecture flows sort by importance before recency', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, rawToken, projectId, layers } = await seedTokenForUser(t);
+    const a = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[0]!._id,
+      type: 'page',
+      name: 'Surface',
+      positionX: 0,
+      positionY: 0,
+    });
+    const b = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[2]!._id,
+      type: 'page',
+      name: 'API',
+      positionX: 300,
+      positionY: 0,
+    });
+    const c = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[3]!._id,
+      type: 'page',
+      name: 'Data',
+      positionX: 600,
+      positionY: 0,
+    });
+
+    const flow = (title: string, importance: number, key: string) => ({
+      title,
+      shortTitle: title,
+      importance,
+      curationKey: key,
+      description: 'A curated three-node flow.',
+      kind: 'system_process',
+      nodeIds: [a, b, c],
+      edgeRefs: [
+        { sourceNodeId: a, targetNodeId: b, type: 'data_flow' },
+        { sourceNodeId: b, targetNodeId: c, type: 'data_flow' },
+      ],
+      steps: [
+        { title: 'Surface', description: 'Starts at the surface.', nodeIds: [a] },
+        { title: 'API', description: 'Moves through the API.', nodeIds: [b] },
+        { title: 'Data', description: 'Ends at data ownership.', nodeIds: [c] },
+      ],
+      confidence: 0.94,
+      reason: 'Curated flow with enough nodes and edges.',
+      evidence: ['Surface -> API', 'API -> Data'],
+    });
+
+    await t.fetch('/api/mcp/codebase_suggestions/push', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${rawToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        flowSuggestions: [
+          flow('Less important', 0.4, 'flow:low'),
+          flow('More important', 0.95, 'flow:high'),
+        ],
+      }),
+    });
+
+    const applied = await asUser.query(api.architectureFlows.listByProject, {
+      projectId,
+      status: 'applied',
+    });
+    expect(applied.map((row) => row.title)).toEqual(['More important', 'Less important']);
+  });
+
   test('mapping run complete route verifies submit token and stores suggestions', async () => {
     const t = convexTest(schema, modules);
     const { asUser, projectId, layers } = await seedTokenForUser(t);
@@ -535,6 +729,14 @@ describe('codebase suggestions', () => {
       positionX: 300,
       positionY: 0,
     });
+    const data = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[3]!._id,
+      type: 'page',
+      name: 'Data Store',
+      positionX: 600,
+      positionY: 0,
+    });
     const submitToken = 'flow-submit-token-flow-submit-token';
     const run = await asUser.mutation(api.hermesMappingRuns.start, {
       projectId,
@@ -553,14 +755,27 @@ describe('codebase suggestions', () => {
         flowSuggestions: [
           {
             title: 'Surface to backend flow',
+            shortTitle: 'Surface Flow',
+            goal: 'Show UI work reaching backend and data ownership.',
+            importance: 0.9,
+            curationKey: 'flow:surface-backend-data',
             description: 'The UI invokes backend behavior.',
             kind: 'system_process',
-            nodeIds: [surface, backend],
+            nodeIds: [surface, backend, data],
+            edgeRefs: [
+              { sourceNodeId: surface, targetNodeId: backend, type: 'data_flow' },
+              { sourceNodeId: backend, targetNodeId: data, type: 'data_flow' },
+            ],
             steps: [
               {
                 title: 'Invoke backend',
                 description: 'The surface sends work to the backend.',
                 nodeIds: [surface, backend],
+              },
+              {
+                title: 'Persist data',
+                description: 'The backend writes to the data store.',
+                nodeIds: [backend, data],
               },
             ],
             confidence: 0.93,

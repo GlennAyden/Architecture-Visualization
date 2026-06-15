@@ -64,6 +64,10 @@ const flowStepValidator = v.object({
 const flowSuggestionValidator = v.object({
   runId: v.optional(v.id('hermesMappingRuns')),
   title: v.string(),
+  shortTitle: v.optional(v.string()),
+  goal: v.optional(v.string()),
+  importance: v.optional(v.number()),
+  curationKey: v.optional(v.string()),
   description: v.string(),
   kind: architectureFlowKindValidator,
   nodeIds: v.array(v.id('nodes')),

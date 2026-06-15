@@ -91,6 +91,7 @@ export type HermesArchitectureFlowKind =
 
 export interface HermesExistingArchitectureFlow {
   title: string;
+  curationKey?: string;
   kind: HermesArchitectureFlowKind;
   status: 'pending' | 'applied' | 'rejected' | 'ignored';
   nodeIds: string[];
@@ -146,10 +147,15 @@ export interface HermesFlowStep {
   title: string;
   description: string;
   nodeIds?: string[];
+  edgeRefs?: HermesFlowEdgeRef[];
 }
 
 export interface HermesArchitectureFlowSuggestion {
   title: string;
+  shortTitle?: string;
+  goal?: string;
+  importance?: number;
+  curationKey?: string;
   description: string;
   kind: HermesArchitectureFlowKind;
   nodeIds: string[];
@@ -476,52 +482,187 @@ function buildFlowEdges(
   ].filter((edge) => edge.sourceNodeId !== edge.targetNodeId);
 }
 
-function makeFlowSuggestion({
-  title,
-  kind,
-  edge,
-  sourceNode,
-  targetNode,
-  reason,
-  evidence,
-}: {
-  title: string;
+type FlowCluster = {
+  key: string;
   kind: HermesArchitectureFlowKind;
-  edge: FlowEdgeCandidate;
   sourceNode: HermesNodeContext;
-  targetNode: HermesNodeContext;
+  edges: FlowEdgeCandidate[];
+  targetNodeIds: Set<string>;
+  importanceBase: number;
+  shortTitle: string;
+  goal: string;
   reason: string;
-  evidence: string[];
-}): HermesArchitectureFlowSuggestion {
-  const confidence = Math.min(0.94, Math.max(0.88, edge.confidence ?? 0.91));
+};
+
+const FLOW_KIND_LIMIT = 2;
+const FLOW_TOTAL_LIMIT = 8;
+
+function flowEdgeRef(edge: FlowEdgeCandidate): HermesFlowEdgeRef {
+  return edge.edgeId
+    ? { edgeId: edge.edgeId }
+    : {
+        sourceNodeId: edge.sourceNodeId,
+        targetNodeId: edge.targetNodeId,
+        type: edge.type,
+      };
+}
+
+function uniqueStrings(values: string[]) {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    if (seen.has(value)) continue;
+    seen.add(value);
+    out.push(value);
+  }
+  return out;
+}
+
+function averageConfidence(edges: FlowEdgeCandidate[]) {
+  const confidence = edges.reduce((sum, edge) => sum + (edge.confidence ?? 0.91), 0) / edges.length;
+  return Math.min(0.96, Math.max(0.88, Number(confidence.toFixed(2))));
+}
+
+function clusterEvidence(
+  cluster: FlowCluster,
+  nodeById: ReadonlyMap<string, HermesNodeContext>,
+): string[] {
+  const evidence = cluster.edges.flatMap((edge) => [
+    ...(edge.evidence ?? []),
+    `${nodeById.get(edge.sourceNodeId)?.name ?? 'Source'} -> ${
+      nodeById.get(edge.targetNodeId)?.name ?? 'Target'
+    } (${edge.label ?? edge.type})`,
+  ]);
+  return uniqueStrings(evidence).slice(0, 8);
+}
+
+function buildClusterSteps(
+  cluster: FlowCluster,
+  nodeById: ReadonlyMap<string, HermesNodeContext>,
+): HermesFlowStep[] {
+  const targets = [...cluster.targetNodeIds]
+    .map((nodeId) => nodeById.get(nodeId))
+    .filter((node): node is HermesNodeContext => Boolean(node))
+    .slice(0, 4);
+
+  const firstEdgesByTarget = new Map<string, FlowEdgeCandidate>();
+  for (const edge of cluster.edges) {
+    if (!firstEdgesByTarget.has(edge.targetNodeId)) firstEdgesByTarget.set(edge.targetNodeId, edge);
+  }
+
+  const steps: HermesFlowStep[] = [
+    {
+      title: cluster.sourceNode.name,
+      description: `Starts from the ${cluster.sourceNode.semanticKind ?? 'mapped'} node that owns this flow.`,
+      nodeIds: [cluster.sourceNode._id],
+    },
+  ];
+
+  for (const target of targets) {
+    const edge = firstEdgesByTarget.get(target._id);
+    steps.push({
+      title: target.name,
+      description: `Continues through ${edge?.label ?? edge?.type.replace(/_/g, ' ') ?? 'mapped relationship'}.`,
+      nodeIds: [target._id],
+      edgeRefs: edge ? [flowEdgeRef(edge)] : undefined,
+    });
+  }
+
+  if (steps.length < 3 && cluster.edges[0]) {
+    const edge = cluster.edges[0];
+    steps.splice(1, 0, {
+      title: edge.label ?? edge.type.replace(/_/g, ' '),
+      description:
+        'This relationship is kept because it represents an important agent, integration, or deployment handoff.',
+      nodeIds: [edge.sourceNodeId, edge.targetNodeId],
+      edgeRefs: [flowEdgeRef(edge)],
+    });
+  }
+
+  return steps.slice(0, 6);
+}
+
+function createFlowCluster(args: {
+  key: string;
+  kind: HermesArchitectureFlowKind;
+  sourceNode: HermesNodeContext;
+  edge: FlowEdgeCandidate;
+  targetNodeId: string;
+  importanceBase: number;
+  shortTitle: string;
+  goal: string;
+  reason: string;
+}): FlowCluster {
   return {
-    title,
-    description: `${sourceNode.name} connects to ${targetNode.name}.`,
-    kind,
-    nodeIds: [sourceNode._id, targetNode._id],
-    edgeRefs: [
-      edge.edgeId
-        ? { edgeId: edge.edgeId }
-        : {
-            sourceNodeId: edge.sourceNodeId,
-            targetNodeId: edge.targetNodeId,
-            type: edge.type,
-          },
-    ],
-    steps: [
-      {
-        title: sourceNode.name,
-        description: `Start from ${sourceNode.semanticKind ?? 'mapped'} node.`,
-        nodeIds: [sourceNode._id],
-      },
-      {
-        title: targetNode.name,
-        description: `Continue through ${edge.label ?? edge.type.replace(/_/g, ' ')}.`,
-        nodeIds: [targetNode._id],
-      },
-    ],
+    key: args.key,
+    kind: args.kind,
+    sourceNode: args.sourceNode,
+    edges: [args.edge],
+    targetNodeIds: new Set([args.targetNodeId]),
+    importanceBase: args.importanceBase,
+    shortTitle: args.shortTitle,
+    goal: args.goal,
+    reason: args.reason,
+  };
+}
+
+function pushCluster(
+  clusters: Map<string, FlowCluster>,
+  args: Parameters<typeof createFlowCluster>[0],
+) {
+  const existing = clusters.get(args.key);
+  if (existing) {
+    existing.edges.push(args.edge);
+    existing.targetNodeIds.add(args.targetNodeId);
+    return;
+  }
+  clusters.set(args.key, createFlowCluster(args));
+}
+
+function flowSuggestionFromCluster(
+  cluster: FlowCluster,
+  nodeById: ReadonlyMap<string, HermesNodeContext>,
+): HermesArchitectureFlowSuggestion | null {
+  const nodeIds = uniqueStrings([
+    cluster.sourceNode._id,
+    ...cluster.edges.flatMap((edge) => [edge.sourceNodeId, edge.targetNodeId]),
+  ]).slice(0, 12);
+  const edgeRefs = cluster.edges.slice(0, 12).map(flowEdgeRef);
+  const evidence = clusterEvidence(cluster, nodeById);
+  const isException =
+    cluster.kind === 'agent_workflow' ||
+    cluster.kind === 'integration' ||
+    cluster.kind === 'build_deploy';
+  if (nodeIds.length < 3 && edgeRefs.length < 2 && (!isException || evidence.length === 0)) {
+    return null;
+  }
+
+  const targetNames = [...cluster.targetNodeIds]
+    .map((nodeId) => nodeById.get(nodeId)?.name)
+    .filter((name): name is string => Boolean(name))
+    .slice(0, 3);
+  const confidence = averageConfidence(cluster.edges);
+  const importance = Math.min(
+    1,
+    Number((cluster.importanceBase + Math.min(0.12, cluster.edges.length * 0.02)).toFixed(2)),
+  );
+
+  return {
+    title:
+      targetNames.length > 0
+        ? `${cluster.shortTitle}: ${targetNames.join(', ')}`
+        : cluster.shortTitle,
+    shortTitle: cluster.shortTitle,
+    goal: cluster.goal,
+    importance,
+    curationKey: cluster.key,
+    description: `${cluster.goal} Involves ${nodeIds.length} mapped nodes and ${edgeRefs.length} relationship(s).`,
+    kind: cluster.kind,
+    nodeIds,
+    edgeRefs,
+    steps: buildClusterSteps(cluster, nodeById),
     confidence,
-    reason,
+    reason: cluster.reason,
     evidence,
     source: 'hermes',
   };
@@ -537,101 +678,156 @@ function architectureFlowSuggestionsFromContext(
       .filter((flow) => flow.status === 'applied' || flow.status === 'ignored')
       .map((flow) => flow.title.toLowerCase()),
   );
+  const existingCurationKeys = new Set(
+    (context.flows ?? [])
+      .filter((flow) => flow.status === 'applied' || flow.status === 'ignored')
+      .map((flow) => flow.curationKey?.toLowerCase())
+      .filter((key): key is string => Boolean(key)),
+  );
   const seen = new Set<string>();
-  const flows: HermesArchitectureFlowSuggestion[] = [];
+  const clusters = new Map<string, FlowCluster>();
   const edges = buildFlowEdges(context, relationshipSuggestions);
-
-  const add = (flow: HermesArchitectureFlowSuggestion) => {
-    const titleKey = flow.title.toLowerCase();
-    const pairKey = `${flow.kind}|${flow.nodeIds.join('|')}`;
-    if (existingTitles.has(titleKey) || seen.has(pairKey)) return;
-    seen.add(pairKey);
-    flows.push(flow);
-  };
 
   for (const edge of edges) {
     const sourceNode = nodeById.get(edge.sourceNodeId);
     const targetNode = nodeById.get(edge.targetNodeId);
     if (!sourceNode || !targetNode) continue;
-    const evidence = [
-      ...(edge.evidence ?? []),
-      `${sourceNode.name} -> ${targetNode.name} (${edge.label ?? edge.type})`,
-    ].slice(0, 8);
 
     if (
       nodeMatches(sourceNode, context, ['surface', 'frontend', 'page', 'ui']) &&
       nodeMatches(targetNode, context, ['api', 'backend', 'data', 'storage', 'convex'])
     ) {
-      add(
-        makeFlowSuggestion({
-          title: `${sourceNode.name} reaches ${targetNode.name}`,
-          kind: edge.type === 'data_flow' ? 'data_flow' : 'user_journey',
-          edge,
-          sourceNode,
-          targetNode,
-          reason:
-            'A surface node connects into backend or data ownership, so this is a readable user-facing architecture flow.',
-          evidence,
-        }),
-      );
+      pushCluster(clusters, {
+        key: `user:${sourceNode._id}`,
+        kind: edge.type === 'data_flow' ? 'data_flow' : 'user_journey',
+        sourceNode,
+        edge,
+        targetNodeId: targetNode._id,
+        importanceBase: 0.86,
+        shortTitle: `${sourceNode.name} Journey`,
+        goal: 'Show how this user-facing surface reaches application, backend, or data ownership.',
+        reason:
+          'Hermes grouped surface-to-backend relationships into one reviewable user-facing architecture flow.',
+      });
+    }
+
+    if (
+      edge.type === 'data_flow' &&
+      !nodeMatches(sourceNode, context, ['surface', 'frontend', 'page', 'ui'])
+    ) {
+      pushCluster(clusters, {
+        key: `data:${sourceNode._id}`,
+        kind: edge.type === 'data_flow' ? 'data_flow' : 'user_journey',
+        sourceNode,
+        edge,
+        targetNodeId: targetNode._id,
+        importanceBase: 0.88,
+        shortTitle: `${sourceNode.name} Data Path`,
+        goal: 'Summarize where this node sends or writes data across the architecture.',
+        reason:
+          'Hermes merged related data-flow edges so the panel shows one data path instead of many pairwise edges.',
+      });
     }
 
     if (
       nodeMatches(sourceNode, context, ['agent', 'mcp', 'hermes', 'worker']) ||
       nodeMatches(targetNode, context, ['agent', 'mcp', 'hermes', 'worker'])
     ) {
-      add(
-        makeFlowSuggestion({
-          title: `${sourceNode.name} updates ${targetNode.name}`,
-          kind: 'agent_workflow',
-          edge,
-          sourceNode,
-          targetNode,
-          reason:
-            'At least one side of this relationship is an agent or worker node, so it should be reviewed as an agent workflow.',
-          evidence,
-        }),
-      );
-    }
-
-    if (
-      edge.type === 'data_flow' ||
-      nodeMatches(targetNode, context, ['data', 'storage', 'database', 'convex'])
-    ) {
-      add(
-        makeFlowSuggestion({
-          title: `${sourceNode.name} writes through ${targetNode.name}`,
-          kind: 'data_flow',
-          edge,
-          sourceNode,
-          targetNode,
-          reason: 'The relationship points at data ownership or is explicitly marked as data flow.',
-          evidence,
-        }),
-      );
+      const agentNode = nodeMatches(sourceNode, context, ['agent', 'mcp', 'hermes', 'worker'])
+        ? sourceNode
+        : targetNode;
+      const otherNode = agentNode._id === sourceNode._id ? targetNode : sourceNode;
+      pushCluster(clusters, {
+        key: `agent:${agentNode._id}`,
+        kind: 'agent_workflow',
+        sourceNode: agentNode,
+        edge,
+        targetNodeId: otherNode._id,
+        importanceBase: 0.9,
+        shortTitle: `${agentNode.name} Workflow`,
+        goal: 'Show where agent or worker activity changes the architecture map or surrounding systems.',
+        reason:
+          'Hermes grouped agent and worker relationships into a single workflow instead of separate update edges.',
+      });
     }
 
     if (
       nodeMatches(sourceNode, context, ['build', 'deploy', 'infra', 'config']) ||
       nodeMatches(targetNode, context, ['build', 'deploy', 'infra', 'config'])
     ) {
-      add(
-        makeFlowSuggestion({
-          title: `${sourceNode.name} supports ${targetNode.name}`,
-          kind: 'build_deploy',
-          edge,
-          sourceNode,
-          targetNode,
-          reason: 'This relationship touches infrastructure, config, build, or deploy concerns.',
-          evidence,
-        }),
-      );
+      const infraNode = nodeMatches(sourceNode, context, ['build', 'deploy', 'infra', 'config'])
+        ? sourceNode
+        : targetNode;
+      const otherNode = infraNode._id === sourceNode._id ? targetNode : sourceNode;
+      pushCluster(clusters, {
+        key: `deploy:${infraNode._id}`,
+        kind: 'build_deploy',
+        sourceNode: infraNode,
+        edge,
+        targetNodeId: otherNode._id,
+        importanceBase: 0.78,
+        shortTitle: `${infraNode.name} Delivery Flow`,
+        goal: 'Summarize build, configuration, deployment, or quality handoffs.',
+        reason: 'Hermes grouped infra-related relationships into one delivery flow for review.',
+      });
     }
 
-    if (flows.length >= 5) break;
+    if (
+      nodeMatches(sourceNode, context, ['external', 'third party', 'integration']) ||
+      nodeMatches(targetNode, context, ['external', 'third party', 'integration'])
+    ) {
+      const externalNode = nodeMatches(sourceNode, context, [
+        'external',
+        'third party',
+        'integration',
+      ])
+        ? sourceNode
+        : targetNode;
+      const otherNode = externalNode._id === sourceNode._id ? targetNode : sourceNode;
+      pushCluster(clusters, {
+        key: `integration:${externalNode._id}`,
+        kind: 'integration',
+        sourceNode: externalNode,
+        edge,
+        targetNodeId: otherNode._id,
+        importanceBase: 0.76,
+        shortTitle: `${externalNode.name} Integration`,
+        goal: 'Show the boundary between this codebase and external systems.',
+        reason: 'Hermes grouped external-service relationships into one integration flow.',
+      });
+    }
   }
 
-  return flows;
+  const flows = [...clusters.values()]
+    .map((cluster) => flowSuggestionFromCluster(cluster, nodeById))
+    .filter((flow): flow is HermesArchitectureFlowSuggestion => Boolean(flow))
+    .filter((flow) => {
+      const titleKey = flow.title.toLowerCase();
+      const curationKey = flow.curationKey?.toLowerCase();
+      if (existingTitles.has(titleKey) || (curationKey && existingCurationKeys.has(curationKey))) {
+        return false;
+      }
+      if (seen.has(flow.curationKey ?? titleKey)) return false;
+      seen.add(flow.curationKey ?? titleKey);
+      return true;
+    })
+    .sort(
+      (a, b) =>
+        (b.importance ?? 0) - (a.importance ?? 0) ||
+        b.confidence - a.confidence ||
+        b.nodeIds.length - a.nodeIds.length,
+    );
+
+  const perKind = new Map<HermesArchitectureFlowKind, number>();
+  const selected: HermesArchitectureFlowSuggestion[] = [];
+  for (const flow of flows) {
+    const count = perKind.get(flow.kind) ?? 0;
+    if (count >= FLOW_KIND_LIMIT) continue;
+    perKind.set(flow.kind, count + 1);
+    selected.push(flow);
+    if (selected.length >= FLOW_TOTAL_LIMIT) break;
+  }
+  return selected;
 }
 
 export async function heuristicHermesMapper(
