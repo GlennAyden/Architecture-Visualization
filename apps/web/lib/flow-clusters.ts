@@ -24,9 +24,12 @@ function buildAncestors(nodes: Doc<'nodes'>[]) {
   const ancestors = new Map<string, string[]>();
   for (const node of nodes) {
     const chain: string[] = [];
+    const seen = new Set<string>([node._id as string]);
     let current = node.parentId ? byId.get(node.parentId as string) : undefined;
     while (current) {
       const id = current._id as string;
+      if (seen.has(id)) break;
+      seen.add(id);
       chain.push(id);
       current = current.parentId ? byId.get(current.parentId as string) : undefined;
     }
@@ -45,7 +48,11 @@ function rootSurfaceForFlow(
   }
   for (const nodeId of flow.nodeIds) {
     let node = nodesById.get(nodeId as string);
+    const seen = new Set<string>();
     while (node?.parentId) {
+      const id = node._id as string;
+      if (seen.has(id)) break;
+      seen.add(id);
       node = nodesById.get(node.parentId as string);
       if (node?.semanticKind === 'surface') return node;
     }
@@ -118,12 +125,16 @@ export function getRelatedFlowsForNode(args: {
   const { nodeId, nodes, flows } = args;
   const ancestors = buildAncestors(nodes);
   const descendants = new Set<string>();
+  const seen = new Set<string>();
   const stack = [nodeId];
   while (stack.length > 0) {
     const current = stack.pop()!;
+    if (seen.has(current)) continue;
+    seen.add(current);
     for (const node of nodes) {
       if (node.parentId === current) {
         const id = node._id as string;
+        if (seen.has(id)) continue;
         descendants.add(id);
         stack.push(id);
       }

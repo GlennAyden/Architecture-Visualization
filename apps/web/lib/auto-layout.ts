@@ -67,6 +67,7 @@ export function computeAutoLayout(nodes: ReadonlyArray<LayoutNodeInput>): Layout
   const childrenByParent = new Map<string, LayoutNodeInput[]>();
   for (const n of nodes) {
     if (!n.parentId || !nodeById.has(n.parentId)) continue;
+    if (n.parentId === n.id) continue;
     const list = childrenByParent.get(n.parentId) ?? [];
     list.push(n);
     childrenByParent.set(n.parentId, list);
@@ -113,7 +114,7 @@ export function computeAutoLayout(nodes: ReadonlyArray<LayoutNodeInput>): Layout
   // the user re-runs auto-layout after dragging — the unchanged pages
   // shouldn't suddenly relocate).
   const topLevel = nodes
-    .filter((n) => !n.parentId || !nodeById.has(n.parentId))
+    .filter((n) => !n.parentId || n.parentId === n.id || !nodeById.has(n.parentId))
     .sort((a, b) => a.id.localeCompare(b.id));
 
   const absPos = new Map<string, { x: number; y: number }>();
@@ -140,6 +141,7 @@ export function computeAutoLayout(nodes: ReadonlyArray<LayoutNodeInput>): Layout
   // Children: absolute = parent's absolute + their relative offset.
   for (const n of nodes) {
     if (!n.parentId || !nodeById.has(n.parentId)) continue;
+    if (n.parentId === n.id) continue;
     const parentAbs = absPos.get(n.parentId);
     const rel = relChildPos.get(n.id);
     if (!parentAbs || !rel) continue;

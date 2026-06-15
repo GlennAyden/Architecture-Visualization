@@ -119,6 +119,7 @@ function buildRfNodesFromShare(shareNodes: ShareNode[]): ArchNode[] {
   const childrenByParent = new Map<string, ShareNode[]>();
   for (const n of shareNodes) {
     if (!n.parentId) continue;
+    if (n.parentId === n._id) continue;
     if (!byId.has(n.parentId)) continue;
     const list = childrenByParent.get(n.parentId) ?? [];
     list.push(n);
@@ -147,7 +148,7 @@ function buildRfNodesFromShare(shareNodes: ShareNode[]): ArchNode[] {
   }
 
   return shareNodes.map((n): ArchNode => {
-    const parent = n.parentId ? byId.get(n.parentId) : undefined;
+    const parent = n.parentId && n.parentId !== n._id ? byId.get(n.parentId) : undefined;
     const parentName = parent?.name ?? null;
 
     if (n.type === 'feature') {

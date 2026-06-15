@@ -98,4 +98,19 @@ describe('flow cluster helpers', () => {
     expect(getRelatedFlowsForNode({ nodeId: 'dashboard', nodes, flows })).toHaveLength(1);
     expect(getRelatedFlowsForNode({ nodeId: 'billing', nodes, flows })).toHaveLength(1);
   });
+
+  test('handles self-parented nodes without looping forever', () => {
+    const nodes = [
+      node({
+        id: 'plan-catalog',
+        name: 'Plan Catalog',
+        parentId: 'plan-catalog' as Id<'nodes'>,
+        semanticKind: 'ui_module',
+      }),
+    ];
+    const flows = [flow({ id: 'a', title: 'Plan Catalog Flow', nodeIds: ['plan-catalog'] })];
+
+    expect(clusterArchitectureFlows(flows, nodes)).toHaveLength(1);
+    expect(getRelatedFlowsForNode({ nodeId: 'plan-catalog', nodes, flows })).toHaveLength(1);
+  });
 });

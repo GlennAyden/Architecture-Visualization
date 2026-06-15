@@ -157,6 +157,7 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
     const map = new Map<string, string[]>();
     for (const n of nodes) {
       if (!n.parentId) continue;
+      if ((n.parentId as string) === (n._id as string)) continue;
       const key = n.parentId as string;
       const list = map.get(key);
       if (list) list.push(n._id as string);
@@ -221,7 +222,11 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
     const byId = new Map(nodes.map((n) => [n._id as string, n]));
     const chain: Doc<'nodes'>[] = [];
     let current: Doc<'nodes'> | undefined = byId.get(drillNodeId as string);
+    const seen = new Set<string>();
     while (current) {
+      const id = current._id as string;
+      if (seen.has(id)) break;
+      seen.add(id);
       chain.unshift(current);
       current = current.parentId ? byId.get(current.parentId as string) : undefined;
     }

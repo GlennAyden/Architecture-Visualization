@@ -99,7 +99,11 @@ export function CommandPalette({ projectId }: Props) {
   const selectNode = (node: Doc<'nodes'>) => {
     let parentId = node.parentId as Id<'nodes'> | undefined;
     const byId = new Map((nodes ?? []).map((item) => [item._id as string, item]));
+    const seenParents = new Set<string>();
     while (parentId) {
+      const key = parentId as string;
+      if (seenParents.has(key)) break;
+      seenParents.add(key);
       expandNode(projectId, parentId);
       const parent = byId.get(parentId as string);
       parentId = parent?.parentId as Id<'nodes'> | undefined;

@@ -35,6 +35,7 @@ function buildChildrenByParent(nodes: Doc<'nodes'>[]) {
   const children = new Map<string, Doc<'nodes'>[]>();
   for (const node of nodes) {
     if (!node.parentId) continue;
+    if ((node.parentId as string) === (node._id as string)) continue;
     const parentId = node.parentId as string;
     const list = children.get(parentId) ?? [];
     list.push(node);
@@ -86,10 +87,13 @@ function collectDescendantIds(
   childrenByParent: ReadonlyMap<string, Doc<'nodes'>[]>,
 ) {
   const out: string[] = [];
+  const seen = new Set<string>([rootId]);
   const stack = [...(childrenByParent.get(rootId) ?? [])];
   while (stack.length > 0) {
     const node = stack.pop()!;
     const id = node._id as string;
+    if (seen.has(id)) continue;
+    seen.add(id);
     out.push(id);
     const children = childrenByParent.get(id);
     if (children) stack.push(...children);

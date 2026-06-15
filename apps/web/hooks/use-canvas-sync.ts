@@ -162,6 +162,7 @@ function buildRfNodes(
   for (const n of visibleNodes) {
     if (!n.parentId) continue;
     const pid = n.parentId as string;
+    if (pid === (n._id as string)) continue;
     if (!byId.has(pid)) continue;
     const list = childrenByParent.get(pid) ?? [];
     list.push(n);
@@ -197,7 +198,8 @@ function buildRfNodes(
   // Pass 2: emit RF nodes.
   return visibleNodes.map((n): ArchNode => {
     const id = n._id as string;
-    const parentInVisibleSet = n.parentId && byId.has(n.parentId as string);
+    const parentInVisibleSet =
+      n.parentId && (n.parentId as string) !== id && byId.has(n.parentId as string);
     const parent = parentInVisibleSet ? byId.get(n.parentId as string) : undefined;
     const parentName = parent?.name ?? null;
     const highlighted = highlightedNodeIds?.has(id) ?? false;
@@ -300,6 +302,7 @@ function filterToDescendants(nodes: Doc<'nodes'>[], drillNodeId: Id<'nodes'>): D
   const childrenByParent = new Map<string, Doc<'nodes'>[]>();
   for (const n of nodes) {
     if (!n.parentId) continue;
+    if ((n.parentId as string) === (n._id as string)) continue;
     const list = childrenByParent.get(n.parentId as string);
     if (list) list.push(n);
     else childrenByParent.set(n.parentId as string, [n]);

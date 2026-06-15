@@ -132,4 +132,33 @@ describe('canvas collapse helpers', () => {
       aggregateCount: 1,
     });
   });
+
+  test('treats self-parented nodes as safe top-level nodes', () => {
+    const nodes = [
+      node({
+        id: 'plan-catalog',
+        name: 'Plan Catalog',
+        parentId: 'plan-catalog' as Id<'nodes'>,
+      }),
+      node({ id: 'billing', name: 'Billing' }),
+    ];
+
+    expect(getDefaultCollapsedNodeIds(nodes)).toEqual([]);
+
+    const graph = buildCollapsedGraph({
+      nodes,
+      edges: [edge({ id: 'edge', source: 'plan-catalog', target: 'billing', type: 'uses' })],
+      nodeSummaries: [{ nodeId: 'plan-catalog', fileCount: 4, verifiedCount: 0, roles: {} }],
+      collapsedNodeIds: new Set(['plan-catalog']),
+    });
+
+    expect(graph.visibleNodes.map((item) => item._id as string)).toEqual([
+      'plan-catalog',
+      'billing',
+    ]);
+    expect(graph.collapsedStats.get('plan-catalog')).toMatchObject({
+      hiddenNodeCount: 0,
+      hiddenFileCount: 0,
+    });
+  });
 });
