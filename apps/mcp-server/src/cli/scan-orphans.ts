@@ -68,6 +68,7 @@ export interface OrphansPayload {
  */
 const REPO_FILES_SOFT_LIMIT = 8_000;
 const ORPHANS_HARD_LIMIT = 5_000;
+const PUSH_PAYLOAD_BYTES_LIMIT = 950_000;
 
 export interface ComputeOrphansInput {
   repoFiles: ReadonlyArray<string>;
@@ -102,7 +103,7 @@ export function buildOrphansPayload(
   let truncated = false;
   let trimmedRepoFiles = repoFiles as string[];
   let trimmedOrphans = orphans as string[];
-  let trimmedFileFacts = fileFacts as ScanFileFact[];
+  let trimmedFileFacts = compactFileFactsForPayload(fileFacts, new Set(orphans));
 
   if (repoFiles.length > REPO_FILES_SOFT_LIMIT) {
     truncated = true;
@@ -118,7 +119,7 @@ export function buildOrphansPayload(
   };
   if (trimmedFileFacts.length > 0) payload.fileFacts = trimmedFileFacts;
   if (truncated) payload.truncated = true;
-  return payload;
+  return fitPayloadUnderLimit(payload);
 }
 
 function uniqueCapped(values: Iterable<string>, cap: number): string[] {
@@ -132,6 +133,84 @@ function uniqueCapped(values: Iterable<string>, cap: number): string[] {
     if (out.length >= cap) break;
   }
   return out;
+}
+
+function truncateString(value: string, max: number) {
+  return value.length > max ? value.slice(0, max).trimEnd() : value;
+}
+
+function compactFileFactsForPayload(
+  fileFacts: ReadonlyArray<ScanFileFact>,
+  orphanPaths: ReadonlySet<string>,
+): ScanFileFact[] {
+  return fileFacts
+    .map((fact) => ({
+      ...fact,
+      imports: fact.imports.slice(0, 12),
+      resolvedImports: fact.resolvedImports?.slice(0, 12),
+      exports: fact.exports.slice(0, 12),
+      capabilityHints: fact.capabilityHints?.slice(0, 8),
+      textHints: fact.textHints?.map((hint) => truncateString(hint, 120)).slice(0, 8),
+      componentRefs: fact.componentRefs?.slice(0, 8),
+      ctaHints: fact.ctaHints?.map((hint) => truncateString(hint, 80)).slice(0, 6),
+      uiBlocks: fact.uiBlocks?.slice(0, 6).map((block) => ({
+        ...block,
+        labels: block.labels.map((label) => truncateString(label, 80)).slice(0, 4),
+        evidence: block.evidence.map((item) => truncateString(item, 120)).slice(0, 3),
+      })),
+    }))
+    .sort((a, b) => fileFactPriority(b, orphanPaths) - fileFactPriority(a, orphanPaths));
+}
+
+function fileFactPriority(fact: ScanFileFact, orphanPaths: ReadonlySet<string>) {
+  let score = 0;
+  if (orphanPaths.has(fact.path)) score += 20;
+  if ((fact.uiBlocks?.length ?? 0) > 0) score += 40;
+  if ((fact.capabilityHints?.length ?? 0) > 0) score += 30;
+  if (fact.productArea && fact.productArea !== 'unknown') score += 15;
+  if (fact.routeHint) score += 12;
+  if (fact.apiHint) score += 10;
+  if ((fact.resolvedImports?.length ?? 0) > 0) score += 6;
+  if (fact.kind === 'generated' || fact.kind === 'test' || fact.kind === 'config') score -= 15;
+  return score;
+}
+
+function payloadByteLength(payload: OrphansPayload) {
+  return Buffer.byteLength(JSON.stringify(payload), 'utf8');
+}
+
+function fitPayloadUnderLimit(payload: OrphansPayload): OrphansPayload {
+  if (payloadByteLength(payload) <= PUSH_PAYLOAD_BYTES_LIMIT) return payload;
+
+  const next: OrphansPayload = {
+    ...payload,
+    truncated: true,
+    repoFiles: payload.repoFiles.slice(0, REPO_FILES_SOFT_LIMIT),
+    orphans: payload.orphans.slice(0, ORPHANS_HARD_LIMIT),
+    fileFacts: payload.fileFacts,
+  };
+
+  let facts = next.fileFacts ?? [];
+  while (facts.length > 0) {
+    const candidate: OrphansPayload = { ...next, fileFacts: facts };
+    if (payloadByteLength(candidate) <= PUSH_PAYLOAD_BYTES_LIMIT) return candidate;
+    facts = facts.slice(0, Math.floor(facts.length * 0.85));
+  }
+
+  const withoutFacts: OrphansPayload = {
+    repoFiles: next.repoFiles,
+    orphans: next.orphans,
+    scannedAt: next.scannedAt,
+    truncated: true,
+  };
+  if (payloadByteLength(withoutFacts) <= PUSH_PAYLOAD_BYTES_LIMIT) return withoutFacts;
+
+  return {
+    repoFiles: next.repoFiles.slice(0, Math.floor(REPO_FILES_SOFT_LIMIT * 0.75)),
+    orphans: next.orphans.slice(0, Math.floor(ORPHANS_HARD_LIMIT * 0.75)),
+    scannedAt: next.scannedAt,
+    truncated: true,
+  };
 }
 
 function classifyFile(path: string): ScanFileKind {

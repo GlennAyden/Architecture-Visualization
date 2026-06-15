@@ -75,6 +75,55 @@ describe('buildOrphansPayload', () => {
     expect(payload.repoFiles.length).toBeLessThanOrEqual(8_000);
     expect(payload.orphans.length).toBeLessThanOrEqual(5_000);
   });
+
+  test('trims large semantic file facts while keeping high-value UI facts', () => {
+    const repoFiles = Array.from({ length: 1_600 }, (_, i) => `src/f${i}.tsx`);
+    const semanticFact = {
+      path: 'src/app/dashboard/page.tsx',
+      kind: 'component' as const,
+      imports: [],
+      exports: ['default'],
+      routeHint: '/dashboard',
+      productArea: 'user' as const,
+      capabilityHints: ['onboarding', 'billing_subscription'],
+      textHints: ['Welcome back', 'Redeem code'],
+      uiBlocks: [
+        {
+          key: 'onboarding',
+          name: 'Onboarding',
+          kind: 'panel' as const,
+          labels: ['Welcome back'],
+          evidence: ['Onboarding keywords detected'],
+          routeHint: '/dashboard',
+        },
+      ],
+    };
+    const noisyFacts = repoFiles.map((path, index) => ({
+      path,
+      kind: 'component' as const,
+      imports: Array.from({ length: 20 }, (_, i) => `@/very/long/import/${index}/${i}`),
+      exports: ['default'],
+      textHints: Array.from(
+        { length: 16 },
+        (_, i) => `Long marketing copy block ${index}-${i} ${'x'.repeat(160)}`,
+      ),
+    }));
+
+    const payload = buildOrphansPayload(
+      ['src/app/dashboard/page.tsx', ...repoFiles],
+      ['src/app/dashboard/page.tsx', ...repoFiles],
+      1234,
+      [semanticFact, ...noisyFacts],
+    );
+
+    expect(Buffer.byteLength(JSON.stringify(payload), 'utf8')).toBeLessThan(1_000_000);
+    expect(payload.truncated).toBe(true);
+    expect(payload.fileFacts?.[0]).toMatchObject({
+      path: 'src/app/dashboard/page.tsx',
+      routeHint: '/dashboard',
+      capabilityHints: ['onboarding', 'billing_subscription'],
+    });
+  });
 });
 
 describe('buildFileFacts', () => {
