@@ -583,6 +583,30 @@ function pushSemanticSuggestion(
   out.push(suggestion);
 }
 
+const SEMANTIC_NODE_SUGGESTION_LIMIT = 240;
+
+function semanticSuggestionPriority(suggestion: HermesSemanticNodeSuggestion) {
+  let score = suggestion.confidence;
+  if (suggestion.parentNodeId) score += 0.2;
+  if (suggestion.routeHint) score += 0.12;
+  if (suggestion.productArea && suggestion.productArea !== 'unknown') score += 0.08;
+  if (suggestion.semanticKind === 'surface') score += 0.05;
+  if (suggestion.semanticKind === 'ui_module') score += 0.04;
+  return score;
+}
+
+function prioritizeSemanticSuggestions(suggestions: HermesSemanticNodeSuggestion[]) {
+  return suggestions
+    .sort(
+      (a, b) =>
+        semanticSuggestionPriority(b) - semanticSuggestionPriority(a) ||
+        a.semanticKey.localeCompare(b.semanticKey) ||
+        a.sourceFilePath.localeCompare(b.sourceFilePath),
+    )
+    .slice(0, SEMANTIC_NODE_SUGGESTION_LIMIT)
+    .sort((a, b) => a.sourceFilePath.localeCompare(b.sourceFilePath));
+}
+
 function semanticNodeSuggestionsFromFacts(
   context: HermesMappingContext,
   factByPath: Map<string, HermesFileFact>,
@@ -674,7 +698,7 @@ function semanticNodeSuggestionsFromFacts(
     }
   }
 
-  return suggestions.slice(0, 500);
+  return prioritizeSemanticSuggestions(suggestions);
 }
 
 function nodeMatchScore(path: string, node: HermesNodeContext) {
