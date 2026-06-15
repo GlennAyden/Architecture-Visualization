@@ -164,4 +164,16 @@ describe('parseScanImportsArgs', () => {
     expect(parseScanImportsArgs(['other', '--skip-edges'])).toEqual({ skipEdges: true });
     expect(parseScanImportsArgs(['--skipedges'])).toEqual({ skipEdges: false });
   });
+
+  test('parses bounded scan-imports max file cap explicitly', () => {
+    // WHY: production-sized repos need a bounded escape hatch, but partial
+    // scans must be opt-in so edge reconciliation cannot silently run on an
+    // incomplete file set.
+    expect(parseScanImportsArgs(['--max-files=25'])).toEqual({
+      skipEdges: false,
+      maxFiles: 25,
+    });
+    expect(parseScanImportsArgs(['--max-files=0'])).toEqual({ skipEdges: false });
+    expect(parseScanImportsArgs(['--max-files=nope'])).toEqual({ skipEdges: false });
+  });
 });

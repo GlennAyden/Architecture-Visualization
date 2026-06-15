@@ -9,6 +9,7 @@ import type { Id } from '../../../../convex/_generated/dataModel';
 
 // React Flow's `Node<Data>` constrains `Data extends Record<string, unknown>`.
 export interface FeatureNodeData extends Record<string, unknown> {
+  projectId?: Id<'projects'>;
   name: string;
   parentName: string | null;
   // True when this feature renders INSIDE its parent's cluster container.
@@ -27,6 +28,7 @@ export interface FeatureNodeData extends Record<string, unknown> {
   fileCount?: number;
   verifiedCount?: number;
   edgeCount?: number;
+  relatedFlowCount?: number;
 }
 
 export type FeatureNodeType = Node<FeatureNodeData, 'feature-node'>;

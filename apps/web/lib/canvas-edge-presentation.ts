@@ -1,4 +1,5 @@
 import type { Doc } from '../../../convex/_generated/dataModel';
+import type { RenderEdge } from './canvas-collapse';
 
 export type CanvasEdgeMode = 'overview' | 'api' | 'data' | 'agents' | 'dependencies' | 'all';
 
@@ -10,13 +11,13 @@ export type CanvasFlowSelection = Pick<
 type EdgeRef = NonNullable<Doc<'architectureFlows'>['edgeRefs']>[number];
 
 type Presentation = {
-  edges: Doc<'nodeEdges'>[];
+  edges: RenderEdge[];
   highlightedEdgeIds?: Set<string>;
   highlightedNodeIds?: Set<string>;
   hasFocus: boolean;
 };
 
-function edgeMatchesRef(edge: Doc<'nodeEdges'>, ref: EdgeRef) {
+function edgeMatchesRef(edge: RenderEdge, ref: EdgeRef) {
   if (ref.edgeId && edge._id === ref.edgeId) return true;
   return (
     edge.sourceNodeId === ref.sourceNodeId &&
@@ -25,14 +26,14 @@ function edgeMatchesRef(edge: Doc<'nodeEdges'>, ref: EdgeRef) {
   );
 }
 
-function isOverviewEdge(edge: Doc<'nodeEdges'>) {
+function isOverviewEdge(edge: RenderEdge) {
   if (edge.type === 'hierarchy' || edge.type === 'dependency') return false;
   if (['contains', 'uses', 'triggers', 'integrates'].includes(edge.type)) return true;
   if (edge.source === 'manual') return true;
   return (edge.confidence ?? 0) >= 0.9;
 }
 
-function edgeMatchesMode(edge: Doc<'nodeEdges'>, mode: CanvasEdgeMode) {
+function edgeMatchesMode(edge: RenderEdge, mode: CanvasEdgeMode) {
   if (mode === 'all') return true;
   if (mode === 'overview') return isOverviewEdge(edge);
   if (mode === 'dependencies') return edge.type === 'dependency';
@@ -48,7 +49,7 @@ function edgeMatchesMode(edge: Doc<'nodeEdges'>, mode: CanvasEdgeMode) {
 }
 
 export function getCanvasEdgePresentation(
-  edges: Doc<'nodeEdges'>[],
+  edges: RenderEdge[],
   mode: CanvasEdgeMode,
   selectedFlow?: CanvasFlowSelection | null,
 ): Presentation {

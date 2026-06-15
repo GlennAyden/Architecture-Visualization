@@ -109,6 +109,44 @@ function safeErrorMessage(error: unknown): string {
     .slice(0, 1000);
 }
 
+function summarizeMappingPayload(payload: {
+  suggestions?: unknown[];
+  semanticNodeSuggestions?: unknown[];
+  relationshipSuggestions?: unknown[];
+  flowSuggestions?: unknown[];
+}) {
+  return `suggestions=${payload.suggestions?.length ?? 0}, semantic=${payload.semanticNodeSuggestions?.length ?? 0}, relationships=${payload.relationshipSuggestions?.length ?? 0}, flows=${payload.flowSuggestions?.length ?? 0}`;
+}
+
+function assertConfidence(value: unknown, label: string) {
+  if (typeof value !== 'number' || value < 0 || value > 1) {
+    throw new Error(`${label} confidence must be between 0 and 1`);
+  }
+}
+
+function validateMappingPayload(payload: {
+  suggestions?: HermesMappingSuggestion[];
+  semanticNodeSuggestions?: HermesSemanticNodeSuggestion[];
+  relationshipSuggestions?: HermesRelationshipSuggestion[];
+  flowSuggestions?: HermesArchitectureFlowSuggestion[];
+}) {
+  for (const [index, suggestion] of (payload.suggestions ?? []).entries()) {
+    assertConfidence(suggestion.confidence, `suggestions[${index}]`);
+  }
+  for (const [index, suggestion] of (payload.semanticNodeSuggestions ?? []).entries()) {
+    assertConfidence(suggestion.confidence, `semanticNodeSuggestions[${index}]`);
+  }
+  for (const [index, suggestion] of (payload.relationshipSuggestions ?? []).entries()) {
+    assertConfidence(suggestion.confidence, `relationshipSuggestions[${index}]`);
+  }
+  for (const [index, flow] of (payload.flowSuggestions ?? []).entries()) {
+    assertConfidence(flow.confidence, `flowSuggestions[${index}]`);
+    if (!flow.title?.trim() || !flow.kind || flow.nodeIds.length < 2 || flow.steps.length < 1) {
+      throw new Error(`flowSuggestions[${index}] is missing title, kind, nodes, or steps`);
+    }
+  }
+}
+
 async function submitMappingRunCompletion(
   fetchImpl: typeof fetch,
   job: HermesMappingStartBody,
@@ -121,6 +159,7 @@ async function submitMappingRunCompletion(
     flowSuggestions?: HermesArchitectureFlowSuggestion[];
   },
 ) {
+  validateMappingPayload(payload);
   const url = new URL('/api/hermes/mapping-runs/complete', job.convexSiteUrl);
   const response = await fetchImpl(url, {
     method: 'POST',
@@ -136,7 +175,13 @@ async function submitMappingRunCompletion(
       flowSuggestions: payload.flowSuggestions ?? [],
     }),
   });
-  if (!response.ok) throw new Error(`Convex mapping submit failed (${response.status})`);
+  if (!response.ok) {
+    const responseText = await response.text().catch(() => '');
+    const safeText = safeErrorMessage(responseText).slice(0, 240);
+    throw new Error(
+      `Convex mapping submit failed (${response.status}); ${summarizeMappingPayload(payload)}${safeText ? `; ${safeText}` : ''}`,
+    );
+  }
 }
 
 export async function runHermesMappingJob(options: VpsApiOptions, job: HermesMappingStartBody) {

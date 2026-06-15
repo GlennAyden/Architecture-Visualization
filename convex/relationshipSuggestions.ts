@@ -106,3 +106,64 @@ export const applyHighConfidence = mutation({
     return { applied };
   },
 });
+
+export const applyAllPending = mutation({
+  args: { projectId: v.id('projects') },
+  handler: async (ctx, { projectId }) => {
+    await requireProjectAccess(ctx, projectId);
+    const pending = await ctx.db
+      .query('relationshipSuggestions')
+      .withIndex('by_project_status', (q) => q.eq('projectId', projectId).eq('status', 'pending'))
+      .take(500);
+
+    let applied = 0;
+    let failed = 0;
+    for (const row of pending) {
+      try {
+        const fresh = await ctx.db.get(row._id);
+        if (!fresh || fresh.status !== 'pending') continue;
+        await applyRelationshipSuggestion(ctx, fresh);
+        applied++;
+      } catch {
+        failed++;
+      }
+    }
+    return { applied, ignored: 0, rejected: 0, failed };
+  },
+});
+
+export const ignoreAllPending = mutation({
+  args: { projectId: v.id('projects') },
+  handler: async (ctx, { projectId }) => {
+    await requireProjectAccess(ctx, projectId);
+    const pending = await ctx.db
+      .query('relationshipSuggestions')
+      .withIndex('by_project_status', (q) => q.eq('projectId', projectId).eq('status', 'pending'))
+      .take(500);
+
+    let ignored = 0;
+    for (const row of pending) {
+      await ctx.db.patch(row._id, { status: 'ignored', updatedAt: Date.now() });
+      ignored++;
+    }
+    return { applied: 0, ignored, rejected: 0, failed: 0 };
+  },
+});
+
+export const rejectAllPending = mutation({
+  args: { projectId: v.id('projects') },
+  handler: async (ctx, { projectId }) => {
+    await requireProjectAccess(ctx, projectId);
+    const pending = await ctx.db
+      .query('relationshipSuggestions')
+      .withIndex('by_project_status', (q) => q.eq('projectId', projectId).eq('status', 'pending'))
+      .take(500);
+
+    let rejected = 0;
+    for (const row of pending) {
+      await ctx.db.patch(row._id, { status: 'rejected', updatedAt: Date.now() });
+      rejected++;
+    }
+    return { applied: 0, ignored: 0, rejected, failed: 0 };
+  },
+});

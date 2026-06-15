@@ -417,6 +417,27 @@ function routeKeyFor(path: string, fact: HermesFileFact | undefined, route: stri
   );
 }
 
+function semanticRouteKey(
+  path: string,
+  fact: HermesFileFact | undefined,
+  route: string | undefined,
+) {
+  return routeKeyFor(path, fact, route).toLowerCase();
+}
+
+function capabilitySemanticKey(args: {
+  capabilityKey: string;
+  productArea: ProductArea;
+  path: string;
+  fact: HermesFileFact;
+  route?: string;
+}) {
+  const routeKey = args.route ? semanticRouteKey(args.path, args.fact, args.route) : undefined;
+  return routeKey
+    ? `capability:${args.productArea}:${routeKey}:${args.capabilityKey}`
+    : `capability:${args.productArea}:${args.capabilityKey}`;
+}
+
 function findLayer(context: HermesMappingContext, names: string[]) {
   return layerByName(context.layers, names);
 }
@@ -545,6 +566,18 @@ function pushSemanticSuggestion(
   suggestion: HermesSemanticNodeSuggestion,
 ) {
   const key = suggestion.semanticKey.toLowerCase();
+  const existingIndex = out.findIndex((candidate) => candidate.semanticKey.toLowerCase() === key);
+  if (existingIndex >= 0) {
+    const existing = out[existingIndex]!;
+    const existingScore =
+      existing.confidence + (existing.parentNodeId ? 0.05 : 0) + (existing.routeHint ? 0.03 : 0);
+    const nextScore =
+      suggestion.confidence +
+      (suggestion.parentNodeId ? 0.05 : 0) +
+      (suggestion.routeHint ? 0.03 : 0);
+    if (nextScore > existingScore) out[existingIndex] = suggestion;
+    return;
+  }
   if (seen.has(key)) return;
   seen.add(key);
   out.push(suggestion);
@@ -576,11 +609,11 @@ function semanticNodeSuggestionsFromFacts(
 
   for (const fact of facts) {
     const path = normalized(fact.path);
-    const area = productAreaForFact(path, fact);
     const evidence = evidenceFor(path, fact);
     const owner = ownershipByPath.get(path);
     const existingSurface = surfaceNodeForFact(context, fact, nodeByFile) ?? owner?.surfaceNode;
     const route = surfaceRouteForFact(fact) ?? owner?.routeHint;
+    const area = existingSurface?.productArea ?? productAreaForFact(path, fact);
 
     if (route && !existingSurface && surfaceLayer) {
       pushSemanticSuggestion(suggestions, seen, {
@@ -602,7 +635,7 @@ function semanticNodeSuggestionsFromFacts(
       if (!capabilityLayer) continue;
       pushSemanticSuggestion(suggestions, seen, {
         sourceFilePath: path,
-        semanticKey: `capability:${capabilityKey}:${path}`,
+        semanticKey: capabilitySemanticKey({ capabilityKey, productArea: area, path, fact, route }),
         suggestedNodeName: capabilityName(capabilityKey),
         semanticKind: 'capability',
         productArea: area,

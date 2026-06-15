@@ -30,6 +30,11 @@ import {
   type CanvasEdgeMode,
   type CanvasFlowSelection,
 } from '@/lib/canvas-edge-presentation';
+import {
+  buildCollapsedGraph,
+  type CollapsedNodeStats,
+  type RenderEdge,
+} from '@/lib/canvas-collapse';
 
 export type ArchNode = PageNodeType | FeatureNodeType;
 
@@ -82,7 +87,7 @@ const EDGE_STYLE_BY_TYPE: Record<EdgeType, EdgeVariantStyle> = {
   },
 };
 
-function convexEdgeToRf(edge: Doc<'nodeEdges'>, highlightMode: HighlightMode | undefined): Edge {
+function convexEdgeToRf(edge: RenderEdge, highlightMode: HighlightMode | undefined): Edge {
   const style = EDGE_STYLE_BY_TYPE[edge.type];
   const active = highlightMode?.edgeIds.has(edge._id as string) ?? false;
   const dimmed = highlightMode?.hasFocus ? !active : false;
@@ -97,6 +102,12 @@ function convexEdgeToRf(edge: Doc<'nodeEdges'>, highlightMode: HighlightMode | u
     // children. React Flow's default corner radius (5px) is fine.
     type: 'smoothstep',
     data: { edgeType: edge.type },
+    label: edge.aggregateCount && edge.aggregateCount > 1 ? `${edge.aggregateCount}` : undefined,
+    labelStyle: { fill: '#fef3c7', fontSize: 10, fontWeight: 700 },
+    labelBgStyle: {
+      fill: 'rgba(24, 24, 27, 0.92)',
+      stroke: 'rgba(250, 204, 21, 0.35)',
+    },
     style: {
       stroke,
       strokeWidth,
@@ -134,10 +145,14 @@ function convexEdgeToRf(edge: Doc<'nodeEdges'>, highlightMode: HighlightMode | u
  * same field. The relative conversion is the renderer's job.
  */
 function buildRfNodes(
+  projectId: Id<'projects'>,
   visibleNodes: Doc<'nodes'>[],
   highlightedNodeIds: ReadonlySet<string> | undefined,
   nodeSummaries: ReadonlyMap<string, NodeSummary>,
   edgeCounts: ReadonlyMap<string, number>,
+  collapsedStats: ReadonlyMap<string, CollapsedNodeStats>,
+  collapsedNodeIds: ReadonlySet<string>,
+  relatedFlowCounts: ReadonlyMap<string, number>,
 ): ArchNode[] {
   if (visibleNodes.length === 0) return [];
   const hasHighlight = highlightedNodeIds !== undefined;
@@ -188,7 +203,9 @@ function buildRfNodes(
     const highlighted = highlightedNodeIds?.has(id) ?? false;
     const dimmed = hasHighlight && !highlighted;
     const summary = nodeSummaries.get(id);
+    const collapseStats = collapsedStats.get(id);
     const commonData = {
+      projectId,
       semanticKind: n.semanticKind ?? 'unknown',
       productArea: n.productArea ?? 'unknown',
       mappingStatus: n.mappingStatus ?? 'manual',
@@ -196,6 +213,12 @@ function buildRfNodes(
       fileCount: summary?.fileCount ?? 0,
       verifiedCount: summary?.verifiedCount ?? 0,
       edgeCount: edgeCounts.get(id) ?? 0,
+      collapsed: collapsedNodeIds.has(id),
+      childCount: collapseStats?.directChildCount ?? 0,
+      hiddenNodeCount: collapseStats?.hiddenNodeCount ?? 0,
+      hiddenFileCount: collapseStats?.hiddenFileCount ?? 0,
+      hiddenEdgeCount: collapseStats?.hiddenEdgeCount ?? 0,
+      relatedFlowCount: relatedFlowCounts.get(id) ?? 0,
     };
 
     if (n.type === 'feature') {
@@ -297,11 +320,14 @@ function filterToDescendants(nodes: Doc<'nodes'>[], drillNodeId: Id<'nodes'>): D
 }
 
 interface Args {
+  projectId: Id<'projects'>;
   nodes: Doc<'nodes'>[] | undefined;
   edges: Doc<'nodeEdges'>[] | undefined;
   nodeSummaries?: NodeSummary[] | undefined;
   edgeMode?: CanvasEdgeMode;
   selectedFlow?: CanvasFlowSelection | null;
+  collapsedNodeIds?: ReadonlySet<string>;
+  relatedFlowCounts?: ReadonlyMap<string, number>;
 }
 
 interface SyncResult {
@@ -321,23 +347,26 @@ interface SyncResult {
 const SUSPICIOUS_EMPTY_GRACE_MS = 1500;
 
 export function useCanvasSync({
+  projectId,
   nodes,
   edges,
   nodeSummaries,
   edgeMode = 'overview',
   selectedFlow,
+  collapsedNodeIds = new Set(),
+  relatedFlowCounts = new Map(),
 }: Args): SyncResult {
   const updateMutation = useMutation(api.nodes.update);
   const removeEdgeMutation = useMutation(api.nodeEdges.remove);
 
   const drillNodeId = useDrillStore((s) => s.drillNodeId);
-  const visibleNodes = useMemo(() => {
+  const scopedNodes = useMemo(() => {
     if (!nodes) return undefined;
     if (drillNodeId === null) return nodes;
     return filterToDescendants(nodes, drillNodeId);
   }, [nodes, drillNodeId]);
 
-  const visibleEdges = useMemo(() => {
+  const scopedEdges = useMemo(() => {
     if (!edges) return undefined;
     // Filter pipeline:
     //   1. Drill-scope: drop edges that point at nodes outside the visible set.
@@ -347,10 +376,10 @@ export function useCanvasSync({
     //      Cross-cluster hierarchy (e.g. a feature promoted to page) keeps
     //      its arrow.
     const scoped =
-      drillNodeId === null || !visibleNodes
+      drillNodeId === null || !scopedNodes
         ? edges
         : (() => {
-            const visibleIds = new Set(visibleNodes.map((n) => n._id as string));
+            const visibleIds = new Set(scopedNodes.map((n) => n._id as string));
             return edges.filter(
               (e) =>
                 visibleIds.has(e.sourceNodeId as string) &&
@@ -358,20 +387,64 @@ export function useCanvasSync({
             );
           })();
 
-    if (!visibleNodes) return scoped;
-    const nodesById = new Map(visibleNodes.map((n) => [n._id as string, n]));
+    if (!scopedNodes) return scoped;
+    const nodesById = new Map(scopedNodes.map((n) => [n._id as string, n]));
     return scoped.filter((e) => {
       if (e.type !== 'hierarchy') return true;
       const target = nodesById.get(e.targetNodeId as string);
       if (!target?.parentId) return true;
       return (target.parentId as string) !== (e.sourceNodeId as string);
     });
-  }, [edges, visibleNodes, drillNodeId]);
+  }, [edges, scopedNodes, drillNodeId]);
+
+  const collapsedGraph = useMemo(() => {
+    if (!scopedNodes || !scopedEdges) return undefined;
+    return buildCollapsedGraph({
+      nodes: scopedNodes,
+      edges: scopedEdges,
+      nodeSummaries: nodeSummaries ?? [],
+      collapsedNodeIds,
+    });
+  }, [collapsedNodeIds, nodeSummaries, scopedEdges, scopedNodes]);
+
+  const visibleNodes = collapsedGraph?.visibleNodes;
+  const visibleEdges = collapsedGraph?.renderEdges;
 
   const edgePresentation = useMemo(() => {
     if (!visibleEdges) return undefined;
-    return getCanvasEdgePresentation(visibleEdges, edgeMode, selectedFlow);
-  }, [edgeMode, selectedFlow, visibleEdges]);
+    const visibleFlow =
+      selectedFlow && collapsedGraph
+        ? {
+            ...selectedFlow,
+            nodeIds: Array.from(
+              new Set(
+                selectedFlow.nodeIds.map(
+                  (nodeId) =>
+                    (collapsedGraph.visibleNodeIdForNodeId.get(nodeId as string) ??
+                      (nodeId as string)) as Id<'nodes'>,
+                ),
+              ),
+            ),
+            edgeRefs: selectedFlow.edgeRefs
+              ?.map((ref) => {
+                const sourceNodeId = ref.sourceNodeId
+                  ? ((collapsedGraph.visibleNodeIdForNodeId.get(ref.sourceNodeId as string) ??
+                      (ref.sourceNodeId as string)) as Id<'nodes'>)
+                  : undefined;
+                const targetNodeId = ref.targetNodeId
+                  ? ((collapsedGraph.visibleNodeIdForNodeId.get(ref.targetNodeId as string) ??
+                      (ref.targetNodeId as string)) as Id<'nodes'>)
+                  : undefined;
+                return { ...ref, sourceNodeId, targetNodeId };
+              })
+              .filter(
+                (ref) =>
+                  !ref.sourceNodeId || !ref.targetNodeId || ref.sourceNodeId !== ref.targetNodeId,
+              ),
+          }
+        : selectedFlow;
+    return getCanvasEdgePresentation(visibleEdges, edgeMode, visibleFlow);
+  }, [collapsedGraph, edgeMode, selectedFlow, visibleEdges]);
 
   const highlightMode = useMemo<HighlightMode | undefined>(() => {
     if (!edgePresentation?.hasFocus || !edgePresentation.highlightedEdgeIds) return undefined;
@@ -382,8 +455,13 @@ export function useCanvasSync({
   }, [edgePresentation]);
 
   const highlightedNodeIds = useMemo<Set<string> | undefined>(() => {
-    return edgePresentation?.hasFocus ? edgePresentation.highlightedNodeIds : undefined;
-  }, [edgePresentation]);
+    if (!edgePresentation?.hasFocus || !edgePresentation.highlightedNodeIds) return undefined;
+    const out = new Set<string>();
+    for (const nodeId of edgePresentation.highlightedNodeIds) {
+      out.add(collapsedGraph?.visibleNodeIdForNodeId.get(nodeId) ?? nodeId);
+    }
+    return out;
+  }, [collapsedGraph?.visibleNodeIdForNodeId, edgePresentation]);
 
   const summaryByNode = useMemo(() => {
     return new Map((nodeSummaries ?? []).map((summary) => [summary.nodeId, summary]));
@@ -403,7 +481,7 @@ export function useCanvasSync({
   const [rfNodes, setRfNodes, onNodesChangeInternal] = useNodesState<ArchNode>([]);
   const [rfEdges, setRfEdges, onEdgesChangeInternal] = useEdgesState<Edge>([]);
 
-  const edgesRef = useRef<Doc<'nodeEdges'>[] | undefined>(visibleEdges);
+  const edgesRef = useRef<RenderEdge[] | undefined>(visibleEdges);
   edgesRef.current = visibleEdges;
   // Mirror of visibleNodes so the drag-stop handler can convert a child's
   // relative position back to absolute by looking up its parent's
@@ -442,8 +520,29 @@ export function useCanvasSync({
     }
 
     prevNodeCountRef.current = visibleNodes.length;
-    setRfNodes(buildRfNodes(visibleNodes, highlightedNodeIds, summaryByNode, edgeCountByNode));
-  }, [visibleNodes, highlightedNodeIds, summaryByNode, edgeCountByNode, setRfNodes]);
+    setRfNodes(
+      buildRfNodes(
+        projectId,
+        visibleNodes,
+        highlightedNodeIds,
+        summaryByNode,
+        edgeCountByNode,
+        collapsedGraph?.collapsedStats ?? new Map(),
+        collapsedNodeIds,
+        relatedFlowCounts,
+      ),
+    );
+  }, [
+    collapsedGraph?.collapsedStats,
+    collapsedNodeIds,
+    edgeCountByNode,
+    highlightedNodeIds,
+    projectId,
+    relatedFlowCounts,
+    setRfNodes,
+    summaryByNode,
+    visibleNodes,
+  ]);
 
   useEffect(() => {
     if (!visibleEdges) return;
@@ -509,7 +608,8 @@ export function useCanvasSync({
         if (backing.type === 'hierarchy') {
           continue;
         }
-        removeEdgeMutation({ id: backing._id });
+        if ((backing._id as string).startsWith('aggregate:')) continue;
+        removeEdgeMutation({ id: backing._id as Id<'nodeEdges'> });
         filtered.push(change);
       }
       onEdgesChangeInternal(filtered);

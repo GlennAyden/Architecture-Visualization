@@ -11,6 +11,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { useModalStore } from '@/store/modal-store';
+import { useCanvasViewStore } from '@/store/canvas-view-store';
 
 interface Props {
   projectId: Id<'projects'>;
@@ -56,6 +57,7 @@ export function CommandPalette({ projectId }: Props) {
   const [highlight, setHighlight] = useState(0);
   const listRef = useRef<HTMLDivElement | null>(null);
   const openModal = useModalStore((s) => s.open);
+  const expandNode = useCanvasViewStore((s) => s.expandNode);
   const rf = useReactFlow();
 
   // Only fetch nodes when the palette is open; on first open we rely on the
@@ -95,6 +97,13 @@ export function CommandPalette({ projectId }: Props) {
   }, [open]);
 
   const selectNode = (node: Doc<'nodes'>) => {
+    let parentId = node.parentId as Id<'nodes'> | undefined;
+    const byId = new Map((nodes ?? []).map((item) => [item._id as string, item]));
+    while (parentId) {
+      expandNode(projectId, parentId);
+      const parent = byId.get(parentId as string);
+      parentId = parent?.parentId as Id<'nodes'> | undefined;
+    }
     try {
       // Center the camera on the node's position; React Flow handles the
       // animation. setCenter takes world coords, which is what we store.

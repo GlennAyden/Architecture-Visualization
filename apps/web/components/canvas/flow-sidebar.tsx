@@ -23,6 +23,12 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { computeLayerUsage, sortLayers } from '@/lib/architecture-layers';
 import type { CanvasEdgeMode } from '@/lib/canvas-edge-presentation';
+import {
+  clusterArchitectureFlows,
+  type ArchitectureFlowRow,
+  type FlowCluster,
+} from '@/lib/flow-clusters';
+import { useCanvasViewStore } from '@/store/canvas-view-store';
 import { HermesInboxPanel } from './hermes-inbox-panel';
 
 const EDGE_MODES: Array<{ id: CanvasEdgeMode; label: string }> = [
@@ -41,11 +47,6 @@ const FLOW_KIND_LABELS: Record<Doc<'architectureFlows'>['kind'], string> = {
   agent_workflow: 'Agent workflow',
   build_deploy: 'Build/deploy',
   integration: 'Integration',
-};
-
-type ArchitectureFlowRow = Doc<'architectureFlows'> & {
-  isCurated?: boolean;
-  nodeNames?: Record<string, string>;
 };
 
 type SidebarTab = 'overview' | 'layers' | 'hermes' | 'inspector' | 'flows';
@@ -89,6 +90,7 @@ interface Props {
   edgeMode: CanvasEdgeMode;
   onEdgeModeChange: (mode: CanvasEdgeMode) => void;
   selectedNodeName: string | null;
+  relatedFlows: ArchitectureFlowRow[];
   nodeCount: number;
   edgeCount: number;
 }
@@ -108,6 +110,7 @@ export function FlowSidebar({
   edgeMode,
   onEdgeModeChange,
   selectedNodeName,
+  relatedFlows,
   nodeCount,
   edgeCount,
 }: Props) {
@@ -124,6 +127,12 @@ export function FlowSidebar({
   const [flowView, setFlowView] = useState<FlowView>('featured');
   const [productAreaFilter, setProductAreaFilter] = useState<ProductAreaFilter>('all');
   const [verifying, setVerifying] = useState(false);
+  const expandedFlowClusterKeys = useCanvasViewStore(
+    (s) => s.projects[projectId as string]?.expandedFlowClusterKeys ?? [],
+  );
+  const setFlowClusterExpanded = useCanvasViewStore((s) => s.setFlowClusterExpanded);
+  const expandAllFlowClusters = useCanvasViewStore((s) => s.expandAllFlowClusters);
+  const collapseAllFlowClusters = useCanvasViewStore((s) => s.collapseAllFlowClusters);
   const sortedLayers = sortLayers(layers);
   const layerUsage = useMemo(() => computeLayerUsage(layers, nodes), [layers, nodes]);
   const emptySemanticLayers = useMemo(
@@ -140,6 +149,14 @@ export function FlowSidebar({
     if (productAreaFilter === 'all') return byView;
     return byView.filter((flow) => flow.productArea === productAreaFilter);
   }, [flowView, flows, productAreaFilter]);
+  const flowClusters = useMemo(
+    () => clusterArchitectureFlows(displayedFlows, nodes ?? []),
+    [displayedFlows, nodes],
+  );
+  const expandedFlowClusterKeySet = useMemo(
+    () => new Set(expandedFlowClusterKeys),
+    [expandedFlowClusterKeys],
+  );
   const selectedFlow = useMemo(
     () => flows?.find((flow) => flow._id === selectedFlowId) ?? null,
     [flows, selectedFlowId],
@@ -449,6 +466,45 @@ export function FlowSidebar({
                   )}
                 </InspectorBlock>
 
+                <InspectorBlock icon={GitBranch} title="Related flows">
+                  {relatedFlows.length === 0 ? (
+                    <p className="text-sm text-zinc-500">
+                      No architecture flows touch this node yet.
+                    </p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {relatedFlows.slice(0, 8).map((flow) => (
+                        <button
+                          key={flow._id}
+                          type="button"
+                          onClick={() => {
+                            onSelectedFlowChange(flow._id);
+                            setActiveTab('flows');
+                          }}
+                          className={cn(
+                            'flex w-full items-center justify-between gap-2 rounded border px-2 py-1.5 text-left',
+                            selectedFlowId === flow._id
+                              ? 'border-amber-400/60 bg-amber-400/10'
+                              : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.06]',
+                          )}
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate text-xs font-medium text-zinc-200">
+                              {flow.shortTitle ?? flow.title}
+                            </span>
+                            <span className="block truncate text-[11px] text-zinc-500">
+                              {FLOW_KIND_LABELS[flow.kind]} / {flow.nodeIds.length} nodes
+                            </span>
+                          </span>
+                          <span className="shrink-0 text-[11px] text-amber-300">
+                            {Math.round(flow.confidence * 100)}%
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </InspectorBlock>
+
                 <Button
                   variant="ghost"
                   size="sm"
@@ -526,50 +582,52 @@ export function FlowSidebar({
                     ),
                   )}
                 </div>
-                <div className="overflow-hidden rounded-md border border-white/10">
-                  {displayedFlows.length > 0 ? (
-                    displayedFlows.map((flow) => {
-                      const selected = selectedFlowId === flow._id;
-                      return (
-                        <button
-                          key={flow._id}
-                          type="button"
-                          onClick={() => onSelectedFlowChange(flow._id)}
-                          className={cn(
-                            'flex w-full items-start gap-3 border-b border-white/10 px-3 py-3 text-left last:border-b-0',
-                            'transition-colors hover:bg-white/[0.04]',
-                            selected &&
-                              'bg-amber-400/10 text-amber-200 ring-1 ring-inset ring-amber-400/70',
-                          )}
-                        >
-                          <span
-                            className={cn(
-                              'mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 text-zinc-400',
-                              selected && 'border-amber-400/70 text-amber-300',
-                            )}
-                          >
-                            <GitBranch className="h-4 w-4" />
-                          </span>
-                          <span className="min-w-0">
-                            <span className="flex min-w-0 items-center gap-2">
-                              <span className="truncate text-sm font-medium text-zinc-100">
-                                {flow.shortTitle ?? flow.title}
-                              </span>
-                              {flow.isCurated === false && (
-                                <span className="shrink-0 rounded border border-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.08em] text-zinc-500">
-                                  legacy
-                                </span>
-                              )}
-                            </span>
-                            <span className="mt-1 block truncate text-xs text-zinc-500">
-                              {FLOW_KIND_LABELS[flow.kind]} / {flow.steps.length} steps /{' '}
-                              {flow.nodeIds.length} nodes / {Math.round(flow.confidence * 100)}%
-                              {flow.productArea ? ` / ${formatToken(flow.productArea)}` : ''}
-                            </span>
-                          </span>
-                        </button>
-                      );
-                    })
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] text-zinc-500">
+                    {flowClusters.length} clusters / {displayedFlows.length} flows
+                  </span>
+                  <div className="flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 border border-white/10 bg-white/[0.03] px-2 text-xs text-zinc-300 hover:bg-white/[0.07]"
+                      onClick={() =>
+                        expandAllFlowClusters(
+                          projectId,
+                          flowClusters.map((cluster) => cluster.key),
+                        )
+                      }
+                    >
+                      Expand
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 border border-white/10 bg-white/[0.03] px-2 text-xs text-zinc-300 hover:bg-white/[0.07]"
+                      onClick={() => collapseAllFlowClusters(projectId)}
+                    >
+                      Collapse
+                    </Button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {flowClusters.length > 0 ? (
+                    flowClusters.map((cluster) => (
+                      <FlowClusterCard
+                        key={cluster.key}
+                        cluster={cluster}
+                        expanded={expandedFlowClusterKeySet.has(cluster.key)}
+                        selectedFlowId={selectedFlowId}
+                        onToggle={() =>
+                          setFlowClusterExpanded(
+                            projectId,
+                            cluster.key,
+                            !expandedFlowClusterKeySet.has(cluster.key),
+                          )
+                        }
+                        onSelectedFlowChange={onSelectedFlowChange}
+                      />
+                    ))
                   ) : (
                     <div className="p-3 text-sm leading-6 text-zinc-500">
                       No featured flows yet. Switch to All to review legacy edge-level flows.
@@ -672,6 +730,103 @@ function PanelTitle({ icon: Icon, title }: { icon: LucideIcon; title: string }) 
     <div className="flex items-center justify-between">
       <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">{title}</h2>
       <Icon className="h-4 w-4 text-cyan-300" />
+    </div>
+  );
+}
+
+function FlowClusterCard({
+  cluster,
+  expanded,
+  selectedFlowId,
+  onToggle,
+  onSelectedFlowChange,
+}: {
+  cluster: FlowCluster;
+  expanded: boolean;
+  selectedFlowId: Id<'architectureFlows'> | null;
+  onToggle: () => void;
+  onSelectedFlowChange: (flow: Id<'architectureFlows'> | null) => void;
+}) {
+  const selectedInside = cluster.flows.some((flow) => flow._id === selectedFlowId);
+  return (
+    <div
+      className={cn(
+        'overflow-hidden rounded-md border',
+        selectedInside
+          ? 'border-amber-400/60 bg-amber-400/[0.06]'
+          : 'border-white/10 bg-white/[0.03]',
+      )}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-start gap-3 px-3 py-3 text-left transition-colors hover:bg-white/[0.04]"
+      >
+        <span
+          className={cn(
+            'mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 text-zinc-400',
+            selectedInside && 'border-amber-400/70 text-amber-300',
+          )}
+        >
+          <GitBranch className="h-4 w-4" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-sm font-medium text-zinc-100">{cluster.title}</span>
+            <span className="shrink-0 rounded border border-white/10 px-1.5 py-0.5 text-[10px] text-zinc-500">
+              {cluster.flows.length} flows
+            </span>
+          </span>
+          <span className="mt-1 block truncate text-xs text-zinc-500">
+            {cluster.subtitle} / {cluster.nodeCount} nodes /{' '}
+            {Math.round(cluster.topConfidence * 100)}%
+          </span>
+          <span className="mt-1 block truncate text-[11px] text-zinc-600">
+            {cluster.topTitles.join(' / ')}
+          </span>
+        </span>
+        <span className="shrink-0 text-xs font-semibold text-cyan-200">
+          {expanded ? 'Collapse' : 'Expand'}
+        </span>
+      </button>
+      {expanded && (
+        <div className="border-t border-white/10">
+          {cluster.flows.map((flow) => {
+            const selected = selectedFlowId === flow._id;
+            return (
+              <button
+                key={flow._id}
+                type="button"
+                onClick={() => onSelectedFlowChange(flow._id)}
+                className={cn(
+                  'flex w-full items-start gap-2 border-b border-white/10 px-3 py-2 text-left last:border-b-0',
+                  'transition-colors hover:bg-white/[0.04]',
+                  selected && 'bg-amber-400/10 text-amber-200',
+                )}
+              >
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-300" />
+                <span className="min-w-0">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-xs font-medium text-zinc-100">
+                      {flow.shortTitle ?? flow.title}
+                    </span>
+                    {flow.isCurated === false && (
+                      <span className="shrink-0 rounded border border-white/10 px-1 py-0.5 text-[9px] uppercase tracking-[0.08em] text-zinc-500">
+                        legacy
+                      </span>
+                    )}
+                  </span>
+                  <span className="mt-1 block truncate text-[11px] text-zinc-500">
+                    {FLOW_KIND_LABELS[flow.kind]} / {flow.steps.length} steps /{' '}
+                    {flow.nodeIds.length} nodes / {Math.round(flow.confidence * 100)}%
+                    {flow.productArea ? ` / ${formatToken(flow.productArea)}` : ''}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

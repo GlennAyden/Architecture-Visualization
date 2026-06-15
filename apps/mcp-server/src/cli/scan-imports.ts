@@ -68,6 +68,12 @@ export interface ScanImportsResult {
 export interface ScanImportsOptions {
   /** When true, skip the Sprint 3 edge walkers + reconcile call. */
   skipEdges?: boolean;
+  /**
+   * Optional operational cap for large repos. A capped run is intentionally
+   * import-link only: reconciling edges from a partial file set would delete
+   * relationships the scanner did not inspect.
+   */
+  maxFiles?: number;
 }
 
 /**
@@ -76,7 +82,13 @@ export interface ScanImportsOptions {
  * pin the parsing contract in a unit test than rely on integration runs.
  */
 export function parseScanImportsArgs(argv: ReadonlyArray<string>): ScanImportsOptions {
-  return { skipEdges: argv.includes('--skip-edges') };
+  const maxFilesArg = argv.find((arg) => arg.startsWith('--max-files='));
+  const maxFilesValue = maxFilesArg?.slice('--max-files='.length);
+  const maxFiles = maxFilesValue ? Number.parseInt(maxFilesValue, 10) : undefined;
+  return {
+    skipEdges: argv.includes('--skip-edges'),
+    maxFiles: maxFiles && maxFiles > 0 ? maxFiles : undefined,
+  };
 }
 
 /* ------------------------------------------------------------------------- */
@@ -182,6 +194,10 @@ export async function runScanImports(
   cwd: string = process.cwd(),
 ): Promise<number> {
   const opts = parseScanImportsArgs(argv);
+  const envMaxFiles = env.ARCHITECTURE_SCAN_IMPORTS_MAX_FILES
+    ? Number.parseInt(env.ARCHITECTURE_SCAN_IMPORTS_MAX_FILES, 10)
+    : undefined;
+  const maxFiles = opts.maxFiles ?? (envMaxFiles && envMaxFiles > 0 ? envMaxFiles : undefined);
   const config = loadConfig(env);
   const client = new ConvexMcpClient(config);
   await verifyProjectScope(client, config, 'scan-imports');
@@ -198,6 +214,7 @@ export async function runScanImports(
   const importResolver = createImportResolver(cwd);
 
   for (const [relPath, ownerNodeIds] of fileToOwners) {
+    if (maxFiles && result.filesScanned >= maxFiles) break;
     if (!hasSourceExtension(relPath)) continue;
     const abs = resolve(cwd, relPath);
     if (!existsSync(abs)) continue;
@@ -233,7 +250,7 @@ export async function runScanImports(
       }
     }
 
-    if (opts.skipEdges) continue;
+    if (opts.skipEdges || maxFiles) continue;
 
     // --- Sprint 3 edge emission --------------------------------------------
     //
@@ -272,6 +289,13 @@ export async function runScanImports(
     `Scanned ${result.filesScanned} files → linked ${result.linked} new imports ` +
       `(${result.alreadyLinked} already linked, ${result.skipped} skipped)`,
   );
+
+  if (maxFiles) {
+    progress(
+      `[scan-imports] bounded run capped at ${maxFiles} scanned source file(s); skipped edge reconcile`,
+    );
+    return 0;
+  }
 
   if (opts.skipEdges) return 0;
 

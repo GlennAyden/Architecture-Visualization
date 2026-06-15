@@ -29,8 +29,11 @@ import { FlowSidebar } from '@/components/canvas/flow-sidebar';
 import { NodeModal } from '@/components/node-modal/node-modal';
 import { useCanvasSync, type ArchNode } from '@/hooks/use-canvas-sync';
 import type { CanvasEdgeMode } from '@/lib/canvas-edge-presentation';
+import { getCollapsibleNodeIds, getDefaultCollapsedNodeIds } from '@/lib/canvas-collapse';
+import { getRelatedFlowsForNode } from '@/lib/flow-clusters';
 import { useModalStore } from '@/store/modal-store';
 import { useDrillStore } from '@/store/drill-store';
+import { useCanvasViewStore } from '@/store/canvas-view-store';
 
 const nodeTypes: NodeTypes = {
   'page-node': PageNode,
@@ -76,9 +79,43 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
   const setChildren = useDrillStore((s) => s.setChildren);
   const drillUp = useDrillStore((s) => s.drillUp);
   const resetDrill = useDrillStore((s) => s.reset);
+  const collapsedNodeIds = useCanvasViewStore(
+    (s) => s.projects[projectId as string]?.collapsedNodeIds ?? [],
+  );
+  const ensureCanvasViewProject = useCanvasViewStore((s) => s.ensureProject);
+  const collapseMany = useCanvasViewStore((s) => s.collapseMany);
+  const expandAllNodes = useCanvasViewStore((s) => s.expandAllNodes);
+
+  const collapsedNodeIdSet = useMemo(() => new Set(collapsedNodeIds), [collapsedNodeIds]);
+  const collapsibleNodeIds = useMemo(() => (nodes ? getCollapsibleNodeIds(nodes) : []), [nodes]);
+  const relatedFlowCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    if (!nodes || !architectureFlows) return counts;
+    for (const node of nodes) {
+      counts.set(
+        node._id as string,
+        getRelatedFlowsForNode({
+          nodeId: node._id as string,
+          nodes,
+          flows: architectureFlows,
+        }).length,
+      );
+    }
+    return counts;
+  }, [architectureFlows, nodes]);
+
+  const relatedFlowsForInspectedNode = useMemo(() => {
+    if (!inspectedNodeId || !nodes || !architectureFlows) return [];
+    return getRelatedFlowsForNode({
+      nodeId: inspectedNodeId as string,
+      nodes,
+      flows: architectureFlows,
+    });
+  }, [architectureFlows, inspectedNodeId, nodes]);
 
   const { rfNodes, rfEdges, onNodesChange, onEdgesChange, onNodeDragStop, onConnect } =
     useCanvasSync({
+      projectId,
       nodes,
       edges,
       nodeSummaries,
@@ -86,6 +123,8 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
       selectedFlow:
         architectureFlows?.find((flow) => flow._id === selectedFlowId) ??
         (selectedFlowId ? null : undefined),
+      collapsedNodeIds: collapsedNodeIdSet,
+      relatedFlowCounts,
     });
 
   const rf = useReactFlow();
@@ -102,6 +141,11 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
       console.error('Failed to ensure default project layers', error);
     });
   }, [ensureDefaultLayers, layers, nodes, project, projectId]);
+
+  useEffect(() => {
+    if (!nodes) return;
+    ensureCanvasViewProject(projectId, getDefaultCollapsedNodeIds(nodes));
+  }, [ensureCanvasViewProject, nodes, projectId]);
 
   // Sprint 5C drill-down: keep the children map (parentId → child ids) in the
   // drill store so shape utils can read `hasChildren(nodeId)` to decide
@@ -415,6 +459,27 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
             />
           </ReactFlow>
 
+          {collapsibleNodeIds.length > 0 && (
+            <div className="absolute left-5 top-5 z-20 flex gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => collapseMany(projectId, collapsibleNodeIds)}
+                className="h-8 border border-white/10 bg-zinc-950/90 text-zinc-300 shadow-xl hover:bg-white/[0.07] hover:text-zinc-50"
+              >
+                Collapse all
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => expandAllNodes(projectId)}
+                className="h-8 border border-white/10 bg-zinc-950/90 text-zinc-300 shadow-xl hover:bg-white/[0.07] hover:text-zinc-50"
+              >
+                Expand all
+              </Button>
+            </div>
+          )}
+
           <div className="pointer-events-none absolute bottom-5 left-24 z-20 flex flex-wrap items-center gap-5 rounded-lg border border-white/10 bg-zinc-950/90 px-4 py-3 text-xs text-zinc-400 shadow-2xl shadow-black/30">
             <LegendItem color="border-zinc-500" label="hierarchy" dashed />
             <LegendItem color="border-zinc-500" label="dependency" dashed />
@@ -439,6 +504,7 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
           edgeMode={edgeMode}
           onEdgeModeChange={setEdgeMode}
           selectedNodeName={selectedNodeName}
+          relatedFlows={relatedFlowsForInspectedNode}
           nodeCount={nodes?.length ?? 0}
           edgeCount={edges?.length ?? 0}
         />

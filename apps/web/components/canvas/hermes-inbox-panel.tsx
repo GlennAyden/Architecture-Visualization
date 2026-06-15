@@ -162,23 +162,36 @@ export function HermesInboxPanel({ projectId }: Props) {
   const ignore = useMutation(api.codebaseSuggestions.ignore);
   const updateReview = useMutation(api.codebaseSuggestions.updateReview);
   const bulkApply = useMutation(api.codebaseSuggestions.applyHighConfidence);
+  const applyAll = useMutation(api.codebaseSuggestions.applyAllPending);
+  const ignoreAll = useMutation(api.codebaseSuggestions.ignoreAllPending);
+  const rejectAll = useMutation(api.codebaseSuggestions.rejectAllPending);
   const applySemantic = useMutation(api.semanticNodeSuggestions.apply);
   const rejectSemantic = useMutation(api.semanticNodeSuggestions.reject);
   const ignoreSemantic = useMutation(api.semanticNodeSuggestions.ignore);
   const updateSemanticReview = useMutation(api.semanticNodeSuggestions.updateReview);
   const bulkApplySemantic = useMutation(api.semanticNodeSuggestions.applyHighConfidence);
+  const applyAllSemantic = useMutation(api.semanticNodeSuggestions.applyAllPending);
+  const ignoreAllSemantic = useMutation(api.semanticNodeSuggestions.ignoreAllPending);
+  const rejectAllSemantic = useMutation(api.semanticNodeSuggestions.rejectAllPending);
   const applyRelationship = useMutation(api.relationshipSuggestions.apply);
   const rejectRelationship = useMutation(api.relationshipSuggestions.reject);
   const ignoreRelationship = useMutation(api.relationshipSuggestions.ignore);
   const bulkApplyRelationships = useMutation(api.relationshipSuggestions.applyHighConfidence);
+  const applyAllRelationships = useMutation(api.relationshipSuggestions.applyAllPending);
+  const ignoreAllRelationships = useMutation(api.relationshipSuggestions.ignoreAllPending);
+  const rejectAllRelationships = useMutation(api.relationshipSuggestions.rejectAllPending);
   const applyFlow = useMutation(api.architectureFlows.apply);
   const rejectFlow = useMutation(api.architectureFlows.reject);
   const ignoreFlow = useMutation(api.architectureFlows.ignore);
   const bulkApplyFlows = useMutation(api.architectureFlows.applyHighConfidence);
+  const applyAllFlows = useMutation(api.architectureFlows.applyAllPending);
+  const ignoreAllFlows = useMutation(api.architectureFlows.ignoreAllPending);
+  const rejectAllFlows = useMutation(api.architectureFlows.rejectAllPending);
 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [bulkResult, setBulkResult] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<Id<'codebaseSuggestions'> | null>(null);
   const [editingSemanticId, setEditingSemanticId] = useState<Id<'semanticNodeSuggestions'> | null>(
     null,
@@ -378,6 +391,23 @@ export function HermesInboxPanel({ projectId }: Props) {
     }
   };
 
+  type BulkResult = { applied: number; ignored: number; rejected: number; failed: number };
+  const runBulkAction = async (label: string, count: number, action: () => Promise<BulkResult>) => {
+    if (count === 0) return;
+    const ok = window.confirm(`${label} ${count} pending items?`);
+    if (!ok) return;
+    setBusyId(`bulk:${label}`);
+    setBulkResult(null);
+    try {
+      const result = await action();
+      setBulkResult(
+        `${label}: ${result.applied} applied, ${result.ignored} ignored, ${result.rejected} rejected, ${result.failed} failed`,
+      );
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const handleRelationshipApply = async (id: Id<'relationshipSuggestions'>) => {
     setBusyId(id);
     try {
@@ -491,6 +521,12 @@ export function HermesInboxPanel({ projectId }: Props) {
         </Button>
       )}
 
+      {bulkResult && (
+        <p className="mb-3 rounded border border-emerald-400/20 bg-emerald-400/10 px-2 py-1 text-xs text-emerald-100">
+          {bulkResult}
+        </p>
+      )}
+
       {pending === undefined ? (
         <p className="rounded-md border border-white/10 bg-white/[0.03] p-3 text-sm text-zinc-500">
           Loading suggestions...
@@ -501,9 +537,26 @@ export function HermesInboxPanel({ projectId }: Props) {
         </p>
       ) : (
         <div className="space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-            Needs review
-          </p>
+          <ReviewSectionHeader
+            title="Needs review"
+            count={pending.length}
+            disabled={busyId !== null}
+            onApply={() =>
+              void runBulkAction('Apply mapping suggestions', pending.length, () =>
+                applyAll({ projectId }),
+              )
+            }
+            onIgnore={() =>
+              void runBulkAction('Ignore mapping suggestions', pending.length, () =>
+                ignoreAll({ projectId }),
+              )
+            }
+            onReject={() =>
+              void runBulkAction('Reject mapping suggestions', pending.length, () =>
+                rejectAll({ projectId }),
+              )
+            }
+          />
           {visiblePending.map((suggestion) => {
             const isEditing = editingId === suggestion._id;
             return (
@@ -725,9 +778,26 @@ export function HermesInboxPanel({ projectId }: Props) {
 
       {pendingSemantic !== undefined && visibleSemanticPending.length > 0 && (
         <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-            Semantic function review
-          </p>
+          <ReviewSectionHeader
+            title="Semantic function review"
+            count={pendingSemantic.length}
+            disabled={busyId !== null}
+            onApply={() =>
+              void runBulkAction('Apply semantic suggestions', pendingSemantic.length, () =>
+                applyAllSemantic({ projectId }),
+              )
+            }
+            onIgnore={() =>
+              void runBulkAction('Ignore semantic suggestions', pendingSemantic.length, () =>
+                ignoreAllSemantic({ projectId }),
+              )
+            }
+            onReject={() =>
+              void runBulkAction('Reject semantic suggestions', pendingSemantic.length, () =>
+                rejectAllSemantic({ projectId }),
+              )
+            }
+          />
           {visibleSemanticPending.map((suggestion) => {
             const isEditing = editingSemanticId === suggestion._id;
             return (
@@ -944,9 +1014,32 @@ export function HermesInboxPanel({ projectId }: Props) {
 
       {pendingRelationships !== undefined && visibleRelationshipPending.length > 0 && (
         <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-            Relationship review
-          </p>
+          <ReviewSectionHeader
+            title="Relationship review"
+            count={pendingRelationships.length}
+            disabled={busyId !== null}
+            onApply={() =>
+              void runBulkAction(
+                'Apply relationship suggestions',
+                pendingRelationships.length,
+                () => applyAllRelationships({ projectId }),
+              )
+            }
+            onIgnore={() =>
+              void runBulkAction(
+                'Ignore relationship suggestions',
+                pendingRelationships.length,
+                () => ignoreAllRelationships({ projectId }),
+              )
+            }
+            onReject={() =>
+              void runBulkAction(
+                'Reject relationship suggestions',
+                pendingRelationships.length,
+                () => rejectAllRelationships({ projectId }),
+              )
+            }
+          />
           {visibleRelationshipPending.map((suggestion) => (
             <div
               key={suggestion._id}
@@ -1011,9 +1104,26 @@ export function HermesInboxPanel({ projectId }: Props) {
 
       {pendingFlows !== undefined && visibleFlowPending.length > 0 && (
         <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-            Flow review
-          </p>
+          <ReviewSectionHeader
+            title="Flow review"
+            count={pendingFlows.length}
+            disabled={busyId !== null}
+            onApply={() =>
+              void runBulkAction('Apply flow suggestions', pendingFlows.length, () =>
+                applyAllFlows({ projectId }),
+              )
+            }
+            onIgnore={() =>
+              void runBulkAction('Ignore flow suggestions', pendingFlows.length, () =>
+                ignoreAllFlows({ projectId }),
+              )
+            }
+            onReject={() =>
+              void runBulkAction('Reject flow suggestions', pendingFlows.length, () =>
+                rejectAllFlows({ projectId }),
+              )
+            }
+          />
           {visibleFlowPending.map((flow) => (
             <div
               key={flow._id}
@@ -1191,5 +1301,58 @@ export function HermesInboxPanel({ projectId }: Props) {
         </div>
       )}
     </section>
+  );
+}
+
+function ReviewSectionHeader({
+  title,
+  count,
+  disabled,
+  onApply,
+  onIgnore,
+  onReject,
+}: {
+  title: string;
+  count: number;
+  disabled: boolean;
+  onApply: () => void;
+  onIgnore: () => void;
+  onReject: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+        {title} ({count})
+      </p>
+      <div className="flex flex-wrap gap-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 border border-emerald-400/25 bg-emerald-400/10 px-2 text-[11px] text-emerald-100 hover:bg-emerald-400/20"
+          disabled={disabled || count === 0}
+          onClick={onApply}
+        >
+          Apply all
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 border border-white/10 bg-white/[0.03] px-2 text-[11px] text-zinc-300 hover:bg-white/[0.07]"
+          disabled={disabled || count === 0}
+          onClick={onIgnore}
+        >
+          Ignore all
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 border border-rose-400/20 bg-rose-400/10 px-2 text-[11px] text-rose-100 hover:bg-rose-400/20"
+          disabled={disabled || count === 0}
+          onClick={onReject}
+        >
+          Reject all
+        </Button>
+      </div>
+    </div>
   );
 }

@@ -394,6 +394,63 @@ describe('codebase suggestions', () => {
     expect(rejectedRows.map((s) => s.filePath)).toContain('src/reject.ts');
   });
 
+  test('bulk pending actions process all review rows without changing applied rows', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, rawToken, projectId, layers } = await seedTokenForUser(t);
+
+    await pushSuggestion(t, rawToken, {
+      filePath: 'src/apply-a.ts',
+      layerId: layers[0]!._id,
+      suggestedNodeName: 'Apply A',
+      confidence: 0.4,
+      reason: 'Manual bulk apply candidate.',
+    });
+    await pushSuggestion(t, rawToken, {
+      filePath: 'src/apply-b.ts',
+      layerId: layers[0]!._id,
+      suggestedNodeName: 'Apply B',
+      confidence: 0.4,
+      reason: 'Manual bulk apply candidate.',
+    });
+
+    await expect(
+      asUser.mutation(api.codebaseSuggestions.applyAllPending, { projectId }),
+    ).resolves.toMatchObject({ applied: 2, failed: 0 });
+    const applied = await asUser.query(api.codebaseSuggestions.listByProject, {
+      projectId,
+      status: 'applied',
+    });
+    expect(applied.map((row) => row.filePath).sort()).toEqual(['src/apply-a.ts', 'src/apply-b.ts']);
+
+    await pushSuggestion(t, rawToken, {
+      filePath: 'src/ignore.ts',
+      layerId: layers[0]!._id,
+      suggestedNodeName: 'Ignore Me',
+      confidence: 0.4,
+      reason: 'Manual bulk ignore candidate.',
+    });
+    await expect(
+      asUser.mutation(api.codebaseSuggestions.ignoreAllPending, { projectId }),
+    ).resolves.toMatchObject({ ignored: 1, failed: 0 });
+
+    await pushSuggestion(t, rawToken, {
+      filePath: 'src/reject-all.ts',
+      layerId: layers[0]!._id,
+      suggestedNodeName: 'Reject Me',
+      confidence: 0.4,
+      reason: 'Manual bulk reject candidate.',
+    });
+    await expect(
+      asUser.mutation(api.codebaseSuggestions.rejectAllPending, { projectId }),
+    ).resolves.toMatchObject({ rejected: 1, failed: 0 });
+
+    const stillApplied = await asUser.query(api.codebaseSuggestions.listByProject, {
+      projectId,
+      status: 'applied',
+    });
+    expect(stillApplied).toHaveLength(2);
+  });
+
   test('push stores architecture flow suggestions for canvas review', async () => {
     const t = convexTest(schema, modules);
     const { asUser, rawToken, projectId, layers } = await seedTokenForUser(t);

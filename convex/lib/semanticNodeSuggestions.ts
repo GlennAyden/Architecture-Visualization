@@ -95,6 +95,7 @@ async function findCapabilityNode(
   ctx: MutationCtx,
   projectId: Id<'projects'>,
   capabilityKey: string | undefined,
+  productArea?: NonNullable<Doc<'nodes'>['productArea']>,
 ) {
   if (!capabilityKey) return null;
   const matches = await ctx.db
@@ -103,7 +104,13 @@ async function findCapabilityNode(
       q.eq('projectId', projectId).eq('capabilityKey', capabilityKey),
     )
     .take(20);
-  return matches.find((node) => node.semanticKind === 'capability') ?? null;
+  return (
+    matches.find(
+      (node) => node.semanticKind === 'capability' && node.productArea === productArea,
+    ) ??
+    matches.find((node) => node.semanticKind === 'capability') ??
+    null
+  );
 }
 
 async function findLinkedNodeForSourceFile(
@@ -127,6 +134,7 @@ async function findRelatedCapabilityNodes(
   ctx: MutationCtx,
   projectId: Id<'projects'>,
   capabilityKey: string | undefined,
+  productArea: NonNullable<Doc<'nodes'>['productArea']>,
 ) {
   if (!capabilityKey) return [];
   const matches = await ctx.db
@@ -135,13 +143,16 @@ async function findRelatedCapabilityNodes(
       q.eq('projectId', projectId).eq('capabilityKey', capabilityKey),
     )
     .take(50);
-  return matches.filter((node) => node.semanticKind === 'capability');
+  return matches.filter(
+    (node) => node.semanticKind === 'capability' && node.productArea === productArea,
+  );
 }
 
 async function findRelatedUiModuleNodes(
   ctx: MutationCtx,
   projectId: Id<'projects'>,
   capabilityKey: string | undefined,
+  productArea: NonNullable<Doc<'nodes'>['productArea']>,
 ) {
   if (!capabilityKey) return [];
   const matches = await ctx.db
@@ -150,7 +161,9 @@ async function findRelatedUiModuleNodes(
       q.eq('projectId', projectId).eq('capabilityKey', capabilityKey),
     )
     .take(50);
-  return matches.filter((node) => node.semanticKind === 'ui_module');
+  return matches.filter(
+    (node) => node.semanticKind === 'ui_module' && node.productArea === productArea,
+  );
 }
 
 async function linkSemanticFile(
@@ -273,6 +286,7 @@ async function ensureSemanticEdges(
       ctx,
       suggestion.projectId,
       suggestion.capabilityKey,
+      suggestion.productArea,
     );
     for (const capability of capabilityNodes) {
       if (capability._id === nodeId) continue;
@@ -295,6 +309,7 @@ async function ensureSemanticEdges(
       ctx,
       suggestion.projectId,
       suggestion.capabilityKey,
+      suggestion.productArea,
     );
     for (const uiNode of uiNodes) {
       if (uiNode._id === nodeId) continue;
@@ -331,6 +346,7 @@ export async function applySemanticNodeSuggestion(
       ctx,
       suggestion.projectId,
       suggestion.capabilityKey,
+      suggestion.productArea,
     );
     nodeId = existingCapability?._id;
   }

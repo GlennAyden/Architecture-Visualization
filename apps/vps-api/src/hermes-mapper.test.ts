@@ -94,7 +94,7 @@ describe('heuristicHermesMapper architecture flows', () => {
           confidence: 0.9,
         }),
         expect.objectContaining({
-          semanticKey: 'capability:onboarding:src/app/dashboard/page.tsx',
+          semanticKey: 'capability:user:/dashboard:onboarding',
           semanticKind: 'capability',
           suggestedNodeName: 'Onboarding',
           layerId: 'layers:capabilities',
@@ -232,6 +232,87 @@ describe('heuristicHermesMapper architecture flows', () => {
         }),
       ]),
     );
+  });
+
+  test('dedupes semantic capabilities by route and product area instead of source file', async () => {
+    const context: HermesMappingContext = {
+      runId: 'runs:dedupe',
+      project: { _id: 'projects:expandly', name: 'Expandly' },
+      layers: [
+        { _id: 'layers:surfaces', name: 'Surfaces', position: 0 },
+        { _id: 'layers:ui', name: 'UI Modules', position: 1 },
+        { _id: 'layers:capabilities', name: 'Product Capabilities', position: 2 },
+      ],
+      nodes: [
+        {
+          _id: 'nodes:dashboard',
+          name: 'User Dashboard',
+          type: 'page',
+          layerId: 'layers:surfaces',
+          semanticKind: 'surface',
+          productArea: 'user',
+          routeHint: '/dashboard',
+          files: ['src/app/dashboard/page.tsx'],
+        },
+      ],
+      edges: [],
+      latestScan: {
+        data: {
+          orphans: [],
+          fileFacts: [
+            {
+              path: 'src/app/dashboard/page.tsx',
+              kind: 'component',
+              routeHint: '/dashboard',
+              productArea: 'user',
+              resolvedImports: [
+                'src/components/dashboard/content/home-content.tsx',
+                'src/components/dashboard/layout/dashboard-header.tsx',
+              ],
+            },
+            {
+              path: 'src/components/dashboard/content/home-content.tsx',
+              kind: 'component',
+              productArea: 'admin',
+              capabilityHints: ['billing_subscription', 'notifications'],
+              uiBlocks: [
+                { key: 'billing_subscription', name: 'Billing CTA' },
+                { key: 'notifications', name: 'Notifications' },
+              ],
+            },
+            {
+              path: 'src/components/dashboard/layout/dashboard-header.tsx',
+              kind: 'component',
+              productArea: 'admin',
+              capabilityHints: ['billing_subscription', 'notifications'],
+              uiBlocks: [{ key: 'notifications', name: 'Header Notifications' }],
+            },
+          ],
+        },
+      },
+      suggestions: [],
+      relationshipSuggestions: [],
+      flows: [],
+    };
+
+    const result = await heuristicHermesMapper(context);
+    const semantic = result.semanticNodeSuggestions ?? [];
+    const capabilityKeys = semantic
+      .filter((row) => row.semanticKind === 'capability')
+      .map((row) => row.semanticKey)
+      .sort();
+
+    expect(capabilityKeys).toEqual([
+      'capability:user:/dashboard:billing_subscription',
+      'capability:user:/dashboard:notifications',
+    ]);
+    expect(
+      semantic
+        .filter((row) => row.semanticKind === 'ui_module')
+        .every((row) => {
+          return row.parentNodeId === 'nodes:dashboard' && row.productArea === 'user';
+        }),
+    ).toBe(true);
   });
 
   test('keeps UI block suggestions pending when route ownership is unknown', async () => {

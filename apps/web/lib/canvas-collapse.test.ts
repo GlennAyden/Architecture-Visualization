@@ -1,0 +1,88 @@
+import { describe, expect, test } from 'vitest';
+import { buildCollapsedGraph, getDefaultCollapsedNodeIds } from './canvas-collapse';
+import type { Doc, Id } from '../../../convex/_generated/dataModel';
+
+function node(input: Partial<Doc<'nodes'>> & { id: string; name?: string }): Doc<'nodes'> {
+  return {
+    _id: input.id as Id<'nodes'>,
+    _creationTime: 1,
+    projectId: 'project' as Id<'projects'>,
+    type: input.type ?? 'page',
+    name: input.name ?? input.id,
+    description: '',
+    positionX: 0,
+    positionY: 0,
+    parentId: input.parentId,
+    layerId: input.layerId,
+    semanticKind: input.semanticKind,
+    productArea: input.productArea,
+    mappingStatus: input.mappingStatus,
+    mappingConfidence: input.mappingConfidence,
+    capabilityKey: input.capabilityKey,
+    routeHint: input.routeHint,
+    createdAt: 1,
+    updatedAt: 1,
+  } as Doc<'nodes'>;
+}
+
+function edge(input: {
+  id: string;
+  source: string;
+  target: string;
+  type?: Doc<'nodeEdges'>['type'];
+}): Doc<'nodeEdges'> {
+  return {
+    _id: input.id as Id<'nodeEdges'>,
+    _creationTime: 1,
+    projectId: 'project' as Id<'projects'>,
+    sourceNodeId: input.source as Id<'nodes'>,
+    targetNodeId: input.target as Id<'nodes'>,
+    type: input.type ?? 'uses',
+    confidence: 1,
+    reason: 'test',
+    source: 'auto',
+    updatedAt: 1,
+  } as unknown as Doc<'nodeEdges'>;
+}
+
+describe('canvas collapse helpers', () => {
+  test('defaults parent clusters with more than three direct children to collapsed', () => {
+    const nodes = [
+      node({ id: 'parent' }),
+      node({ id: 'a', parentId: 'parent' as Id<'nodes'> }),
+      node({ id: 'b', parentId: 'parent' as Id<'nodes'> }),
+      node({ id: 'c', parentId: 'parent' as Id<'nodes'> }),
+      node({ id: 'd', parentId: 'parent' as Id<'nodes'> }),
+    ];
+
+    expect(getDefaultCollapsedNodeIds(nodes)).toEqual(['parent']);
+  });
+
+  test('hides descendants visually while preserving aggregate edges to the collapsed parent', () => {
+    const nodes = [
+      node({ id: 'parent' }),
+      node({ id: 'child', parentId: 'parent' as Id<'nodes'> }),
+      node({ id: 'external' }),
+    ];
+    const graph = buildCollapsedGraph({
+      nodes,
+      edges: [edge({ id: 'edge', source: 'child', target: 'external', type: 'triggers' })],
+      nodeSummaries: [{ nodeId: 'child', fileCount: 2, verifiedCount: 0, roles: {} }],
+      collapsedNodeIds: new Set(['parent']),
+    });
+
+    expect(graph.visibleNodes.map((item) => item._id as string)).toEqual(['parent', 'external']);
+    expect(graph.renderEdges).toHaveLength(1);
+    expect(graph.renderEdges[0]).toMatchObject({
+      sourceNodeId: 'parent',
+      targetNodeId: 'external',
+      type: 'triggers',
+      aggregateCount: 1,
+    });
+    expect(graph.collapsedStats.get('parent')).toMatchObject({
+      directChildCount: 1,
+      hiddenNodeCount: 1,
+      hiddenFileCount: 2,
+    });
+  });
+});
