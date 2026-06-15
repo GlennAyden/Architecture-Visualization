@@ -1,19 +1,16 @@
-import { FEATURE_NODE_DEFAULT_HEIGHT, FEATURE_NODE_DEFAULT_WIDTH } from '@arch-viz/shared';
+import {
+  ARCH_LAYER_GAP,
+  ARCH_LAYER_NODE_SPACING,
+  ARCH_LAYER_NODE_TOP,
+  ARCH_LAYER_PADDING_X,
+  ARCH_LAYER_WIDTH,
+  getLayerFeaturePosition,
+} from '@arch-viz/shared';
 import { Doc, Id } from '../_generated/dataModel';
 import { MutationCtx } from '../_generated/server';
 import { backfillMissingNodeLayers, seedDefaultLayers } from '../projectLayers';
 
 type LayerError = (message: string) => Error;
-
-const LAYER_WIDTH = 280;
-const LAYER_GAP = 28;
-const LAYER_PADDING_X = 30;
-const LAYER_NODE_TOP = 120;
-const LAYER_NODE_SPACING = 150;
-const LAYER_FEATURE_OFFSET_X = 42;
-const LAYER_FEATURE_OFFSET_Y = 66;
-const LAYER_FEATURE_GAP_X = 22;
-const LAYER_FEATURE_GAP_Y = 18;
 
 export async function getProjectLayers(ctx: MutationCtx, projectId: Id<'projects'>) {
   await seedDefaultLayers(ctx, projectId);
@@ -68,23 +65,16 @@ export function defaultNodePosition(args: {
   siblingCount: number;
 }) {
   if (args.type === 'feature' && args.parent) {
-    const col = args.siblingCount % 2;
-    const row = Math.floor(args.siblingCount / 2);
-    return {
-      x:
-        args.parent.positionX +
-        LAYER_FEATURE_OFFSET_X +
-        col * (FEATURE_NODE_DEFAULT_WIDTH + LAYER_FEATURE_GAP_X),
-      y:
-        args.parent.positionY +
-        LAYER_FEATURE_OFFSET_Y +
-        row * (FEATURE_NODE_DEFAULT_HEIGHT + LAYER_FEATURE_GAP_Y),
-    };
+    const position = getLayerFeaturePosition(
+      { positionX: args.parent.positionX, positionY: args.parent.positionY },
+      args.siblingCount,
+    );
+    return { x: position.positionX, y: position.positionY };
   }
 
   const layerPosition = args.layer?.position ?? 0;
   return {
-    x: layerPosition * (LAYER_WIDTH + LAYER_GAP) + LAYER_PADDING_X,
-    y: LAYER_NODE_TOP + args.siblingCount * LAYER_NODE_SPACING,
+    x: layerPosition * (ARCH_LAYER_WIDTH + ARCH_LAYER_GAP) + ARCH_LAYER_PADDING_X,
+    y: ARCH_LAYER_NODE_TOP + args.siblingCount * ARCH_LAYER_NODE_SPACING,
   };
 }

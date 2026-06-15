@@ -124,7 +124,7 @@ export function AutoLayoutButton({ nodes, layers }: Props) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn('[AutoLayout] aborted:', msg);
-      setStatus({ kind: 'failure', text: 'Auto layout aborted. Check console.' });
+      setStatus({ kind: 'failure', text: 'Layer layout aborted. Check console.' });
     } finally {
       setRunning(false);
     }
@@ -150,11 +150,11 @@ export function AutoLayoutButton({ nodes, layers }: Props) {
         className="border border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.07] hover:text-zinc-50"
         onClick={handleClick}
         disabled={disabled}
-        aria-label="Auto-layout the canvas"
-        title="Re-arrange nodes inside their layers"
+        aria-label="Arrange the canvas by layer"
+        title="Arrange nodes inside their layers"
       >
         <LayoutGrid className="h-4 w-4" />
-        {running ? 'Arranging…' : 'Auto Layout'}
+        {running ? 'Arranging...' : 'Layer Layout'}
       </Button>
     </div>
   );
