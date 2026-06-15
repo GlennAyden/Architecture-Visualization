@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 const DEFAULT_COOKIE_NAME = 'arch_viz_session';
+const BACKEND_USER_AGENT = 'ArchViz-Vercel-Auth-Proxy/1.0';
 
 export interface PublicUser {
   id: string;
@@ -86,6 +87,7 @@ export async function callAuthBackend<T extends BackendAuthResponse = BackendAut
       headers: {
         Authorization: `Bearer ${proxyToken}`,
         'Content-Type': 'application/json',
+        'User-Agent': BACKEND_USER_AGENT,
       },
       body: JSON.stringify(body),
       cache: 'no-store',

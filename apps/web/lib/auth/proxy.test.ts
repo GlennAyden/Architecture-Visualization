@@ -56,6 +56,7 @@ describe('web auth proxy', () => {
         headers: {
           Authorization: 'Bearer proxy-secret',
           'Content-Type': 'application/json',
+          'User-Agent': 'ArchViz-Vercel-Auth-Proxy/1.0',
         },
         body: JSON.stringify({ sessionToken: 'session' }),
         cache: 'no-store',
