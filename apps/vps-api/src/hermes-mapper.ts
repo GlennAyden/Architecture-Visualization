@@ -496,6 +496,7 @@ type FlowCluster = {
 
 const FLOW_KIND_LIMIT = 2;
 const FLOW_TOTAL_LIMIT = 8;
+const FLOW_TITLE_MAX_LENGTH = 120;
 
 function flowEdgeRef(edge: FlowEdgeCandidate): HermesFlowEdgeRef {
   return edge.edgeId
@@ -516,6 +517,11 @@ function uniqueStrings(values: string[]) {
     out.push(value);
   }
   return out;
+}
+
+function truncateFlowTitle(title: string) {
+  if (title.length <= FLOW_TITLE_MAX_LENGTH) return title;
+  return `${title.slice(0, FLOW_TITLE_MAX_LENGTH - 3).trimEnd()}...`;
 }
 
 function averageConfidence(edges: FlowEdgeCandidate[]) {
@@ -647,11 +653,13 @@ function flowSuggestionFromCluster(
     Number((cluster.importanceBase + Math.min(0.12, cluster.edges.length * 0.02)).toFixed(2)),
   );
 
+  const title =
+    targetNames.length > 0
+      ? `${cluster.shortTitle}: ${targetNames.join(', ')}`
+      : cluster.shortTitle;
+
   return {
-    title:
-      targetNames.length > 0
-        ? `${cluster.shortTitle}: ${targetNames.join(', ')}`
-        : cluster.shortTitle,
+    title: truncateFlowTitle(title),
     shortTitle: cluster.shortTitle,
     goal: cluster.goal,
     importance,

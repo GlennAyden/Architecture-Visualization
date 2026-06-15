@@ -136,5 +136,6 @@ describe('heuristicHermesMapper architecture flows', () => {
     expect(dataFlows[0]!.nodeIds.length).toBeGreaterThan(2);
     expect(dataFlows[0]!.edgeRefs).toHaveLength(4);
     expect(result.flowSuggestions!.length).toBeLessThanOrEqual(8);
+    expect(result.flowSuggestions!.every((flow) => flow.title.length <= 120)).toBe(true);
   });
 });

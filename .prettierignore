@@ -10,3 +10,5 @@ convex/_generated
 .prettiercache
 *.tsbuildinfo
 .claude
+.github
+apps/web/next-env.d.ts
