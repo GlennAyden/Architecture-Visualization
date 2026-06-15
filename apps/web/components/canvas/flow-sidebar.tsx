@@ -61,6 +61,8 @@ const TABS: Array<{ id: SidebarTab; label: string; icon: LucideIcon }> = [
   { id: 'flows', label: 'Flows', icon: GitBranch },
 ];
 
+const EMPTY_FLOW_CLUSTER_KEYS: string[] = [];
+
 interface Props {
   projectId: Id<'projects'>;
   layers: Doc<'projectLayers'>[] | undefined;
@@ -128,7 +130,7 @@ export function FlowSidebar({
   const [productAreaFilter, setProductAreaFilter] = useState<ProductAreaFilter>('all');
   const [verifying, setVerifying] = useState(false);
   const expandedFlowClusterKeys = useCanvasViewStore(
-    (s) => s.projects[projectId as string]?.expandedFlowClusterKeys ?? [],
+    (s) => s.projects[projectId as string]?.expandedFlowClusterKeys ?? EMPTY_FLOW_CLUSTER_KEYS,
   );
   const setFlowClusterExpanded = useCanvasViewStore((s) => s.setFlowClusterExpanded);
   const expandAllFlowClusters = useCanvasViewStore((s) => s.expandAllFlowClusters);

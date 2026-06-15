@@ -40,6 +40,8 @@ const nodeTypes: NodeTypes = {
   'feature-node': FeatureNode,
 };
 
+const EMPTY_COLLAPSED_NODE_IDS: string[] = [];
+
 // Inner component sits inside <ReactFlowProvider> so `useReactFlow` can
 // reach the editor context (fitView, setCenter, screenToFlowPosition).
 function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
@@ -80,7 +82,7 @@ function CanvasInner({ projectId }: { projectId: Id<'projects'> }) {
   const drillUp = useDrillStore((s) => s.drillUp);
   const resetDrill = useDrillStore((s) => s.reset);
   const collapsedNodeIds = useCanvasViewStore(
-    (s) => s.projects[projectId as string]?.collapsedNodeIds ?? [],
+    (s) => s.projects[projectId as string]?.collapsedNodeIds ?? EMPTY_COLLAPSED_NODE_IDS,
   );
   const ensureCanvasViewProject = useCanvasViewStore((s) => s.ensureProject);
   const collapseMany = useCanvasViewStore((s) => s.collapseMany);
