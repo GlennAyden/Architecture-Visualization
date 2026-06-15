@@ -226,6 +226,78 @@ describe('nodes.update', () => {
   });
 });
 
+describe('nodes.updatePositions', () => {
+  test('updates a canvas layout as one authorized project batch', async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fakeIdentity('user_alice', 'alice@example.com'));
+
+    const projectId = await asUser.mutation(api.projects.create, { name: 'P' });
+    const first = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'First',
+      positionX: 0,
+      positionY: 0,
+    });
+    const second = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'Second',
+      positionX: 10,
+      positionY: 10,
+    });
+
+    const result = await asUser.mutation(api.nodes.updatePositions, {
+      updates: [
+        { id: first, positionX: 120, positionY: 240 },
+        { id: second, positionX: 360, positionY: 480 },
+      ],
+    });
+
+    const after = await asUser.query(api.nodes.listByProject, { projectId });
+    expect(result.updated).toBe(2);
+    expect(after.find((node) => node._id === first)).toMatchObject({
+      positionX: 120,
+      positionY: 240,
+    });
+    expect(after.find((node) => node._id === second)).toMatchObject({
+      positionX: 360,
+      positionY: 480,
+    });
+  });
+
+  test('rejects batches that mix nodes from different projects', async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fakeIdentity('user_alice', 'alice@example.com'));
+
+    const projectA = await asUser.mutation(api.projects.create, { name: 'A' });
+    const projectB = await asUser.mutation(api.projects.create, { name: 'B' });
+    const nodeA = await asUser.mutation(api.nodes.create, {
+      projectId: projectA,
+      type: 'page',
+      name: 'A node',
+      positionX: 0,
+      positionY: 0,
+    });
+    const nodeB = await asUser.mutation(api.nodes.create, {
+      projectId: projectB,
+      type: 'page',
+      name: 'B node',
+      positionX: 0,
+      positionY: 0,
+    });
+
+    await expect(
+      asUser.mutation(api.nodes.updatePositions, {
+        updates: [
+          { id: nodeA, positionX: 10, positionY: 10 },
+          { id: nodeB, positionX: 20, positionY: 20 },
+        ],
+      }),
+    ).rejects.toThrow(/same project/);
+  });
+});
+
 describe('nodes.remove', () => {
   test('removes the node and any children', async () => {
     const t = convexTest(schema, modules);

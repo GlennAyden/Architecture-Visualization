@@ -1,4 +1,5 @@
 import { v } from 'convex/values';
+import type { Id } from './_generated/dataModel';
 import { mutation, query } from './_generated/server';
 import { getNodeIfAccessible, getProjectIfAccessible, requireProjectAccess } from './lib/auth';
 import { deleteNodeCascade } from './lib/cascade';
@@ -132,6 +133,61 @@ export const update = mutation({
     if (Object.keys(patch).length > 0) {
       await ctx.db.patch(args.id, patch);
     }
+  },
+});
+
+export const updatePositions = mutation({
+  args: {
+    updates: v.array(
+      v.object({
+        id: v.id('nodes'),
+        positionX: v.number(),
+        positionY: v.number(),
+      }),
+    ),
+  },
+  handler: async (ctx, { updates }) => {
+    if (updates.length === 0) return { updated: 0 };
+    if (updates.length > 500) throw new Error('Too many node positions to update at once');
+
+    const seen = new Set<string>();
+    const rows: Array<{
+      id: (typeof updates)[number]['id'];
+      positionX: number;
+      positionY: number;
+    }> = [];
+    let projectId: Id<'projects'> | null = null;
+
+    for (const update of updates) {
+      if (seen.has(update.id)) continue;
+      seen.add(update.id);
+
+      const node = await ctx.db.get(update.id);
+      if (!node) throw new Error('Node not found');
+      if (projectId && node.projectId !== projectId) {
+        throw new Error('All node positions must belong to the same project');
+      }
+      projectId = node.projectId;
+      rows.push({
+        id: update.id,
+        positionX: update.positionX,
+        positionY: update.positionY,
+      });
+    }
+
+    if (!projectId) return { updated: 0 };
+    await requireProjectAccess(ctx, projectId);
+
+    let updated = 0;
+    for (const row of rows) {
+      await ctx.db.patch(row.id, {
+        positionX: row.positionX,
+        positionY: row.positionY,
+      });
+      updated++;
+    }
+
+    return { updated };
   },
 });
 

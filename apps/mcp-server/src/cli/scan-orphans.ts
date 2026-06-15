@@ -4,6 +4,7 @@ import { walkSourceFiles } from './fs-walk.js';
 import { createImportResolver } from './import-resolver.js';
 import { collectLinkedFiles, extractImportSpecifiers } from './scan-imports.js';
 import { progress, summary } from './output.js';
+import { verifyProjectScope } from './project-scope.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -390,13 +391,68 @@ const CAPABILITY_PATTERNS: Array<{
     kind: 'section',
     terms: [/feature update/i, /updates/i, /changelog/i, /what'?s new/i],
   },
+  {
+    key: 'user_control',
+    name: 'User Control',
+    kind: 'section',
+    terms: [/user control/i, /user table/i, /bulk action/i, /user filters?/i, /impersonat/i],
+  },
+  {
+    key: 'plan_catalog',
+    name: 'Plan Catalog',
+    kind: 'section',
+    terms: [/plan catalog/i, /service tools?/i, /custom plans?/i, /promo codes?/i, /ai keys?/i],
+  },
+  {
+    key: 'support_ops',
+    name: 'Support Operations',
+    kind: 'section',
+    terms: [/support system/i, /support tickets?/i, /ticket table/i, /triage/i],
+  },
+  {
+    key: 'content_workflow',
+    name: 'Content Workflow',
+    kind: 'section',
+    terms: [/content management/i, /tips canvas/i, /announcements?/i, /content workflow/i],
+  },
+  {
+    key: 'referrals',
+    name: 'Referrals',
+    kind: 'widget',
+    terms: [/referral/i, /affiliate/i],
+  },
+  {
+    key: 'api_keys',
+    name: 'API Keys',
+    kind: 'control',
+    terms: [/api keys?/i, /secret key/i, /access token/i],
+  },
+  {
+    key: 'data_state',
+    name: 'Data & State',
+    kind: 'section',
+    terms: [/database/i, /prisma/i, /schema/i, /query/i, /mutation/i, /storage/i],
+  },
+  {
+    key: 'agent_mission_control',
+    name: 'Agent Mission Control',
+    kind: 'section',
+    terms: [/hermes/i, /agent/i, /mission control/i, /mcp/i, /worker/i],
+  },
 ];
 
 function classifyProductArea(path: string, kind: ScanFileKind, text: string): ProductArea {
   const lowerPath = path.toLowerCase();
   const lowerText = text.slice(0, 4000).toLowerCase();
   const lower = `${lowerPath} ${lowerText}`;
-  if (lowerPath.includes('/admin') || lowerPath.includes('\\admin')) return 'admin';
+  if (
+    lowerPath.includes('/admin') ||
+    lowerPath.includes('\\admin') ||
+    lowerPath.includes('admin-') ||
+    lowerPath.includes('admin_')
+  ) {
+    return 'admin';
+  }
   if (lowerPath.includes('extension') || lowerPath.includes('chrome')) return 'extension';
   if (kind === 'api' || kind === 'convex' || kind === 'mcp' || lower.includes('/server/')) {
     return 'internal';
@@ -406,6 +462,9 @@ function classifyProductArea(path: string, kind: ScanFileKind, text: string): Pr
     lower.includes('/account') ||
     lower.includes('/billing') ||
     lower.includes('/profile') ||
+    lower.includes('/plan') ||
+    lower.includes('/notifications') ||
+    lower.includes('/support') ||
     /\buser dashboard\b/.test(lower)
   ) {
     return 'user';
@@ -582,7 +641,7 @@ export async function runScanOrphans(
   void argv;
   const config = loadConfig(env);
   const client = new ConvexMcpClient(config);
-  progress(`[scan-orphans] project=${config.projectId}`);
+  await verifyProjectScope(client, config, 'scan-orphans');
 
   const linked = await collectLinkedFiles(client);
   progress(`[scan-orphans] ${linked.size} linked files in canvas`);

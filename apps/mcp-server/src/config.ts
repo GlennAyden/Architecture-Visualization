@@ -13,6 +13,10 @@ export interface McpConfig {
   apiKey: string;
   /** Project id this MCP instance is bound to */
   projectId: string;
+  /** Optional extra guard for production scans. */
+  expectedProjectId?: string;
+  /** Optional extra guard for production scans. */
+  expectedProjectName?: string;
 }
 
 export class ConfigError extends Error {
@@ -33,6 +37,8 @@ export function loadConfig(env: Record<string, string | undefined>): McpConfig {
   const convexUrl = env.ARCHITECTURE_CONVEX_URL?.trim();
   const apiKey = env.ARCHITECTURE_API_KEY?.trim();
   const projectId = env.ARCHITECTURE_PROJECT_ID?.trim();
+  const expectedProjectId = env.ARCHITECTURE_EXPECT_PROJECT_ID?.trim();
+  const expectedProjectName = env.ARCHITECTURE_EXPECT_PROJECT_NAME?.trim();
 
   if (!convexUrl) {
     throw new ConfigError(
@@ -82,5 +88,11 @@ export function loadConfig(env: Record<string, string | undefined>): McpConfig {
   // Strip a trailing slash so client.ts can blindly concatenate paths.
   const normalizedUrl = convexUrl.endsWith('/') ? convexUrl.slice(0, -1) : convexUrl;
 
-  return { convexUrl: normalizedUrl, apiKey, projectId };
+  return {
+    convexUrl: normalizedUrl,
+    apiKey,
+    projectId,
+    ...(expectedProjectId ? { expectedProjectId } : {}),
+    ...(expectedProjectName ? { expectedProjectName } : {}),
+  };
 }

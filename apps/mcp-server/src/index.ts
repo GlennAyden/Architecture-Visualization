@@ -54,6 +54,8 @@ function printHelp(): void {
     '  ARCHITECTURE_CONVEX_URL         https://<deployment>.convex.site',
     '  ARCHITECTURE_API_KEY            archv_… token from /settings/tokens',
     '  ARCHITECTURE_PROJECT_ID         id from /canvas/<projectId>',
+    '  ARCHITECTURE_EXPECT_PROJECT_ID  optional production scan guard',
+    '  ARCHITECTURE_EXPECT_PROJECT_NAME optional guard, e.g. expandly.id',
   ];
   process.stderr.write(lines.join('\n') + '\n');
 }

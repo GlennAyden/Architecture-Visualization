@@ -76,4 +76,17 @@ describe('loadConfig', () => {
       projectId: 'projects:z',
     });
   });
+
+  test('accepts optional expected project guards for production scan safety', () => {
+    expect(
+      loadConfig({
+        ...valid,
+        ARCHITECTURE_EXPECT_PROJECT_ID: '  projects:prod  ',
+        ARCHITECTURE_EXPECT_PROJECT_NAME: '  expandly.id  ',
+      }),
+    ).toMatchObject({
+      expectedProjectId: 'projects:prod',
+      expectedProjectName: 'expandly.id',
+    });
+  });
 });

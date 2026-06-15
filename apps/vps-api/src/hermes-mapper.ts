@@ -311,6 +311,9 @@ function layerForFact(layers: HermesLayerContext[], path: string, fact?: HermesF
     return layerByName(layers, ['Infra', 'Application']);
   }
   if (kind === 'component' || lower.startsWith('apps/web/')) {
+    if (!fact?.routeHint && ((fact?.uiBlocks?.length ?? 0) > 0 || fact?.productArea)) {
+      return layerByName(layers, ['UI Modules', 'Surfaces']);
+    }
     return layerByName(layers, ['Surfaces']);
   }
   return layerByName(layers, ['Application', 'Features', 'Surfaces']);
@@ -319,7 +322,7 @@ function layerForFact(layers: HermesLayerContext[], path: string, fact?: HermesF
 function semanticKindForFact(path: string, fact?: HermesFileFact) {
   const lower = normalized(path).toLowerCase();
   const kind = fact?.kind;
-  if (kind === 'component') return 'surface';
+  if (kind === 'component') return fact?.routeHint ? 'surface' : 'ui_module';
   if (kind === 'api' || lower.includes('/api/')) return 'api';
   if (kind === 'convex') return lower.includes('schema') ? 'storage' : 'data_logic';
   if (kind === 'mcp') return 'agent';
@@ -375,7 +378,10 @@ function productAreaForFact(path: string, fact?: HermesFileFact): ProductArea {
     lower.includes('dashboard') ||
     lower.includes('account') ||
     lower.includes('billing') ||
-    lower.includes('profile')
+    lower.includes('profile') ||
+    lower.includes('/plan') ||
+    lower.includes('notification') ||
+    lower.includes('support')
   ) {
     return 'user';
   }
@@ -392,12 +398,20 @@ function capabilityName(key: string) {
     admin_operations: 'Admin Operations',
     extension_services: 'Extension Services',
     feature_updates: 'Feature Updates',
+    user_control: 'User Control',
+    plan_catalog: 'Plan Catalog',
+    support_ops: 'Support Operations',
+    content_workflow: 'Content Workflow',
+    referrals: 'Referrals',
+    api_keys: 'API Keys',
+    data_state: 'Data & State',
+    agent_mission_control: 'Agent Mission Control',
   };
   return labels[key] ?? toTitle(key.replace(/_/g, ' '));
 }
 
-function routeKey(path: string, fact?: HermesFileFact) {
-  return (fact?.routeHint ?? fact?.uiBlocks?.[0]?.routeHint ?? normalized(path)).replace(
+function routeKeyFor(path: string, fact: HermesFileFact | undefined, route: string | undefined) {
+  return (route ?? fact?.routeHint ?? fact?.uiBlocks?.[0]?.routeHint ?? normalized(path)).replace(
     /[^a-zA-Z0-9/_-]+/g,
     '-',
   );
@@ -429,6 +443,94 @@ function surfaceNodeForFact(
   return null;
 }
 
+function surfaceRouteForFact(fact: HermesFileFact) {
+  const route = fact.routeHint ?? fact.uiBlocks?.find((block) => block.routeHint)?.routeHint;
+  if (!route || route.startsWith('/api')) return undefined;
+  return route;
+}
+
+interface SurfaceOwnership {
+  routeHint?: string;
+  surfaceNode?: HermesNodeContext | null;
+  distance: number;
+}
+
+function shouldPropagateSurfaceOwnership(fact: HermesFileFact | undefined) {
+  if (!fact) return false;
+  if (fact.kind === 'generated' || fact.kind === 'test' || fact.kind === 'config') return false;
+  return (
+    fact.kind === 'component' ||
+    (fact.uiBlocks?.length ?? 0) > 0 ||
+    (fact.capabilityHints?.length ?? 0) > 0
+  );
+}
+
+function findSurfaceNodeForRoute(context: HermesMappingContext, route: string | undefined) {
+  if (!route) return null;
+  const lastSegment = route.split('/').filter(Boolean).at(-1) ?? 'home';
+  return (
+    context.nodes.find((node) => node.routeHint === route) ??
+    context.nodes.find(
+      (node) =>
+        node.semanticKind === 'surface' &&
+        node.name.toLowerCase().includes(lastSegment.replace(/[-_]/g, ' ')),
+    ) ??
+    null
+  );
+}
+
+function buildSurfaceOwnership(
+  context: HermesMappingContext,
+  factByPath: Map<string, HermesFileFact>,
+  nodeByFile: Map<string, HermesNodeContext>,
+) {
+  const ownership = new Map<string, SurfaceOwnership>();
+  const facts = [...factByPath.values()].sort((a, b) =>
+    normalized(a.path).localeCompare(normalized(b.path)),
+  );
+
+  for (const fact of facts) {
+    const path = normalized(fact.path);
+    const route = surfaceRouteForFact(fact);
+    const directSurface = surfaceNodeForFact(context, fact, nodeByFile);
+    if (!route && !directSurface) continue;
+    ownership.set(path, {
+      routeHint: route ?? directSurface?.routeHint,
+      surfaceNode: directSurface ?? findSurfaceNodeForRoute(context, route),
+      distance: 0,
+    });
+  }
+
+  const queue = [...ownership.entries()]
+    .filter(([, owner]) => Boolean(owner.routeHint || owner.surfaceNode))
+    .map(([path, owner]) => ({ path, owner }));
+  const maxDistance = 8;
+
+  for (let index = 0; index < queue.length; index += 1) {
+    const { path, owner } = queue[index]!;
+    if (owner.distance >= maxDistance) continue;
+    const fact = factByPath.get(path);
+    if (!fact) continue;
+
+    for (const imported of fact.resolvedImports ?? []) {
+      const importedPath = normalized(imported);
+      const importedFact = factByPath.get(importedPath);
+      if (!shouldPropagateSurfaceOwnership(importedFact)) continue;
+      const nextOwner: SurfaceOwnership = {
+        routeHint: owner.routeHint,
+        surfaceNode: owner.surfaceNode,
+        distance: owner.distance + 1,
+      };
+      const existing = ownership.get(importedPath);
+      if (existing && existing.distance <= nextOwner.distance) continue;
+      ownership.set(importedPath, nextOwner);
+      queue.push({ path: importedPath, owner: nextOwner });
+    }
+  }
+
+  return ownership;
+}
+
 function buildSemanticSuggestionKeys(context: HermesMappingContext) {
   return new Set(
     (context.semanticNodeSuggestions ?? [])
@@ -456,6 +558,7 @@ function semanticNodeSuggestionsFromFacts(
   const uiLayer = findLayer(context, ['UI Modules', 'Surfaces']);
   const capabilityLayer = findLayer(context, ['Product Capabilities', 'Application', 'Features']);
   const nodeByFile = buildNodeByFile(context.nodes);
+  const ownershipByPath = buildSurfaceOwnership(context, factByPath, nodeByFile);
   const seen = buildSemanticSuggestionKeys(context);
   const suggestions: HermesSemanticNodeSuggestion[] = [];
 
@@ -475,8 +578,9 @@ function semanticNodeSuggestionsFromFacts(
     const path = normalized(fact.path);
     const area = productAreaForFact(path, fact);
     const evidence = evidenceFor(path, fact);
-    const existingSurface = surfaceNodeForFact(context, fact, nodeByFile);
-    const route = fact.routeHint ?? fact.uiBlocks?.[0]?.routeHint;
+    const owner = ownershipByPath.get(path);
+    const existingSurface = surfaceNodeForFact(context, fact, nodeByFile) ?? owner?.surfaceNode;
+    const route = surfaceRouteForFact(fact) ?? owner?.routeHint;
 
     if (route && !existingSurface && surfaceLayer) {
       pushSemanticSuggestion(suggestions, seen, {
@@ -517,7 +621,7 @@ function semanticNodeSuggestionsFromFacts(
       const capabilityKey = block.key === 'header_controls' ? undefined : block.key;
       pushSemanticSuggestion(suggestions, seen, {
         sourceFilePath: path,
-        semanticKey: `ui:${routeKey(path, fact)}:${block.key}`,
+        semanticKey: `ui:${routeKeyFor(path, fact, route)}:${block.key}`,
         suggestedNodeName: block.name,
         semanticKind: 'ui_module',
         productArea: area,

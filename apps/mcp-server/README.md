@@ -66,6 +66,17 @@ Three environment variables are required:
 | `ARCHITECTURE_API_KEY`    | Token starting with `archv_`, generated at `/settings/tokens` in the web app |
 | `ARCHITECTURE_PROJECT_ID` | Convex project id (visible in the canvas URL: `/canvas/<projectId>`)         |
 
+For production or VPS scans, add one or both safety guards:
+
+| Variable                           | Value                                                                  |
+| ---------------------------------- | ---------------------------------------------------------------------- |
+| `ARCHITECTURE_EXPECT_PROJECT_ID`   | Optional project id that must match the token scope before scan writes |
+| `ARCHITECTURE_EXPECT_PROJECT_NAME` | Optional project name guard, e.g. `expandly.id`                        |
+
+Every mutating CLI command checks `/api/mcp/health` before writing. It refuses
+to run if `ARCHITECTURE_PROJECT_ID`, the token's server-side project scope, or
+the optional expected project guards disagree.
+
 > **Why `.convex.site`?** Convex serves HTTP Actions (what this server calls) on a different subdomain than the main client API. `.convex.cloud` will return 404 for every request.
 
 ### Claude Code (claude.ai/code)
@@ -81,7 +92,8 @@ Add to your MCP settings via the Claude Code UI, or directly to `~/.claude.json`
       "env": {
         "ARCHITECTURE_CONVEX_URL": "https://your-deployment.convex.site",
         "ARCHITECTURE_API_KEY": "archv_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-        "ARCHITECTURE_PROJECT_ID": "jXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+        "ARCHITECTURE_PROJECT_ID": "jXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+        "ARCHITECTURE_EXPECT_PROJECT_NAME": "expandly.id"
       }
     }
   }
@@ -128,14 +140,15 @@ The AI should call `list_nodes` and return the current nodes. Watch the canvas i
 
 ## Troubleshooting
 
-| Symptom                                                            | Likely cause                                                                                                                           |
-| ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Startup error: `ARCHITECTURE_CONVEX_URL points to …convex.cloud …` | URL has the wrong subdomain. Replace `.convex.cloud` with `.convex.site`.                                                              |
-| Startup error: `prefix "archv_"`                                   | Token was pasted incomplete or the wrong value was copied. Regenerate at `/settings/tokens`.                                           |
-| `[unauthorized] Missing or invalid API token.`                     | Token revoked or never existed. Generate a fresh one.                                                                                  |
-| `[forbidden] Node not in token scope.`                             | The token belongs to a different project than the node being modified. Check `ARCHITECTURE_PROJECT_ID`.                                |
-| AI never calls any tool                                            | The MCP server didn't connect. Check the AI's MCP panel for connection state; restart the client.                                      |
-| Logs from the server clobbering JSON-RPC output                    | The server logs to stderr only — never stdout. If you see message corruption, something else (a wrapper script?) is writing to stdout. |
+| Symptom                                                            | Likely cause                                                                                                                                |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Startup error: `ARCHITECTURE_CONVEX_URL points to …convex.cloud …` | URL has the wrong subdomain. Replace `.convex.cloud` with `.convex.site`.                                                                   |
+| Startup error: `prefix "archv_"`                                   | Token was pasted incomplete or the wrong value was copied. Regenerate at `/settings/tokens`.                                                |
+| `[unauthorized] Missing or invalid API token.`                     | Token revoked or never existed. Generate a fresh one.                                                                                       |
+| `[forbidden] Node not in token scope.`                             | The token belongs to a different project than the node being modified. Check `ARCHITECTURE_PROJECT_ID`.                                     |
+| `API token is scoped to ...` or `expected project ...`             | The command is about to write to the wrong canvas. Use the production canvas token/project id, or update the `ARCHITECTURE_EXPECT_*` guard. |
+| AI never calls any tool                                            | The MCP server didn't connect. Check the AI's MCP panel for connection state; restart the client.                                           |
+| Logs from the server clobbering JSON-RPC output                    | The server logs to stderr only — never stdout. If you see message corruption, something else (a wrapper script?) is writing to stdout.      |
 
 ## Security
 

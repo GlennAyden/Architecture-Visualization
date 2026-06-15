@@ -97,6 +97,35 @@ describe('layer-first architecture layout', () => {
     expect(second.positionY).toBeGreaterThan(first.positionY);
     expect(second.positionX + FEATURE_NODE_DEFAULT_WIDTH).toBeLessThan(nextLayerStart);
   });
+
+  test('is idempotent once the layer layout has been applied', () => {
+    const input = [
+      node({ _id: 'dashboard', layerId: 'surfaces', _creationTime: 1 }),
+      node({
+        _id: 'dashboard-header',
+        type: 'feature',
+        parentId: 'dashboard',
+        layerId: 'surfaces',
+        _creationTime: 2,
+      }),
+      node({
+        _id: 'dashboard-onboarding',
+        type: 'feature',
+        parentId: 'dashboard',
+        layerId: 'surfaces',
+        _creationTime: 3,
+      }),
+      node({ _id: 'api', layerId: 'backend', _creationTime: 4 }),
+    ];
+
+    const first = computeArchLayerLayout(layers, input);
+    const appliedInput = input.map((item) => {
+      const laid = first.find((row) => row.id === item._id)!;
+      return { ...item, positionX: laid.positionX, positionY: laid.positionY };
+    });
+
+    expect(computeArchLayerLayout(layers, appliedInput)).toEqual(first);
+  });
 });
 
 function node(

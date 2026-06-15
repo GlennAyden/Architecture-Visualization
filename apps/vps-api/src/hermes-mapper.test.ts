@@ -104,6 +104,136 @@ describe('heuristicHermesMapper architecture flows', () => {
     expect(semantic.every((row) => row.reason.includes('chain-of-thought'))).toBe(false);
   });
 
+  test('inherits route ownership from page imports for nested UI components', async () => {
+    const context: HermesMappingContext = {
+      runId: 'runs:route-owner',
+      project: { _id: 'projects:expandly', name: 'Expandly' },
+      layers: [
+        { _id: 'layers:surfaces', name: 'Surfaces', position: 0 },
+        { _id: 'layers:ui', name: 'UI Modules', position: 1 },
+        { _id: 'layers:capabilities', name: 'Product Capabilities', position: 2 },
+      ],
+      nodes: [
+        {
+          _id: 'nodes:dashboard',
+          name: 'User Dashboard',
+          type: 'page',
+          layerId: 'layers:surfaces',
+          semanticKind: 'surface',
+          productArea: 'user',
+          routeHint: '/dashboard',
+          files: ['src/app/dashboard/page.tsx'],
+        },
+      ],
+      edges: [],
+      latestScan: {
+        data: {
+          orphans: [],
+          fileFacts: [
+            {
+              path: 'src/app/dashboard/page.tsx',
+              kind: 'component',
+              routeHint: '/dashboard',
+              productArea: 'user',
+              imports: ['@/components/dashboard/layout/dashboard-layout'],
+              resolvedImports: ['src/components/dashboard/layout/dashboard-layout.tsx'],
+              exports: ['default'],
+            },
+            {
+              path: 'src/components/dashboard/layout/dashboard-layout.tsx',
+              kind: 'component',
+              productArea: 'user',
+              imports: [
+                '@/components/dashboard/layout/dashboard-header',
+                '@/components/dashboard/content/home-content',
+              ],
+              resolvedImports: [
+                'src/components/dashboard/layout/dashboard-header.tsx',
+                'src/components/dashboard/content/home-content.tsx',
+              ],
+              exports: ['default'],
+            },
+            {
+              path: 'src/components/dashboard/layout/dashboard-header.tsx',
+              kind: 'component',
+              productArea: 'user',
+              capabilityHints: ['notifications', 'localization', 'profile'],
+              textHints: ['Notifications', 'Language', 'Profile account'],
+              uiBlocks: [
+                {
+                  key: 'header_controls',
+                  name: 'Header Controls',
+                  kind: 'header',
+                  labels: ['Notifications', 'Language', 'Profile account'],
+                  evidence: ['header controls detected'],
+                },
+              ],
+              imports: [],
+              exports: ['default'],
+            },
+            {
+              path: 'src/components/dashboard/content/home-content.tsx',
+              kind: 'component',
+              productArea: 'user',
+              capabilityHints: ['onboarding', 'billing_subscription', 'feature_updates'],
+              textHints: ['Welcome back', 'Redeem code', 'Feature updates'],
+              uiBlocks: [
+                {
+                  key: 'onboarding',
+                  name: 'Onboarding',
+                  kind: 'panel',
+                  labels: ['Welcome back'],
+                  evidence: ['onboarding card detected'],
+                },
+                {
+                  key: 'billing_subscription',
+                  name: 'Billing & Subscription',
+                  kind: 'cta',
+                  labels: ['Redeem code'],
+                  evidence: ['billing cta detected'],
+                },
+              ],
+              imports: [],
+              exports: ['default'],
+            },
+          ],
+        },
+      },
+      suggestions: [],
+      relationshipSuggestions: [],
+      flows: [],
+    };
+
+    const result = await heuristicHermesMapper(context);
+    const semantic = result.semanticNodeSuggestions ?? [];
+
+    expect(semantic).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceFilePath: 'src/components/dashboard/layout/dashboard-header.tsx',
+          semanticKey: 'ui:/dashboard:header_controls',
+          parentNodeId: 'nodes:dashboard',
+          routeHint: '/dashboard',
+          confidence: 0.9,
+        }),
+        expect.objectContaining({
+          sourceFilePath: 'src/components/dashboard/content/home-content.tsx',
+          semanticKey: 'ui:/dashboard:onboarding',
+          parentNodeId: 'nodes:dashboard',
+          routeHint: '/dashboard',
+          confidence: 0.9,
+        }),
+        expect.objectContaining({
+          sourceFilePath: 'src/components/dashboard/content/home-content.tsx',
+          semanticKey: 'ui:/dashboard:billing_subscription',
+          parentNodeId: 'nodes:dashboard',
+          routeHint: '/dashboard',
+          confidence: 0.9,
+        }),
+      ]),
+    );
+  });
+
   test('suggests semantic contains and uses edges for existing product nodes', async () => {
     const context: HermesMappingContext = {
       runId: 'runs:semantic-edges',

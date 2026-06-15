@@ -15,20 +15,15 @@ interface Props {
   layers?: Doc<'projectLayers'>[] | undefined;
 }
 
-// Inter-mutation delay. Spreads the burst that the previous Promise.all
-// implementation would fire at the server in a single tick. Sequencing
-// authenticated mutations keeps token refresh and Convex writes stable while
-// still finishing a full re-layout quickly for the projects we care about.
-const DISPATCH_INTERVAL_MS = 60;
 const STATUS_FADE_MS = 4000;
 
 interface StatusMessage {
-  kind: 'success' | 'partial' | 'failure';
+  kind: 'success' | 'failure';
   text: string;
 }
 
 export function AutoLayoutButton({ nodes, layers }: Props) {
-  const updateMutation = useMutation(api.nodes.update);
+  const updatePositionsMutation = useMutation(api.nodes.updatePositions);
   const [running, setRunning] = useState(false);
   const [status, setStatus] = useState<StatusMessage | null>(null);
 
@@ -62,65 +57,27 @@ export function AutoLayoutButton({ nodes, layers }: Props) {
             );
 
       const byId = new Map(nodes.map((n) => [n._id as string, n]));
-      const tasks: Array<{ id: Id<'nodes'>; positionX: number; positionY: number }> = [];
+      const updates: Array<{ id: Id<'nodes'>; positionX: number; positionY: number }> = [];
       for (const laid of result) {
         const current = byId.get(laid.id);
         if (!current) continue;
         if (current.positionX === laid.positionX && current.positionY === laid.positionY) {
           continue;
         }
-        tasks.push({
+        updates.push({
           id: laid.id as Id<'nodes'>,
           positionX: laid.positionX,
           positionY: laid.positionY,
         });
       }
 
-      if (tasks.length === 0) {
+      if (updates.length === 0) {
         setStatus({ kind: 'success', text: 'Already laid out.' });
         return;
       }
 
-      // Sequenced dispatch with allSettled — a single failure no longer
-      // poisons the batch. Each mutation is its own promise; we collect
-      // outcomes and surface the partial-success state to the user.
-      const dispatched: Array<Promise<unknown>> = [];
-      for (let i = 0; i < tasks.length; i++) {
-        const t = tasks[i];
-        if (!t) continue;
-        const promise =
-          i === 0
-            ? updateMutation(t)
-            : new Promise((resolve) => window.setTimeout(resolve, DISPATCH_INTERVAL_MS)).then(() =>
-                updateMutation(t),
-              );
-        dispatched.push(promise);
-      }
-
-      const outcomes = await Promise.allSettled(dispatched);
-      const failed = outcomes.filter((o) => o.status === 'rejected').length;
-      const ok = outcomes.length - failed;
-
-      if (failed === 0) {
-        setStatus({ kind: 'success', text: `Arranged ${ok} nodes.` });
-        return;
-      }
-
-      // Log the first few failures to the console so the user can dig in
-      // via DevTools if they want; the UI just carries the count.
-      const sample = outcomes
-        .filter((o): o is PromiseRejectedResult => o.status === 'rejected')
-        .slice(0, 3)
-        .map((o) => (o.reason instanceof Error ? o.reason.message : String(o.reason)));
-      console.warn('[AutoLayout] partial failures:', sample);
-
-      setStatus({
-        kind: failed === outcomes.length ? 'failure' : 'partial',
-        text:
-          failed === outcomes.length
-            ? `All ${failed} updates failed. Check console / try again.`
-            : `${ok} of ${outcomes.length} nodes arranged. ${failed} failed — try again.`,
-      });
+      const outcome = await updatePositionsMutation({ updates });
+      setStatus({ kind: 'success', text: `Arranged ${outcome.updated} nodes.` });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn('[AutoLayout] aborted:', msg);
@@ -130,12 +87,7 @@ export function AutoLayoutButton({ nodes, layers }: Props) {
     }
   };
 
-  const statusColor =
-    status?.kind === 'failure'
-      ? 'text-destructive'
-      : status?.kind === 'partial'
-        ? 'text-amber-300'
-        : 'text-zinc-400';
+  const statusColor = status?.kind === 'failure' ? 'text-destructive' : 'text-zinc-400';
 
   return (
     <div className="flex items-center gap-2">

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { ConvexMcpClient } from '../client.js';
 import { loadConfig } from '../config.js';
 import { progress, summary } from './output.js';
+import { verifyProjectScope } from './project-scope.js';
 
 export interface PushSuggestionsArgs {
   fromJson: string;
@@ -285,7 +286,11 @@ export async function runPushSuggestions(
   const filePath = isAbsolute(args.fromJson) ? args.fromJson : resolve(cwd, args.fromJson);
   const payload = readSuggestionsPayload(filePath);
 
-  progress(`[push-suggestions] project=${config.projectId}`);
+  if (!injectedClient) {
+    await verifyProjectScope(client as ConvexMcpClient, config, 'push-suggestions');
+  } else {
+    progress(`[push-suggestions] project=${config.projectId}`);
+  }
   progress(
     `[push-suggestions] suggestions=${payload.suggestions.length}, semantic=${payload.semanticNodeSuggestions.length}, relationships=${payload.relationshipSuggestions.length}, flows=${payload.flowSuggestions.length}`,
   );

@@ -6,6 +6,7 @@ import { loadConfig } from '../config.js';
 import { SOURCE_EXTENSIONS } from './fs-walk.js';
 import { createImportResolver, type ImportResolver } from './import-resolver.js';
 import { progress, summary } from './output.js';
+import { verifyProjectScope } from './project-scope.js';
 import { emitDependencyEdges } from './walkers/dependency.js';
 import { emitNavigationEdges } from './walkers/navigation.js';
 import { emitDataFlowEdges } from './walkers/data-flow.js';
@@ -183,7 +184,7 @@ export async function runScanImports(
   const opts = parseScanImportsArgs(argv);
   const config = loadConfig(env);
   const client = new ConvexMcpClient(config);
-  progress(`[scan-imports] project=${config.projectId}`);
+  await verifyProjectScope(client, config, 'scan-imports');
 
   // Sprint 3 needs the (path → owners) map AND each node's metadata; the
   // legacy `collectLinkedFiles` only returned a flat path set. Build both

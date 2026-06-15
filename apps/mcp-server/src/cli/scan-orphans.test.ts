@@ -300,4 +300,84 @@ describe('buildFileFacts', () => {
     );
     expect(facts[1]).toMatchObject({ productArea: 'admin', featureHint: 'users' });
   });
+
+  test('extracts semantic facts across admin, extension, data, and agent areas', () => {
+    const root = mkdtempSync(join(tmpdir(), 'arch-viz-wide-product-facts-'));
+    TMPS.push(root);
+    const write = (p: string, body: string) => {
+      const abs = join(root, p);
+      mkdirSync(join(abs, '..'), { recursive: true });
+      writeFileSync(abs, body);
+    };
+
+    write(
+      'src/components/admin/user-control/UserControlDashboard.tsx',
+      `
+        export function UserControlDashboard() {
+          return <section>User Control user filters UserDataTable bulk actions impersonate</section>;
+        }
+      `,
+    );
+    write(
+      'src/components/admin/subscriptions/SubscriptionManagement.tsx',
+      `
+        export function SubscriptionManagement() {
+          return <section>Plan Catalog service tools custom plans promo codes API Keys</section>;
+        }
+      `,
+    );
+    write(
+      'src/components/admin/support/SupportSystem.tsx',
+      `
+        export function SupportSystem() {
+          return <section>Support System support tickets ticket table bulk triage</section>;
+        }
+      `,
+    );
+    write(
+      'src/components/admin/hermes/HermesMissionControl.tsx',
+      `
+        export function HermesMissionControl() {
+          return <section>Hermes agent mission control worker queue</section>;
+        }
+      `,
+    );
+    write(
+      'src/components/extension/ChromeExtensionPanel.tsx',
+      `
+        export function ChromeExtensionPanel() {
+          return <section>Chrome extension install extension connect first service</section>;
+        }
+      `,
+    );
+
+    const facts = buildFileFacts(root, [
+      'src/components/admin/user-control/UserControlDashboard.tsx',
+      'src/components/admin/subscriptions/SubscriptionManagement.tsx',
+      'src/components/admin/support/SupportSystem.tsx',
+      'src/components/admin/hermes/HermesMissionControl.tsx',
+      'src/components/extension/ChromeExtensionPanel.tsx',
+    ]);
+
+    expect(facts[0]).toMatchObject({
+      productArea: 'admin',
+      capabilityHints: expect.arrayContaining(['admin_operations', 'user_control']),
+    });
+    expect(facts[1]).toMatchObject({
+      productArea: 'admin',
+      capabilityHints: expect.arrayContaining(['billing_subscription', 'plan_catalog', 'api_keys']),
+    });
+    expect(facts[2]).toMatchObject({
+      productArea: 'admin',
+      capabilityHints: expect.arrayContaining(['support_ops']),
+    });
+    expect(facts[3]).toMatchObject({
+      productArea: 'admin',
+      capabilityHints: expect.arrayContaining(['agent_mission_control']),
+    });
+    expect(facts[4]).toMatchObject({
+      productArea: 'extension',
+      capabilityHints: expect.arrayContaining(['extension_services']),
+    });
+  });
 });

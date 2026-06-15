@@ -5,6 +5,7 @@ import { loadConfig } from '../config.js';
 import { walkSourceFiles } from './fs-walk.js';
 import { collectLinkedFilesWithNode } from './scan-imports.js';
 import { progress, summary } from './output.js';
+import { verifyProjectScope } from './project-scope.js';
 
 /**
  * Drift entry kinds:
@@ -92,7 +93,7 @@ export async function runScanDrift(
   void argv;
   const config = loadConfig(env);
   const client = new ConvexMcpClient(config);
-  progress(`[scan-drift] project=${config.projectId}`);
+  await verifyProjectScope(client, config, 'scan-drift');
 
   const linked = await collectLinkedFilesWithNode(client);
   progress(`[scan-drift] ${linked.length} linked files in canvas`);
