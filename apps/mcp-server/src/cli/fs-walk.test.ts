@@ -52,12 +52,7 @@ describe('walkSourceFiles', () => {
     const { files, truncated } = walkSourceFiles(root);
     const sorted = [...files].sort();
     expect(sorted).toEqual(
-      [
-        'src/index.ts',
-        'src/legacy.js',
-        'src/lib/util.ts',
-        'src/nested/deep/component.tsx',
-      ].sort(),
+      ['src/index.ts', 'src/legacy.js', 'src/lib/util.ts', 'src/nested/deep/component.tsx'].sort(),
     );
     expect(truncated).toBe(false);
     // Sanity: every excluded path must be absent.

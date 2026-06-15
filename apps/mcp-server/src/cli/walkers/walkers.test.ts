@@ -42,9 +42,7 @@ describe('emitDependencyEdges', () => {
         ['src/b.ts', ['nodeB']],
       ]),
     });
-    expect(edges).toEqual([
-      { sourceNodeId: 'nodeA', targetNodeId: 'nodeB', type: 'dependency' },
-    ]);
+    expect(edges).toEqual([{ sourceNodeId: 'nodeA', targetNodeId: 'nodeB', type: 'dependency' }]);
   });
 
   test('emits one edge per importer-owner when the importer file is linked to multiple nodes', () => {
@@ -127,18 +125,14 @@ describe('emitNavigationEdges', () => {
     // as JSX <Link>. Treating only one would skew the graph toward
     // declarative routes, hiding imperative flows like post-submit
     // redirects that are exactly where bugs hide.
-    const sourceFile = makeSource(
-      'function f(router) { router.push("/auth/login"); }',
-    );
+    const sourceFile = makeSource('function f(router) { router.push("/auth/login"); }');
     const edges = emitNavigationEdges({
       filePath: 'src/x.tsx',
       ownerNodeIds: ['home'],
       sourceFile,
       allNodes: [snapshot({ id: 'login', route: '/auth/login' })],
     });
-    expect(edges).toEqual([
-      { sourceNodeId: 'home', targetNodeId: 'login', type: 'navigation' },
-    ]);
+    expect(edges).toEqual([{ sourceNodeId: 'home', targetNodeId: 'login', type: 'navigation' }]);
   });
 
   test('emits nothing when no project node owns the navigated route', () => {
@@ -189,9 +183,7 @@ describe('emitDataFlowEdges', () => {
       sourceFile,
       allNodes: [snapshot({ id: 'authApi', apiPaths: ['/api/login'] })],
     });
-    expect(edges).toEqual([
-      { sourceNodeId: 'login', targetNodeId: 'authApi', type: 'data_flow' },
-    ]);
+    expect(edges).toEqual([{ sourceNodeId: 'login', targetNodeId: 'authApi', type: 'data_flow' }]);
   });
 
   test('emits a data_flow edge for useMutation(api.foo.bar) with canonical "foo.bar" apiPaths form', () => {
@@ -209,9 +201,7 @@ describe('emitDataFlowEdges', () => {
       sourceFile,
       allNodes: [snapshot({ id: 'server', apiPaths: ['foo.bar'] })],
     });
-    expect(edges).toEqual([
-      { sourceNodeId: 'client', targetNodeId: 'server', type: 'data_flow' },
-    ]);
+    expect(edges).toEqual([{ sourceNodeId: 'client', targetNodeId: 'server', type: 'data_flow' }]);
   });
 
   test('emits a data_flow edge for convexClient.mutation(api.foo.bar) via property-access call', () => {
@@ -228,8 +218,6 @@ describe('emitDataFlowEdges', () => {
       sourceFile,
       allNodes: [snapshot({ id: 'server', apiPaths: ['foo.bar'] })],
     });
-    expect(edges).toEqual([
-      { sourceNodeId: 'client', targetNodeId: 'server', type: 'data_flow' },
-    ]);
+    expect(edges).toEqual([{ sourceNodeId: 'client', targetNodeId: 'server', type: 'data_flow' }]);
   });
 });

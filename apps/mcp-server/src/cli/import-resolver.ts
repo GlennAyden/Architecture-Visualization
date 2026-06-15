@@ -178,10 +178,7 @@ function candidateFiles(baseAbs: string, extensions: ReadonlyArray<string>): str
   return out;
 }
 
-function resolveCandidate(
-  repoRoot: string,
-  candidates: ReadonlyArray<string>,
-): string | null {
+function resolveCandidate(repoRoot: string, candidates: ReadonlyArray<string>): string | null {
   for (const candidate of candidates) {
     if (!existsSync(candidate)) continue;
     let stat;

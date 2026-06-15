@@ -9,11 +9,7 @@ import { progress, summary } from './output.js';
 import { emitDependencyEdges } from './walkers/dependency.js';
 import { emitNavigationEdges } from './walkers/navigation.js';
 import { emitDataFlowEdges } from './walkers/data-flow.js';
-import {
-  dedupeEdges,
-  type EdgeCandidate,
-  type NodeSnapshot,
-} from './walkers/shared.js';
+import { dedupeEdges, type EdgeCandidate, type NodeSnapshot } from './walkers/shared.js';
 
 /**
  * Maximum number of resolved imports per /api/mcp/files/auto_link call.
@@ -97,10 +93,7 @@ export function parseScanImportsArgs(argv: ReadonlyArray<string>): ScanImportsOp
  * Returned specifiers are *raw* (e.g. `./foo`, `../bar/baz`, `react`). Use
  * `resolveLocalImport` to turn relatives into filesystem paths.
  */
-export function extractImportSpecifiers(
-  sourceText: string,
-  filePath: string,
-): string[] {
+export function extractImportSpecifiers(sourceText: string, filePath: string): string[] {
   // We use ts-morph rather than a regex so JSX, generic, and type-only
   // import syntax all parse cleanly. A regex over JSX explodes immediately.
   const project = new Project({
@@ -128,10 +121,7 @@ export function extractImportSpecifiers(
     const raw = args[0]!.getText();
     // Only handle literal `import('./foo')` — variable dynamic imports can't
     // be resolved statically anyway.
-    if (
-      (raw.startsWith("'") && raw.endsWith("'")) ||
-      (raw.startsWith('"') && raw.endsWith('"'))
-    ) {
+    if ((raw.startsWith("'") && raw.endsWith("'")) || (raw.startsWith('"') && raw.endsWith('"'))) {
       out.push(raw.slice(1, -1));
     }
   }
@@ -285,7 +275,8 @@ export async function runScanImports(
   if (opts.skipEdges) return 0;
 
   const deduped = dedupeEdges(edgeCandidates);
-  const capped = deduped.length > EDGE_RECONCILE_CAP ? deduped.slice(0, EDGE_RECONCILE_CAP) : deduped;
+  const capped =
+    deduped.length > EDGE_RECONCILE_CAP ? deduped.slice(0, EDGE_RECONCILE_CAP) : deduped;
   if (deduped.length > EDGE_RECONCILE_CAP) {
     progress(
       `[scan-imports] WARN: emitted ${deduped.length} edges, capping at ${EDGE_RECONCILE_CAP}`,
@@ -325,9 +316,7 @@ function hasSourceExtension(path: string): boolean {
  * file currently linked in the canvas. Exposed for the orphans / drift
  * scanners which need the same data.
  */
-export async function collectLinkedFiles(
-  client: ConvexMcpClient,
-): Promise<Set<string>> {
+export async function collectLinkedFiles(client: ConvexMcpClient): Promise<Set<string>> {
   const list = await client.post<NodeListResponse>('/api/mcp/nodes/list', {});
   const out = new Set<string>();
   for (const node of list.nodes) {

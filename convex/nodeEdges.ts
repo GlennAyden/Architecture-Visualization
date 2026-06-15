@@ -69,10 +69,7 @@ export const backfillHierarchy = internalMutation({
         .query('nodeEdges')
         .withIndex('by_source', (q) => q.eq('sourceNodeId', node.parentId!))
         .filter((q) =>
-          q.and(
-            q.eq(q.field('targetNodeId'), node._id),
-            q.eq(q.field('type'), 'hierarchy'),
-          ),
+          q.and(q.eq(q.field('targetNodeId'), node._id), q.eq(q.field('type'), 'hierarchy')),
         )
         .first();
       if (before) {

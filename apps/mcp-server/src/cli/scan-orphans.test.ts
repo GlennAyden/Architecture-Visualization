@@ -106,7 +106,10 @@ describe('buildFileFacts', () => {
       'src/app/api/billing/route.ts',
       "import { x } from '@/lib/x'; export async function POST() {}",
     );
-    write('src/features/admin/users/page.tsx', 'export default function UsersPage() { return null; }');
+    write(
+      'src/features/admin/users/page.tsx',
+      'export default function UsersPage() { return null; }',
+    );
     write('src/server/jobs/heartbeat.ts', 'export async function heartbeat() {}');
     write('convex/_generated/api.js', 'export default {};');
     write('convex/codebaseSuggestions.test.ts', 'export const testOnly = true;');

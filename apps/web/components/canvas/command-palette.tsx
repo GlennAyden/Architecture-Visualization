@@ -32,9 +32,7 @@ function rankMatches(nodes: Doc<'nodes'>[], query: string): Doc<'nodes'>[] {
   const q = query.trim().toLowerCase();
   if (!q) {
     // Empty query: most-recent first.
-    return [...nodes]
-      .sort((a, b) => b._creationTime - a._creationTime)
-      .slice(0, RECENT_FALLBACK);
+    return [...nodes].sort((a, b) => b._creationTime - a._creationTime).slice(0, RECENT_FALLBACK);
   }
   const out: Ranked[] = [];
   for (const node of nodes) {
@@ -132,10 +130,7 @@ export function CommandPalette({ projectId }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent
-        showCloseButton={false}
-        className="top-[20%] max-w-md gap-0 p-0 sm:max-w-md"
-      >
+      <DialogContent showCloseButton={false} className="top-[20%] max-w-md gap-0 p-0 sm:max-w-md">
         <div className="border-b border-border/60 p-3" onKeyDown={onListKeyDown}>
           <Input
             autoFocus

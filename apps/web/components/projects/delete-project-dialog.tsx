@@ -43,8 +43,8 @@ export function DeleteProjectDialog({ projectId, projectName, open, onOpenChange
         <AlertDialogHeader>
           <AlertDialogTitle>Delete &quot;{projectName}&quot;?</AlertDialogTitle>
           <AlertDialogDescription>
-            This permanently removes the project, its nodes, kanban tasks, linked files, and any
-            API tokens scoped to it. Cannot be undone.
+            This permanently removes the project, its nodes, kanban tasks, linked files, and any API
+            tokens scoped to it. Cannot be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

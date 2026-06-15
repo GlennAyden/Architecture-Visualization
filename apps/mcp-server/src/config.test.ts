@@ -22,9 +22,7 @@ describe('loadConfig', () => {
   });
 
   test('rejects missing URL', () => {
-    expect(() => loadConfig({ ...valid, ARCHITECTURE_CONVEX_URL: undefined })).toThrow(
-      ConfigError,
-    );
+    expect(() => loadConfig({ ...valid, ARCHITECTURE_CONVEX_URL: undefined })).toThrow(ConfigError);
   });
 
   test('rejects invalid URL', () => {

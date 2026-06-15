@@ -22,11 +22,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 const formSchema = z.object({
-  name: z
-    .string()
-    .trim()
-    .min(1, 'Name is required')
-    .max(80, 'Name must be 80 characters or fewer'),
+  name: z.string().trim().min(1, 'Name is required').max(80, 'Name must be 80 characters or fewer'),
   expiration: z.enum(['never', '7d', '30d', 'custom']),
   customDate: z.string().optional(),
 });

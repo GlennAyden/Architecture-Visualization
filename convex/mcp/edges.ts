@@ -138,12 +138,10 @@ export const reconcileEdges = internalMutation({
       // Pre-existing rows of this type in the project.
       const existing = await ctx.db
         .query('nodeEdges')
-        .withIndex('by_project_type', (q) =>
-          q.eq('projectId', scopeProjectId).eq('type', type),
-        )
+        .withIndex('by_project_type', (q) => q.eq('projectId', scopeProjectId).eq('type', type))
         .collect();
 
-      const existingAutoPairs = new Map<string, typeof existing[number]>();
+      const existingAutoPairs = new Map<string, (typeof existing)[number]>();
       for (const row of existing) {
         const src = row.source ?? 'auto';
         const key = `${row.sourceNodeId}|${row.targetNodeId}`;
@@ -159,16 +157,14 @@ export const reconcileEdges = internalMutation({
 
       // Insertions: pairs in incoming but not in any existing row of this
       // type (auto or manual).
-      const existingAllPairs = new Set(
-        existing.map((r) => `${r.sourceNodeId}|${r.targetNodeId}`),
-      );
+      const existingAllPairs = new Set(existing.map((r) => `${r.sourceNodeId}|${r.targetNodeId}`));
       for (const pair of incomingPairs) {
         if (existingAllPairs.has(pair)) continue;
         const [source, target] = pair.split('|') as [string, string];
         await ctx.db.insert('nodeEdges', {
           projectId: scopeProjectId,
-          sourceNodeId: source as typeof existing[number]['sourceNodeId'],
-          targetNodeId: target as typeof existing[number]['targetNodeId'],
+          sourceNodeId: source as (typeof existing)[number]['sourceNodeId'],
+          targetNodeId: target as (typeof existing)[number]['targetNodeId'],
           type,
           source: 'auto',
         });

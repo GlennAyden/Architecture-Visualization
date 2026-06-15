@@ -22,13 +22,7 @@ interface Props {
   onOpenChange: (open: boolean) => void;
 }
 
-export function RevokeMemberDialog({
-  memberId,
-  memberEmail,
-  accepted,
-  open,
-  onOpenChange,
-}: Props) {
+export function RevokeMemberDialog({ memberId, memberEmail, accepted, open, onOpenChange }: Props) {
   const revoke = useMutation(api.projectMembers.revoke);
 
   const onConfirm = async () => {

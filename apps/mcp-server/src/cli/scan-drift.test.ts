@@ -74,10 +74,7 @@ describe('buildDriftPayload', () => {
   });
 
   test('omits truncated flag for normal-sized payloads', () => {
-    const payload = buildDriftPayload(
-      [{ kind: 'missing', nodeId: 'n', path: 'a.ts' }],
-      99,
-    );
+    const payload = buildDriftPayload([{ kind: 'missing', nodeId: 'n', path: 'a.ts' }], 99);
     expect(payload.truncated).toBeUndefined();
     expect(payload.scannedAt).toBe(99);
   });

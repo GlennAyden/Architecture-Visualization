@@ -63,9 +63,9 @@ describe('apiTokens.create', () => {
     const asUser = t.withIdentity(fakeIdentity('user_a', 'a@example.com'));
     const projectId = await asUser.mutation(api.projects.create, { name: 'P' });
 
-    await expect(
-      t.mutation(api.apiTokens.create, { projectId, name: 'X' }),
-    ).rejects.toThrow(/Unauthorized/);
+    await expect(t.mutation(api.apiTokens.create, { projectId, name: 'X' })).rejects.toThrow(
+      /Unauthorized/,
+    );
   });
 
   test('refuses to create a token for another user’s project', async () => {
@@ -74,18 +74,18 @@ describe('apiTokens.create', () => {
     const asB = t.withIdentity(fakeIdentity('user_b', 'b@example.com'));
     const projectId = await asA.mutation(api.projects.create, { name: 'A' });
 
-    await expect(
-      asB.mutation(api.apiTokens.create, { projectId, name: 'hijack' }),
-    ).rejects.toThrow(/Unauthorized/);
+    await expect(asB.mutation(api.apiTokens.create, { projectId, name: 'hijack' })).rejects.toThrow(
+      /Unauthorized/,
+    );
   });
 
   test('rejects empty token name', async () => {
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(fakeIdentity('user_a', 'a@example.com'));
     const projectId = await asUser.mutation(api.projects.create, { name: 'P' });
-    await expect(
-      asUser.mutation(api.apiTokens.create, { projectId, name: '   ' }),
-    ).rejects.toThrow(/Token name is required/);
+    await expect(asUser.mutation(api.apiTokens.create, { projectId, name: '   ' })).rejects.toThrow(
+      /Token name is required/,
+    );
   });
 });
 
@@ -131,9 +131,7 @@ describe('apiTokens.revoke', () => {
     });
 
     await asUser.mutation(api.apiTokens.revoke, { id: tokenId });
-    await expect(
-      asUser.mutation(api.apiTokens.revoke, { id: tokenId }),
-    ).resolves.not.toThrow();
+    await expect(asUser.mutation(api.apiTokens.revoke, { id: tokenId })).resolves.not.toThrow();
   });
 });
 

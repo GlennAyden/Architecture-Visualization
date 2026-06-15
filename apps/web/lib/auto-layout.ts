@@ -90,8 +90,7 @@ export function computeAutoLayout(nodes: ReadonlyArray<LayoutNodeInput>): Layout
       const row = Math.floor(i / cols);
       const col = i % cols;
       relChildPos.set(child.id, {
-        relX:
-          CLUSTER_PADDING + col * (FEATURE_NODE_DEFAULT_WIDTH + CLUSTER_CHILD_SPACING),
+        relX: CLUSTER_PADDING + col * (FEATURE_NODE_DEFAULT_WIDTH + CLUSTER_CHILD_SPACING),
         relY:
           CLUSTER_TITLE_BAR_HEIGHT +
           CLUSTER_PADDING +
@@ -100,9 +99,7 @@ export function computeAutoLayout(nodes: ReadonlyArray<LayoutNodeInput>): Layout
       usedRows = Math.max(usedRows, row + 1);
     });
     const w =
-      CLUSTER_PADDING * 2 +
-      cols * FEATURE_NODE_DEFAULT_WIDTH +
-      (cols - 1) * CLUSTER_CHILD_SPACING;
+      CLUSTER_PADDING * 2 + cols * FEATURE_NODE_DEFAULT_WIDTH + (cols - 1) * CLUSTER_CHILD_SPACING;
     const h =
       CLUSTER_TITLE_BAR_HEIGHT +
       CLUSTER_PADDING * 2 +
@@ -126,12 +123,9 @@ export function computeAutoLayout(nodes: ReadonlyArray<LayoutNodeInput>): Layout
 
   for (const n of topLevel) {
     const size = parentSize.get(n.id);
-    const w =
-      size?.w ??
-      (n.type === 'page' ? PAGE_NODE_DEFAULT_WIDTH : FEATURE_NODE_DEFAULT_WIDTH);
+    const w = size?.w ?? (n.type === 'page' ? PAGE_NODE_DEFAULT_WIDTH : FEATURE_NODE_DEFAULT_WIDTH);
     const h =
-      size?.h ??
-      (n.type === 'page' ? PAGE_NODE_DEFAULT_HEIGHT : FEATURE_NODE_DEFAULT_HEIGHT);
+      size?.h ?? (n.type === 'page' ? PAGE_NODE_DEFAULT_HEIGHT : FEATURE_NODE_DEFAULT_HEIGHT);
 
     if (curX + w > TOP_LEVEL_MAX_ROW_WIDTH && curX > TOP_LEVEL_MARGIN) {
       curX = TOP_LEVEL_MARGIN;

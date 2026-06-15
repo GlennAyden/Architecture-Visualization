@@ -418,9 +418,9 @@ describe('apiTokens.create', () => {
     const asUser = t.withIdentity(fakeIdentity('user_a', 'a@example.com'));
     const projectId = await asUser.mutation(api.projects.create, { name: 'P' });
 
-    await expect(
-      t.mutation(api.apiTokens.create, { projectId, name: 'X' }),
-    ).rejects.toThrow(/Unauthorized/);
+    await expect(t.mutation(api.apiTokens.create, { projectId, name: 'X' })).rejects.toThrow(
+      /Unauthorized/,
+    );
   });
 
   test('refuses to create a token for another user’s project', async () => {
@@ -429,18 +429,18 @@ describe('apiTokens.create', () => {
     const asB = t.withIdentity(fakeIdentity('user_b', 'b@example.com'));
     const projectId = await asA.mutation(api.projects.create, { name: 'A' });
 
-    await expect(
-      asB.mutation(api.apiTokens.create, { projectId, name: 'hijack' }),
-    ).rejects.toThrow(/Unauthorized/);
+    await expect(asB.mutation(api.apiTokens.create, { projectId, name: 'hijack' })).rejects.toThrow(
+      /Unauthorized/,
+    );
   });
 
   test('rejects empty token name', async () => {
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(fakeIdentity('user_a', 'a@example.com'));
     const projectId = await asUser.mutation(api.projects.create, { name: 'P' });
-    await expect(
-      asUser.mutation(api.apiTokens.create, { projectId, name: '   ' }),
-    ).rejects.toThrow(/Token name is required/);
+    await expect(asUser.mutation(api.apiTokens.create, { projectId, name: '   ' })).rejects.toThrow(
+      /Token name is required/,
+    );
   });
 });
 ```
@@ -547,9 +547,7 @@ describe('apiTokens.revoke', () => {
     });
 
     await asUser.mutation(api.apiTokens.revoke, { id: tokenId });
-    await expect(
-      asUser.mutation(api.apiTokens.revoke, { id: tokenId }),
-    ).resolves.not.toThrow();
+    await expect(asUser.mutation(api.apiTokens.revoke, { id: tokenId })).resolves.not.toThrow();
   });
 });
 ```
@@ -1192,9 +1190,7 @@ export default function TokensPage() {
             </Link>
           </p>
         </div>
-        <CreateTokenDialog
-          onCreated={(rawToken, name) => setReveal({ rawToken, name })}
-        />
+        <CreateTokenDialog onCreated={(rawToken, name) => setReveal({ rawToken, name })} />
       </div>
 
       {tokens === undefined && <p className="text-muted-foreground">Loading…</p>}
@@ -1213,17 +1209,12 @@ export default function TokensPage() {
       {tokens && tokens.length > 0 && (
         <ul className="space-y-2">
           {tokens.map((t) => (
-            <li
-              key={t._id}
-              className="flex items-center justify-between rounded-md border p-4"
-            >
+            <li key={t._id} className="flex items-center justify-between rounded-md border p-4">
               <div className="space-y-1">
                 <div className="font-medium">
                   {t.name}
                   {t.revokedAt && (
-                    <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs">
-                      revoked
-                    </span>
+                    <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs">revoked</span>
                   )}
                 </div>
                 <div className="text-xs text-muted-foreground">

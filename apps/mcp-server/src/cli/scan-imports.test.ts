@@ -47,9 +47,7 @@ describe('extractImportSpecifiers', () => {
       "import 'package-only';",
     ].join('\n');
     const specs = extractImportSpecifiers(text, '/repo/src/x.ts');
-    expect(specs.sort()).toEqual(
-      ['./a', './b', './c', './d', 'package-only'].sort(),
-    );
+    expect(specs.sort()).toEqual(['./a', './b', './c', './d', 'package-only'].sort());
   });
 
   test('ignores dynamic imports with a variable specifier (cannot resolve statically)', () => {
@@ -142,9 +140,7 @@ describe('resolveLocalImport', () => {
     const resolver = createImportResolver(root);
 
     expect(isLocalImport('@/lib/helper', resolver)).toBe(true);
-    expect(resolveLocalImport(importer, '@/lib/helper', root)).toBe(
-      'apps/web/lib/helper.ts',
-    );
+    expect(resolveLocalImport(importer, '@/lib/helper', root)).toBe('apps/web/lib/helper.ts');
   });
 });
 

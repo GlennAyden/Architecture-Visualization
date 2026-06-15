@@ -162,9 +162,7 @@ function classifyFile(path: string): ScanFileKind {
 
 function routeHintFor(path: string): string | undefined {
   const normalized = path.replace(/\\/g, '/');
-  if (
-    /^(?:apps\/web\/)?(?:src\/)?app\/(?:page|route)\.[cm]?[tj]sx?$/.test(normalized)
-  ) {
+  if (/^(?:apps\/web\/)?(?:src\/)?app\/(?:page|route)\.[cm]?[tj]sx?$/.test(normalized)) {
     return '/';
   }
   const routeMatch =
@@ -261,15 +259,15 @@ export function buildFileFacts(rootDir: string, files: ReadonlyArray<string>): S
     const imports = uniqueCapped(
       [
         ...extractedImports,
-        ...[...text.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map(
-          (match) => match[1] ?? '',
-        ),
+        ...[...text.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map((match) => match[1] ?? ''),
       ],
       20,
     );
     const resolvedImports = uniqueCapped(
       imports
-        .map((spec) => (resolver.isLocal(spec) ? resolver.resolve(join(rootDir, path), spec) : null))
+        .map((spec) =>
+          resolver.isLocal(spec) ? resolver.resolve(join(rootDir, path), spec) : null,
+        )
         .filter((value): value is string => typeof value === 'string' && value !== path),
       20,
     );

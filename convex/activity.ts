@@ -54,14 +54,9 @@ export const listByProject = query({
       .query('nodes')
       .withIndex('by_project', (q) => q.eq('projectId', projectId))
       .collect();
-    const nodeNameById = new Map<string, string>(
-      nodes.map((n) => [n._id as string, n.name]),
-    );
+    const nodeNameById = new Map<string, string>(nodes.map((n) => [n._id as string, n.name]));
 
-    const cap = Math.min(
-      Math.max(limit ?? PROJECT_DEFAULT_LIMIT, 1),
-      PROJECT_MAX_LIMIT,
-    );
+    const cap = Math.min(Math.max(limit ?? PROJECT_DEFAULT_LIMIT, 1), PROJECT_MAX_LIMIT);
 
     const perNode = await Promise.all(
       nodes.map((n) =>

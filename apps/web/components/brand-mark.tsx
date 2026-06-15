@@ -15,10 +15,7 @@ interface Props {
 export function BrandMark({ href, className }: Props) {
   const content = (
     <span
-      className={cn(
-        'inline-flex items-center gap-2 text-sm font-medium tracking-tight',
-        className,
-      )}
+      className={cn('inline-flex items-center gap-2 text-sm font-medium tracking-tight', className)}
     >
       <span
         aria-hidden

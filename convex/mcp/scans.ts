@@ -26,9 +26,7 @@ export const pushSnapshot = internalMutation({
 
     const existing = await ctx.db
       .query('scanSnapshots')
-      .withIndex('by_project_kind', (q) =>
-        q.eq('projectId', scopeProjectId).eq('kind', kind),
-      )
+      .withIndex('by_project_kind', (q) => q.eq('projectId', scopeProjectId).eq('kind', kind))
       .collect();
 
     for (const row of existing) {
@@ -65,9 +63,7 @@ export const getLatestSnapshot = internalQuery({
 
     const rows = await ctx.db
       .query('scanSnapshots')
-      .withIndex('by_project_kind', (q) =>
-        q.eq('projectId', scopeProjectId).eq('kind', kind),
-      )
+      .withIndex('by_project_kind', (q) => q.eq('projectId', scopeProjectId).eq('kind', kind))
       .collect();
 
     if (rows.length === 0) return null;

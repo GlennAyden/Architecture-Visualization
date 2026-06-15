@@ -55,10 +55,7 @@ describe('projectMembers — invite / accept / revoke', () => {
       email: 'invitee@example.com',
     });
 
-    const inboxBefore = await asInvitee.query(
-      api.projectMembers.listInvitesForCurrentUser,
-      {},
-    );
+    const inboxBefore = await asInvitee.query(api.projectMembers.listInvitesForCurrentUser, {});
     expect(inboxBefore).toHaveLength(1);
 
     await asInvitee.mutation(api.projectMembers.accept, { id: inviteId });
@@ -127,9 +124,9 @@ describe('projectMembers — invite / accept / revoke', () => {
     });
     await asInvitee.mutation(api.projectMembers.accept, { id: inviteId });
 
-    await expect(
-      asInvitee.mutation(api.projects.remove, { id: projectId }),
-    ).rejects.toThrow(/owner-only|Unauthorized/i);
+    await expect(asInvitee.mutation(api.projects.remove, { id: projectId })).rejects.toThrow(
+      /owner-only|Unauthorized/i,
+    );
   });
 
   // Why: API tokens are user-scoped credentials with broad MCP power.
@@ -211,9 +208,9 @@ describe('projectMembers — invite / accept / revoke', () => {
       projectId,
       email: 'invitee@example.com',
     });
-    await expect(
-      asOwner.mutation(api.projectMembers.accept, { id: inviteId }),
-    ).rejects.toThrow(/Unauthorized|different user/);
+    await expect(asOwner.mutation(api.projectMembers.accept, { id: inviteId })).rejects.toThrow(
+      /Unauthorized|different user/,
+    );
     // Sanity: the rightful invitee still can.
     await asInvitee.mutation(api.projectMembers.accept, { id: inviteId });
   });

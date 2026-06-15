@@ -22,9 +22,7 @@ export const getLatestByKind = query({
 
     const rows = await ctx.db
       .query('scanSnapshots')
-      .withIndex('by_project_kind', (q) =>
-        q.eq('projectId', projectId).eq('kind', kind),
-      )
+      .withIndex('by_project_kind', (q) => q.eq('projectId', projectId).eq('kind', kind))
       .collect();
     if (rows.length === 0) return null;
     rows.sort((a, b) => b._creationTime - a._creationTime);

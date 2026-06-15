@@ -131,16 +131,12 @@ describe('node cascade deletes activityLog', () => {
       });
     });
 
-    let count = await t.run(async (ctx) =>
-      (await ctx.db.query('activityLog').collect()).length,
-    );
+    let count = await t.run(async (ctx) => (await ctx.db.query('activityLog').collect()).length);
     expect(count).toBe(1);
 
     await asUser.mutation(api.nodes.remove, { id: nodeId });
 
-    count = await t.run(async (ctx) =>
-      (await ctx.db.query('activityLog').collect()).length,
-    );
+    count = await t.run(async (ctx) => (await ctx.db.query('activityLog').collect()).length);
     expect(count).toBe(0);
   });
 });
@@ -288,17 +284,19 @@ describe('updateNodeInput', () => {
   });
 
   test('allows partial fields', () => {
-    expect(
-      updateNodeInput.parse({ nodeId: 'nodes:abc', description: 'updated' }),
-    ).toMatchObject({ nodeId: 'nodes:abc', description: 'updated' });
+    expect(updateNodeInput.parse({ nodeId: 'nodes:abc', description: 'updated' })).toMatchObject({
+      nodeId: 'nodes:abc',
+      description: 'updated',
+    });
   });
 });
 
 describe('linkFilesInput', () => {
   test('accepts list of paths', () => {
-    expect(
-      linkFilesInput.parse({ nodeId: 'nodes:abc', paths: ['a.ts', 'b.ts'] }),
-    ).toEqual({ nodeId: 'nodes:abc', paths: ['a.ts', 'b.ts'] });
+    expect(linkFilesInput.parse({ nodeId: 'nodes:abc', paths: ['a.ts', 'b.ts'] })).toEqual({
+      nodeId: 'nodes:abc',
+      paths: ['a.ts', 'b.ts'],
+    });
   });
 
   test('rejects empty paths array', () => {
@@ -315,9 +313,9 @@ describe('addKanbanTaskInput', () => {
 
   test('accepts all status values', () => {
     for (const status of ['todo', 'doing', 'done'] as const) {
-      expect(
-        addKanbanTaskInput.parse({ nodeId: 'nodes:abc', title: 'X', status }).status,
-      ).toBe(status);
+      expect(addKanbanTaskInput.parse({ nodeId: 'nodes:abc', title: 'X', status }).status).toBe(
+        status,
+      );
     }
   });
 });
@@ -485,10 +483,7 @@ export type AuthResult = {
  *
  * Caller is expected to short-circuit with `errorResponse(401, …)` on null.
  */
-export async function requireApiToken(
-  ctx: ActionCtx,
-  req: Request,
-): Promise<AuthResult | null> {
+export async function requireApiToken(ctx: ActionCtx, req: Request): Promise<AuthResult | null> {
   const raw = req.headers.get('x-api-key');
   if (!raw) return null;
   const result = await ctx.runMutation(internal.apiTokens.verifyToken, { rawToken: raw });
@@ -508,10 +503,7 @@ export function errorResponse(
   message: string,
   hint?: string,
 ): Response {
-  return jsonResponse(
-    { error: { code, message, ...(hint ? { hint } : {}) } },
-    status,
-  );
+  return jsonResponse({ error: { code, message, ...(hint ? { hint } : {}) } }, status);
 }
 ```
 
@@ -2255,9 +2247,7 @@ describe('POST /api/mcp/activity/log', () => {
     });
     expect(res.status).toBe(200);
 
-    const entries = await t.run(async (ctx) =>
-      ctx.db.query('activityLog').collect(),
-    );
+    const entries = await t.run(async (ctx) => ctx.db.query('activityLog').collect());
     expect(entries).toHaveLength(1);
     expect(entries[0]!.actor).toEqual('mcp:claude-code');
     expect(entries[0]!.message).toEqual('Implemented form');

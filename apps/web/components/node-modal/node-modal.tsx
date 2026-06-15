@@ -34,7 +34,11 @@ export function NodeModal() {
         </DialogHeader>
 
         {selectedNodeId && node && (
-          <NodeModalTabs nodeId={selectedNodeId} projectId={node.projectId} description={node.description ?? ''} />
+          <NodeModalTabs
+            nodeId={selectedNodeId}
+            projectId={node.projectId}
+            description={node.description ?? ''}
+          />
         )}
       </DialogContent>
     </Dialog>

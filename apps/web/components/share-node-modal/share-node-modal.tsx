@@ -128,10 +128,7 @@ function FilesPanel({ files }: { files: ShareFile[] }) {
   return (
     <ul className="space-y-1 py-2">
       {files.map((f) => (
-        <li
-          key={f.id}
-          className="rounded-md border px-3 py-2 text-sm font-mono"
-        >
+        <li key={f.id} className="rounded-md border px-3 py-2 text-sm font-mono">
           <span className="truncate">{f.path}</span>
         </li>
       ))}
@@ -227,10 +224,7 @@ function ActivityPanel({ activity }: { activity: ShareActivityEntry[] }) {
   return (
     <ul className="space-y-2 py-2">
       {activity.map((entry) => (
-        <li
-          key={entry.id}
-          className="rounded-lg border border-border/60 bg-card p-3 text-sm"
-        >
+        <li key={entry.id} className="rounded-lg border border-border/60 bg-card p-3 text-sm">
           <div className="mb-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1.5 font-medium text-foreground/70">
               {actorIcon(entry.actor)}

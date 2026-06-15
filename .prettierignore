@@ -9,3 +9,4 @@ convex/_generated
 .eslintcache
 .prettiercache
 *.tsbuildinfo
+.claude

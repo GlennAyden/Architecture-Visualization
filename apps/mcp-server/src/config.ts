@@ -44,9 +44,7 @@ export function loadConfig(env: Record<string, string | undefined>): McpConfig {
   try {
     parsed = new URL(convexUrl);
   } catch {
-    throw new ConfigError(
-      `ARCHITECTURE_CONVEX_URL is not a valid URL: ${convexUrl}`,
-    );
+    throw new ConfigError(`ARCHITECTURE_CONVEX_URL is not a valid URL: ${convexUrl}`);
   }
 
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {

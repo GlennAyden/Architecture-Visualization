@@ -24,14 +24,14 @@ hand-maintenance that kills most architecture docs.
 
 ### Stack at a glance
 
-| Layer | Tech | Notes |
-| --- | --- | --- |
-| Web UI | Next.js 16 App Router, React 19, Tailwind 4 + shadcn | tldraw 5 for canvas, Clerk for auth |
-| Realtime / data | Convex | Reactive queries; HTTP actions on `.convex.site` (NOT `.convex.cloud`) |
-| MCP server | Node ≥18, `@modelcontextprotocol/sdk` 1.29 | Published as `arch-viz-mcp` on npm |
-| Shared | `packages/shared` Zod schemas + type constants | One source of truth for inputs |
-| Hosting | Vercel (Next.js) + Convex prod | `architecture-visualization.vercel.app`, `honorable-viper-174.convex.cloud` |
-| Auth (MCP) | SHA-256 hashed API tokens, scoped per project | Generated at `/settings/tokens` |
+| Layer           | Tech                                                 | Notes                                                                       |
+| --------------- | ---------------------------------------------------- | --------------------------------------------------------------------------- |
+| Web UI          | Next.js 16 App Router, React 19, Tailwind 4 + shadcn | tldraw 5 for canvas, Clerk for auth                                         |
+| Realtime / data | Convex                                               | Reactive queries; HTTP actions on `.convex.site` (NOT `.convex.cloud`)      |
+| MCP server      | Node ≥18, `@modelcontextprotocol/sdk` 1.29           | Published as `arch-viz-mcp` on npm                                          |
+| Shared          | `packages/shared` Zod schemas + type constants       | One source of truth for inputs                                              |
+| Hosting         | Vercel (Next.js) + Convex prod                       | `architecture-visualization.vercel.app`, `honorable-viper-174.convex.cloud` |
+| Auth (MCP)      | SHA-256 hashed API tokens, scoped per project        | Generated at `/settings/tokens`                                             |
 
 ### Domain model
 
@@ -208,7 +208,7 @@ tool yet).
       closed. Substring match on node names, exact-prefix ranks first;
       empty query shows 10 most-recent. Keyboard nav + auto-scroll on
       highlight. Selection centers the canvas via `editor.centerOnPoint`
-      + opens the node modal.
+      - opens the node modal.
     - Item H — Mini-map + auto-fit-on-first-load. Tldraw 5's
       `DefaultMinimap` plumbed into `<Tldraw components={{Minimap}} />`
       (its `null` default replaced). New effect tracks
@@ -338,6 +338,7 @@ should be linked to the same node(s) as the importer. This means if you link
 from `apps/web/hooks/use-auth-store.ts`, the hook file gets auto-linked too.
 
 **Mechanism:**
+
 - New script `apps/mcp-server/src/import-analysis.ts` (or sibling), runnable
   standalone via the `arch-viz-mcp` package (`npx arch-viz-mcp scan-imports`).
 - Uses `ts-morph` (or `@typescript-eslint/parser` if lighter) to walk imports
@@ -349,18 +350,21 @@ from `apps/web/hooks/use-auth-store.ts`, the hook file gets auto-linked too.
 - Returns `{ linked: N, alreadyLinked: M, skipped: K }`.
 
 **Hook integration:**
+
 - `.claude/hooks/log-activity.mjs` already fires on Edit/Write. Extend it (or
   add `.claude/hooks/auto-link-imports.mjs`) to also run a one-file import
   scan and call `/api/mcp/files/auto_link` per discovered import.
 - Cap: max 20 imports per file per hook fire, to avoid runaway.
 
 **Schema / API:**
+
 - New MCP HTTP route `/api/mcp/files/auto_link` using `withMcpRoute`.
 - New internal mutation `convex/mcp/files.ts:autoLinkByOrigin` doing the
   node-lookup + `link_files` insert.
 - New Zod validator `autoLinkImportsInput` in `packages/shared/src/mcp.ts`.
 
 **Tests:**
+
 - `convex/http.test.ts`: auto_link 200 + `{linked: 1}` when origin is in one
   node; 200 + `{linked: 2}` when origin spans two nodes; 200 + `{linked: 0}`
   when origin is unlinked (no-op, no error).
@@ -369,6 +373,7 @@ from `apps/web/hooks/use-auth-store.ts`, the hook file gets auto-linked too.
   package imports (`react`, etc.), handles `.ts` vs `.tsx` resolution.
 
 **Done criteria:**
+
 - Editing a linked file with `import {x} from './sibling'` causes `./sibling`
   to appear in `nodeFiles` for the same node within ~1 second of the edit.
 - Bulk re-scan command (`npx arch-viz-mcp scan-imports`) walks every linked
@@ -381,6 +386,7 @@ to any node. Useful for "I scanned with `/arch-init`, what got missed?" and
 for ongoing hygiene.
 
 **Mechanism:**
+
 - New CLI: `npx arch-viz-mcp scan-orphans` walks repo source files
   (same heuristic as `/arch-init` for what counts as "source"), pulls the
   full `nodeFiles` list from the API, and prints the diff.
@@ -392,6 +398,7 @@ for ongoing hygiene.
 
 **Trade-off:** the UI page needs a way to get the filesystem state. Three
 options:
+
 1. **Client uploads scan result.** Web UI has a button "Upload orphan scan from `arch-viz-mcp scan-orphans`". User runs CLI, drag-drops the JSON. Simple, but two-step.
 2. **MCP push.** The CLI `POST`s the scan result to a new endpoint. Server stores it as a `scanSnapshot` row. UI reads from there. One step but adds a table.
 3. **No persistence.** UI page just has the upload button + ad-hoc preview. No backend storage.
@@ -399,6 +406,7 @@ options:
 **Recommendation:** option 2 (MCP push to a `scanSnapshots` table, retention 7 days).
 
 **Schema:**
+
 ```ts
 scanSnapshots: defineTable({
   projectId: v.id('projects'),
@@ -408,11 +416,13 @@ scanSnapshots: defineTable({
 ```
 
 **Tests:**
+
 - CLI: produces a stable orphan list given fixture filesystem + nodeFiles state.
 - HTTP route: rejects oversized payloads (cap ~1MB).
 - UI: orphan page shows count, filtered by extension, click-to-bulk-link.
 
 **Done criteria:**
+
 - Running `arch-viz-mcp scan-orphans` on a repo where `/arch-init` was run
   surfaces every source file not under a known node.
 - UI page shows the list; clicking a file offers "link to existing node…"
@@ -425,6 +435,7 @@ been renamed (file at the old path is gone, but a similar file exists at a
 new path).
 
 **Mechanism:**
+
 - Same CLI extended: `npx arch-viz-mcp scan-drift` writes a `drift` snapshot.
 - Detection logic:
   - **Missing:** `nodeFiles.path` is set, but `fs.exists(path)` is false.
@@ -434,6 +445,7 @@ new path).
 - New UI tab on the node modal: "Drift" badge with `N` when drift > 0.
 
 **Edge cases:**
+
 - Newly-created file fixtures can flap the detector. Solution: only flag
   drift after a path has been missing for `≥ 1 hour` (timestamp in the
   snapshot).
@@ -441,11 +453,13 @@ new path).
   confirm/dismiss each one.
 
 **Tests:**
+
 - Fixture file deleted from disk → drift snapshot records it.
 - Similar file elsewhere → rename suggestion offered.
 - `archived` flag on `nodeFiles` (new optional field) keeps deleted-but-acknowledged files out of drift forever.
 
 **Done criteria:**
+
 - Deleting a linked file from disk and re-scanning surfaces it as drift in
   the UI.
 - Acknowledging drift either removes the link (user picks "delete link") or
@@ -481,7 +495,7 @@ new path).
 
 ### Original spec (kept for context)
 
-**Goal:** make the canvas show *what* nodes do to each other, not just *which* nests under which. By the end of Sprint 3, a glance at the canvas tells you which features call which features (dependency), which pages route to which pages (navigation), and which pages send data to which features (data_flow).
+**Goal:** make the canvas show _what_ nodes do to each other, not just _which_ nests under which. By the end of Sprint 3, a glance at the canvas tells you which features call which features (dependency), which pages route to which pages (navigation), and which pages send data to which features (data_flow).
 
 **Estimated effort:** ~1 day.
 
@@ -493,6 +507,7 @@ A "dependency" edge connects a node X to a node Y when X has a file that
 imports a file in Y.
 
 **Mechanism:**
+
 - The import-analysis pipeline from Sprint 2D already knows: (origin file, imported file). The same scan can emit edges: for each (origin → imported) pair where both files are linked to nodes, insert a `dependency` edge between their respective nodes (deduped on source+target+type).
 - Cron job: `convex/crons.ts` adds a weekly "edge reconcile" — re-scans imports, inserts new dependency edges, removes stale ones (file no longer imported).
 
@@ -507,6 +522,7 @@ Heuristic: any `<Link href="/foo">` or `router.push('/foo')` call in X's
 linked files targeting Y's known route.
 
 **Mechanism:**
+
 - Extends import-analysis to also walk JSX attributes for `href` / `to` / `Link`-component children, and arrow functions for `router.push(...)` / `router.replace(...)`.
 - Resolves the route string to a node — needs a route-to-node map. New optional `metadata.route` field on `nodes` (e.g. `/dashboard`). The `/arch-init` heuristic should populate it when the directory name suggests a route (anything under `app/**/page.*`).
 - Heavy heuristic; expect noise and false-positives. UI lets user delete navigation edges they disagree with.
@@ -519,17 +535,18 @@ Heuristic: `fetch('/api/...')` calls, Convex `useMutation(api.foo.bar)` /
 backend.
 
 **Mechanism:**
+
 - Same scan pipeline, different rule pack.
 - New optional `metadata.apiPaths: string[]` on nodes for API endpoint paths owned by that node (e.g. `convex/foo.ts:bar`).
 
 ### Visual treatment summary
 
-| Type | Style | When auto-created |
-| --- | --- | --- |
-| `hierarchy` | Solid, arrowhead, neutral foreground color | On `create_node` with parentId (Sprint 1) |
-| `dependency` | Dashed, thin, gray | Import scan (Sprint 3) |
-| `navigation` | Solid, double-arrowhead, blue | Link / router scan (Sprint 3) |
-| `data_flow` | Dotted, orange | API-call scan (Sprint 3) |
+| Type         | Style                                      | When auto-created                         |
+| ------------ | ------------------------------------------ | ----------------------------------------- |
+| `hierarchy`  | Solid, arrowhead, neutral foreground color | On `create_node` with parentId (Sprint 1) |
+| `dependency` | Dashed, thin, gray                         | Import scan (Sprint 3)                    |
+| `navigation` | Solid, double-arrowhead, blue              | Link / router scan (Sprint 3)             |
+| `data_flow`  | Dotted, orange                             | API-call scan (Sprint 3)                  |
 
 ### Tests
 
@@ -552,10 +569,11 @@ backend.
 
 > See commit on `main` (feat(sprint-4): friend sharing — read-only
 > share links + private invite). Convex prod deployed with shareTokens
-> + projectMembers tables and 5 new indexes. Open Question #3 resolved:
-> API tokens stay user-scoped — members never see other members'
-> tokens. Member edit scope: full peer on nodes/edges/files/kanban;
-> settings (tokens, members, project delete) remain owner-only.
+>
+> - projectMembers tables and 5 new indexes. Open Question #3 resolved:
+>   API tokens stay user-scoped — members never see other members'
+>   tokens. Member edit scope: full peer on nodes/edges/files/kanban;
+>   settings (tokens, members, project delete) remain owner-only.
 
 ### Original spec (kept for context)
 
@@ -570,6 +588,7 @@ A token-based URL like `/share/<shareToken>` that renders the canvas in viewer
 mode (no auth required to view, but no edit / no MCP access either).
 
 **Schema:**
+
 ```ts
 shareTokens: defineTable({
   projectId: v.id('projects'),
@@ -581,10 +600,12 @@ shareTokens: defineTable({
 ```
 
 **Routes:**
+
 - `/share/<token>` — public Next.js route, reads token, validates, renders read-only canvas.
 - `/settings/share` — owner UI to create + revoke share tokens.
 
 **Read-only enforcement:**
+
 - No `useMutation` calls. Modal opens in read-only mode (description, kanban, activity all visible but no edit affordance).
 - The canvas allows pan/zoom but no shape edits (`editor.setReadOnly(true)`).
 
@@ -595,6 +616,7 @@ shareTokens: defineTable({
 Add a `projectMembers` table. Each project keeps its `userId` (owner) but can have up to 3 additional members. Members have full CRUD.
 
 **Schema:**
+
 ```ts
 projectMembers: defineTable({
   projectId: v.id('projects'),
@@ -605,11 +627,13 @@ projectMembers: defineTable({
 ```
 
 **Flow:**
+
 - Owner: `/settings/members` page → "Invite by email" → enters email.
 - Server: looks up profile by email, creates a `projectMembers` row with `acceptedAt: null`.
 - Invitee: when they log in, sees "Project X invited you" banner → accept → row gets `acceptedAt` timestamp → project appears in their list.
 
 **Auth helper changes:**
+
 - `requireProjectAccess(ctx, projectId)` now succeeds if the user is the owner OR an accepted member.
 - Existing token-scoped auth (MCP) stays unchanged — tokens belong to the owner.
 

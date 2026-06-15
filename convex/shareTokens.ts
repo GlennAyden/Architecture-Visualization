@@ -84,4 +84,3 @@ export const revoke = mutation({
     await ctx.db.patch(id, { revokedAt: Date.now() });
   },
 });
-
