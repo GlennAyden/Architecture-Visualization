@@ -43,16 +43,14 @@ function normalizeIdentityToken(value: string | undefined, fallback = 'unknown')
   return token || fallback;
 }
 
-function normalizeRouteScope(value: string | undefined) {
-  if (!value) return undefined;
-  const route = value.trim().toLowerCase();
-  if (!route) return undefined;
-  if (route.startsWith('/api/')) return undefined;
-  return normalizeIdentityToken(route);
-}
-
 function semanticIdentityName(value: string | undefined, fallback = 'semantic-node') {
   return normalizeIdentityToken(value, fallback);
+}
+
+function semanticUiIdentity(name: string | undefined, capabilityKey: string | undefined) {
+  const label = semanticIdentityName(name);
+  const capability = capabilityKey ? normalizeIdentityToken(capabilityKey) : label;
+  return `${label}:${capability}`;
 }
 
 export function semanticDuplicateKeyForNode(
@@ -63,15 +61,7 @@ export function semanticDuplicateKeyForNode(
 ) {
   if (node.semanticKind !== 'ui_module') return null;
   const area = node.productArea ?? 'unknown';
-  const capability = node.capabilityKey
-    ? normalizeIdentityToken(node.capabilityKey)
-    : semanticIdentityName(node.name);
-  const scope = node.parentId
-    ? `parent:${node.parentId as string}`
-    : normalizeRouteScope(node.routeHint)
-      ? `route:${normalizeRouteScope(node.routeHint)}`
-      : 'top';
-  return `ui:${area}:${scope}:${capability}`;
+  return `ui:${area}:${semanticUiIdentity(node.name, node.capabilityKey)}`;
 }
 
 function semanticMergeKeyForSuggestion(
@@ -87,15 +77,7 @@ function semanticMergeKeyForSuggestion(
 ) {
   if (suggestion.semanticKind !== 'ui_module') return null;
   const area = suggestion.productArea ?? 'unknown';
-  const capability = suggestion.capabilityKey
-    ? normalizeIdentityToken(suggestion.capabilityKey)
-    : semanticIdentityName(suggestion.suggestedNodeName);
-  const scope = suggestion.parentNodeId
-    ? `parent:${suggestion.parentNodeId as string}`
-    : normalizeRouteScope(suggestion.routeHint)
-      ? `route:${normalizeRouteScope(suggestion.routeHint)}`
-      : 'top';
-  return `ui:${area}:${scope}:${capability}`;
+  return `ui:${area}:${semanticUiIdentity(suggestion.suggestedNodeName, suggestion.capabilityKey)}`;
 }
 
 function normalizeOptionalText(value: string | undefined, max: number) {

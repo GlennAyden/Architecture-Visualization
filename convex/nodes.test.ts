@@ -298,6 +298,40 @@ describe('nodes.updatePositions', () => {
   });
 });
 
+describe('nodes.repairSelfParented', () => {
+  test('clears self parent links and removes self hierarchy edges', async () => {
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(fakeIdentity('user_alice', 'alice@example.com'));
+    const projectId = await asUser.mutation(api.projects.create, { name: 'P' });
+    const nodeId = await asUser.mutation(api.nodes.create, {
+      projectId,
+      type: 'page',
+      name: 'Plan Catalog',
+      positionX: 0,
+      positionY: 0,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(nodeId, { parentId: nodeId });
+      await ctx.db.insert('nodeEdges', {
+        projectId,
+        sourceNodeId: nodeId,
+        targetNodeId: nodeId,
+        type: 'hierarchy',
+        source: 'auto',
+      });
+    });
+
+    const result = await asUser.mutation(api.nodes.repairSelfParented, { projectId });
+    expect(result).toEqual({ repaired: 1, removedSelfEdges: 1 });
+
+    const node = await asUser.query(api.nodes.get, { id: nodeId });
+    expect(node?.parentId).toBeUndefined();
+    const edges = await asUser.query(api.nodeEdges.listByProject, { projectId });
+    expect(edges).toEqual([]);
+  });
+});
+
 describe('nodes.remove', () => {
   test('removes the node and any children', async () => {
     const t = convexTest(schema, modules);

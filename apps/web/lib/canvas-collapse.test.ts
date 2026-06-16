@@ -105,7 +105,7 @@ describe('canvas collapse helpers', () => {
       node({ id: 'api', name: 'API Layer', semanticKind: 'api' }),
     ];
     const defaults = getDefaultCollapsedNodeIds(nodes);
-    expect(defaults).toEqual(['semantic-group:ui:admin:top:admin_operations']);
+    expect(defaults).toEqual(['semantic-group:ui:admin:admin-operations:admin_operations']);
 
     const graph = buildCollapsedGraph({
       nodes,
@@ -119,15 +119,17 @@ describe('canvas collapse helpers', () => {
 
     expect(graph.visibleNodes.map((item) => item._id as string)).toEqual([
       'api',
-      'semantic-group:ui:admin:top:admin_operations',
+      'semantic-group:ui:admin:admin-operations:admin_operations',
     ]);
-    expect(graph.collapsedStats.get('semantic-group:ui:admin:top:admin_operations')).toMatchObject({
+    expect(
+      graph.collapsedStats.get('semantic-group:ui:admin:admin-operations:admin_operations'),
+    ).toMatchObject({
       hiddenNodeCount: 2,
       hiddenFileCount: 5,
       memberNodeIds: ['admin-a', 'admin-b'],
     });
     expect(graph.renderEdges[0]).toMatchObject({
-      sourceNodeId: 'semantic-group:ui:admin:top:admin_operations',
+      sourceNodeId: 'semantic-group:ui:admin:admin-operations:admin_operations',
       targetNodeId: 'api',
       aggregateCount: 1,
     });

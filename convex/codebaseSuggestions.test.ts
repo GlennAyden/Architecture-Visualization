@@ -9,7 +9,7 @@ const semanticSuggestionApi = api.semanticNodeSuggestions as typeof api.semantic
   consolidateSemanticDuplicateGroup: FunctionReference<
     'mutation',
     'public',
-    { projectId: string; groupKey: string; canonicalNodeId?: string },
+    { projectId: string; groupKey: string; canonicalNodeId?: string; maxMerge?: number },
     Record<string, unknown>
   >;
 };
@@ -977,7 +977,7 @@ describe('codebase suggestions', () => {
     expect(report).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          groupKey: 'ui:admin:top:notifications',
+          groupKey: 'ui:admin:notifications:notifications',
           nodeCount: 2,
           uniqueFileCount: 2,
         }),
@@ -986,7 +986,7 @@ describe('codebase suggestions', () => {
 
     const result = await asUser.mutation(semanticSuggestionApi.consolidateSemanticDuplicateGroup, {
       projectId,
-      groupKey: 'ui:admin:top:notifications',
+      groupKey: 'ui:admin:notifications:notifications',
       canonicalNodeId: first,
     });
     expect(result).toMatchObject({ merged: 1, movedFiles: 1, failed: 0 });
@@ -998,6 +998,111 @@ describe('codebase suggestions', () => {
       'src/admin/notification-bell.tsx',
       'src/admin/notification-settings.tsx',
     ]);
+  });
+
+  test('semantic duplicate consolidation can be limited to a safe batch size', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, layers } = await seedTokenForUser(t);
+    const first = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[1]!._id,
+      type: 'page',
+      name: 'Billing',
+      positionX: 0,
+      positionY: 0,
+      semanticKind: 'ui_module',
+      productArea: 'admin',
+      capabilityKey: 'billing',
+    });
+    await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[1]!._id,
+      type: 'page',
+      name: 'Billing',
+      positionX: 0,
+      positionY: 120,
+      semanticKind: 'ui_module',
+      productArea: 'admin',
+      capabilityKey: 'billing',
+    });
+    await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[1]!._id,
+      type: 'page',
+      name: 'Billing',
+      positionX: 0,
+      positionY: 240,
+      semanticKind: 'ui_module',
+      productArea: 'admin',
+      capabilityKey: 'billing',
+    });
+
+    const result = await asUser.mutation(semanticSuggestionApi.consolidateSemanticDuplicateGroup, {
+      projectId,
+      groupKey: 'ui:admin:billing:billing',
+      canonicalNodeId: first,
+      maxMerge: 1,
+    });
+    expect(result).toMatchObject({ merged: 1, skippedDueLimit: 1, failed: 0 });
+
+    const report = await asUser.query(semanticSuggestionApi.duplicateReport, { projectId });
+    expect(report).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ groupKey: 'ui:admin:billing:billing', nodeCount: 2 }),
+      ]),
+    );
+  });
+
+  test('semantic duplicate consolidation prefers top-level canonical nodes', async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, projectId, layers } = await seedTokenForUser(t);
+    const parent = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[1]!._id,
+      type: 'page',
+      name: 'Admin Console Surface',
+      positionX: 0,
+      positionY: 0,
+      semanticKind: 'surface',
+      productArea: 'admin',
+    });
+    const topLevel = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[1]!._id,
+      type: 'page',
+      name: 'Admin Operations',
+      positionX: 0,
+      positionY: 0,
+      semanticKind: 'ui_module',
+      productArea: 'admin',
+      capabilityKey: 'admin_operations',
+    });
+    const nested = await asUser.mutation(api.nodes.create, {
+      projectId,
+      layerId: layers[1]!._id,
+      type: 'page',
+      name: 'Admin Operations',
+      positionX: 0,
+      positionY: 120,
+      parentId: parent,
+      semanticKind: 'ui_module',
+      productArea: 'admin',
+      capabilityKey: 'admin_operations',
+    });
+
+    const result = await asUser.mutation(semanticSuggestionApi.consolidateSemanticDuplicateGroup, {
+      projectId,
+      groupKey: 'ui:admin:admin-operations:admin_operations',
+    });
+    expect(result).toMatchObject({
+      merged: 1,
+      failed: 0,
+      canonicalNodeId: topLevel,
+    });
+
+    const nodes = await asUser.query(api.nodes.listByProject, { projectId });
+    expect(nodes.some((node) => node._id === nested)).toBe(false);
+    expect(nodes.find((node) => node._id === topLevel)?.parentId).toBeUndefined();
   });
 
   test('mapping run complete route verifies submit token and stores suggestions', async () => {

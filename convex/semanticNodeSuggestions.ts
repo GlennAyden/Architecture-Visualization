@@ -271,8 +271,9 @@ export const consolidateSemanticDuplicateGroup = mutation({
     projectId: v.id('projects'),
     groupKey: v.string(),
     canonicalNodeId: v.optional(v.id('nodes')),
+    maxMerge: v.optional(v.number()),
   },
-  handler: async (ctx, { projectId, groupKey, canonicalNodeId }) => {
+  handler: async (ctx, { projectId, groupKey, canonicalNodeId, maxMerge }) => {
     await requireProjectAccess(ctx, projectId);
     const groups = await findDuplicateGroups(ctx, projectId);
     const group = groups.find((candidate) => candidate.key === groupKey);
@@ -297,7 +298,7 @@ export const consolidateSemanticDuplicateGroup = mutation({
       (canonicalNodeId ? group.nodes.find((node) => node._id === canonicalNodeId) : undefined) ??
       [...group.nodes].sort(
         (a, b) =>
-          Number(Boolean(b.parentId)) - Number(Boolean(a.parentId)) ||
+          Number(Boolean(a.parentId)) - Number(Boolean(b.parentId)) ||
           (counts.get(b._id) ?? 0) - (counts.get(a._id) ?? 0) ||
           a._creationTime - b._creationTime,
       )[0]!;
@@ -310,9 +311,15 @@ export const consolidateSemanticDuplicateGroup = mutation({
     let reparentedChildren = 0;
     let redirectedSuggestions = 0;
     let failed = 0;
+    const failedSamples: Array<{ nodeId: Id<'nodes'>; name: string; message: string }> = [];
+    const mergeLimit =
+      maxMerge === undefined
+        ? group.nodes.length - 1
+        : Math.max(1, Math.min(100, Math.floor(maxMerge)));
 
     for (const node of group.nodes) {
       if (node._id === canonical._id) continue;
+      if (merged >= mergeLimit) break;
       try {
         const fileResult = await moveNodeFiles(ctx, node._id, canonical._id);
         movedFiles += fileResult.movedFiles;
@@ -329,10 +336,19 @@ export const consolidateSemanticDuplicateGroup = mutation({
         );
         await deleteNodeCascade(ctx, node._id);
         merged++;
-      } catch {
+      } catch (error) {
         failed++;
+        if (failedSamples.length < 5) {
+          failedSamples.push({
+            nodeId: node._id,
+            name: node.name,
+            message: error instanceof Error ? error.message : 'Unknown consolidation error',
+          });
+        }
       }
     }
+
+    const skippedDueLimit = Math.max(0, group.nodes.length - 1 - merged - failed);
 
     return {
       merged,
@@ -343,6 +359,8 @@ export const consolidateSemanticDuplicateGroup = mutation({
       reparentedChildren,
       redirectedSuggestions,
       failed,
+      failedSamples,
+      skippedDueLimit,
       canonicalNodeId: canonical._id,
     };
   },

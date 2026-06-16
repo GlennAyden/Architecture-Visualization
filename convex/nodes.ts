@@ -214,6 +214,43 @@ export const markVerified = mutation({
   },
 });
 
+export const repairSelfParented = mutation({
+  args: {
+    projectId: v.id('projects'),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, { projectId, limit }) => {
+    await requireProjectAccess(ctx, projectId);
+    const maxRows = Math.max(1, Math.min(500, Math.floor(limit ?? 100)));
+    const nodes = await ctx.db
+      .query('nodes')
+      .withIndex('by_project', (q) => q.eq('projectId', projectId))
+      .take(1000);
+
+    let repaired = 0;
+    let removedSelfEdges = 0;
+    for (const node of nodes) {
+      if (repaired >= maxRows) break;
+      if (node.parentId !== node._id) continue;
+
+      await ctx.db.patch(node._id, { parentId: undefined });
+      repaired++;
+
+      const outgoing = await ctx.db
+        .query('nodeEdges')
+        .withIndex('by_source', (q) => q.eq('sourceNodeId', node._id))
+        .collect();
+      for (const edge of outgoing) {
+        if (edge.targetNodeId !== node._id) continue;
+        await ctx.db.delete(edge._id);
+        removedSelfEdges++;
+      }
+    }
+
+    return { repaired, removedSelfEdges };
+  },
+});
+
 export const remove = mutation({
   args: { id: v.id('nodes') },
   handler: async (ctx, { id }) => {

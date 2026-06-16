@@ -58,10 +58,9 @@ function normalizeToken(value: string | undefined, fallback = 'unknown') {
 function semanticDuplicateKeyForNode(node: Doc<'nodes'>) {
   if (node.semanticKind !== 'ui_module' || node.parentId) return null;
   const area = node.productArea ?? 'unknown';
-  const capability = node.capabilityKey
-    ? normalizeToken(node.capabilityKey)
-    : normalizeToken(node.name);
-  return `ui:${area}:top:${capability}`;
+  const label = normalizeToken(node.name);
+  const capability = node.capabilityKey ? normalizeToken(node.capabilityKey) : label;
+  return `ui:${area}:${label}:${capability}`;
 }
 
 function semanticGroupId(key: string) {
